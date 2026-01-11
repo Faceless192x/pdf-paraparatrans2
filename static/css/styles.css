@@ -1,0 +1,132 @@
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100vh; /* ビューポート全体を使用 */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* 全体のスクロールは防止 */
+    color-scheme: light dark;
+}
+
+
+:root {
+    --dark-red: #8A3A42;
+    --dark-blue: #27507F;
+    --dark-orange: #B58A2E;
+    --dark-green: #3D7A50;
+}
+
+
+:root {
+    --h1-bg: #2c3e50;
+    --h1-fg: white;
+  
+    --h2-bg: #34495e;
+    --h2-fg: white;
+  
+    --h3-bg: #4a69bd;
+    --h3-fg: white;
+  
+    --h4-bg: #6a89cc;
+    --h4-fg: black;
+  
+    --h5-bg: #82ccdd;
+    --h5-fg: black;
+  
+    --h6-bg: #b8e994;
+    --h6-fg: black;
+
+    --li-bg: #dfe6e9;
+    --li-fg: black;
+
+    --tr-bg: #ecf0f1;
+    --tr-alt-bg: #dcdde1;
+    --tr-fg: black;
+    --tr-header-bg: #34495e;
+    --tr-header-fg: white;
+}
+
+/* 背景色を適用 */
+.red-bg { background-color: var(--dark-red); }
+.blue-bg { background-color: var(--dark-blue); }
+.orange-bg { background-color: var(--dark-orange); }
+.green-bg { background-color: var(--dark-green); }
+
+/* 文字色を適切に調整 */
+.text-light { color: #ddd; } /* ダークモードでも読みやすい明るさ */
+
+.container {
+    flex: 1;  /* 残りの高さを埋める */
+    display: flex;
+    width: 100%;
+    overflow: hidden;
+}
+
+
+.panel {
+    border: 1px solid #ccc;
+    margin: 0px;
+    padding: 0px;
+}
+
+.hidden {
+    display: none;
+}
+
+#tocPanel {
+    resize: horizontal;
+    overflow: auto;
+    min-width: 200px;
+    max-width: 50%;
+}
+
+.flex-panel {
+    flex: 1;
+}
+
+.resizer {
+    width: 4px;
+    cursor: col-resize;
+    position: relative;
+    flex: 0 0 auto;
+}
+
+header {
+    /* 固定位置を解除し、自然な高さに */
+    position: static;
+    width: 100%;
+    z-index: 1000;
+    /* header 内の余白等は必要に応じて調整してください */
+}
+
+/* 目次パネル・PDFパネルは固定サイズ・スクロールなし */
+#tocPanel {
+    width: 250px;         /* 初期幅 */
+    flex: 0 0 auto;
+    overflow: hidden;
+    height: 100%;
+}
+#pdfPanel {
+    width: 500px;         /* 初期幅 */
+    flex: 0 0 auto;
+    overflow: hidden;
+    position: relative;   /* オーバーレイ用 */
+    height: 100%;
+}
+
+/* ソースパネルのみスクロール可能 */
+#srcPanel {
+    flex: 1;
+    height: 100%;
+    overflow-x: auto;
+}
+
+.overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0); /* 透明 */
+    display: none; /* 初期は非表示 */
+}

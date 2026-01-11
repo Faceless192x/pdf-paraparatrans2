@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>PDF ParaParaTrans - 初期画面</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='paraparatrans.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/help-tooltip.css') }}">
+</head>
+<body>
+    <div style="display: flex; align-items: center;">
+        <img src="{{ url_for('static', filename='paraparatrans.svg') }}" alt="Icon" style="height: 50px; margin-right: 10px;">
+        <h1>PDF ParaParaTrans</h1>
+        <button onclick="refreshBookList()" data-help-id="refresh-book-list">最新の状態に更新</button>
+        <button id="show-full-help">Help</button>
+    </div>
+    <form method="GET">
+      <input type="text" name="filter" placeholder="タイトル/ファイル名でフィルタ" value="{{ filter_text|e }}">
+      <button type="submit" data-help-id="filter-books">フィルタ</button>
+    </form>
+    <table border="1" cellpadding="4" cellspacing="0">
+        <thead>
+            <tr><th>Id</th><th>タイトル</th><th>ファイル名</th><th>none</th><th>auto</th><th>draft</th><th>fixed</th><th>更新日</th></tr>
+        </thead>
+        <tbody>
+        {% for idx, (pdf_name, item) in enumerate(pdf_dict.items()) %}
+            <tr>
+              <td>{{ idx+1 }}</td>
+              <td>{{ item['title'] }}</td>
+              <td><a href="{{ url_for('detail', pdf_name=pdf_name) }}">{{ pdf_name }}</a></td>
+              <td>{{ item.get('trans_status_counts', {}).get('none', 0) }}</td>
+              <td>{{ item.get('trans_status_counts', {}).get('auto', 0) }}</td>
+              <td>{{ item.get('trans_status_counts', {}).get('draft', 0) }}</td>
+              <td>{{ item.get('trans_status_counts', {}).get('fixed', 0) }}</td>
+              <td>{{ item['updated'] }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <script>
+        async function refreshBookList() {
+            fetch("/", { method: "POST" })
+            .then(response => {
+              if (response.ok) {
+                window.location.reload(); // ページをリロードして更新内容を反映
+              } else {
+                console.error("リストリフレッシュに失敗しました");
+              }
+            });    
+        }
+    </script>
+    <script src="{{ url_for('static', filename='js/help.js') }}"></script>
+</body>
+</html>
