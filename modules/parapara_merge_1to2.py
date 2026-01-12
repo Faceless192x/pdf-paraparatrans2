@@ -57,19 +57,19 @@ def merge_translation_data(v1_path: str, v2_path: str):
         if page is None or not text1:
             continue
         key = (page, text1)
-        print(f"Processing page {page}, id {p1.get("id")}")
+        print(f"Processing page {page}, id {p1.get('id')}")
         if key in lookup:
             p2 = lookup[key]
             if p2.get("trans_text") != p1.get("trans_text"):
-                print(f"{p2.get("trans_text")}")
-                print(f" → {p1.get("trans_text")}")
+                print(f"{p2.get('trans_text')}")
+                print(f" → {p1.get('trans_text')}")
 
             p2["trans_auto"]   = p1.get("trans_auto",   p2.get("trans_auto"))
             p2["trans_text"]   = p1.get("trans_text",   p2.get("trans_text"))
             p2["trans_status"] = p1.get("trans_status", p2.get("trans_status"))
             p2["block_tag"]    = p1.get("block_tag",    p2.get("block_tag"))
             p2["order"]        = p1.get("order",        p2.get("order"))
-            print(f"Processing page {page}, id {p2.get("id")}")
+            print(f"Processing page {page}, id {p2.get('id')}")
 
     atomicsave_json(v2_path, v2)
     print(f"Updated translation data saved to: {v2_path}")

@@ -222,7 +222,7 @@ def pages_to_paragraphs(pages_dict: Dict[int, Any]) -> Dict[int, Dict[str, Any]]
             block_paragraphs = block_to_paragraphs(block)
             for paragraph in block_paragraphs:
                 paragraph["page"] = page_number
-                paragraph["id"] = f"{block["block_number"]}_{paragraph["first_line_number"]}"
+                paragraph["id"] = f"{block['block_number']}_{paragraph['first_line_number']}"
                 paragraphs_dict[page_number][paragraph["id"]] = paragraph
                 page_paragraphs.append(paragraph)
 

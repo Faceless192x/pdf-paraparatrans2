@@ -882,6 +882,117 @@ def dict_update_api():
     else:
         # 更新が不要な場合（ありえないはずだが念のため）
         return jsonify({"status": "ok", "message": "辞書に変更はありません"}), 200
+# ----
+
+import subprocess
+import threading
+import re
+import time
+
+_auth_lock = threading.Lock()
+_auth_proc = None
+_auth_started_at = None
+
+URL_RE = re.compile(r"https://accounts\.google\.com/o/oauth2/auth\?[^\s]+")
+
+def _kill_auth_proc():
+    global _auth_proc, _auth_started_at
+    if _auth_proc and _auth_proc.poll() is None:
+        _auth_proc.kill()
+    _auth_proc = None
+    _auth_started_at = None
+
+@app.route("/api/auth/status")
+def auth_status():
+    # ADCが生きてるか簡易チェック（トークン取得できればOK）
+    try:
+        p = subprocess.run(
+            ["gcloud", "auth", "application-default", "print-access-token"],
+            capture_output=True, text=True, timeout=10
+        )
+        ok = (p.returncode == 0 and p.stdout.strip())
+        return jsonify({"status": "ok", "authenticated": bool(ok)})
+    except Exception:
+        return jsonify({"status": "ok", "authenticated": False})
+
+@app.route("/api/auth/start", methods=["POST"])
+def auth_start():
+    global _auth_proc, _auth_started_at
+    with _auth_lock:
+        # 既に起動中なら止める（多重起動防止）
+        _kill_auth_proc()
+
+        _auth_proc = subprocess.Popen(
+            ["gcloud", "auth", "application-default", "login", "--no-launch-browser", "--quiet"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        _auth_started_at = time.time()
+
+        # URLが出るまでstdoutを読む（タイムアウト付き）
+        deadline = time.time() + 15
+        out_lines = []
+        url = None
+        while time.time() < deadline and _auth_proc.poll() is None:
+            line = _auth_proc.stdout.readline()
+            if not line:
+                time.sleep(0.05)
+                continue
+            out_lines.append(line)
+            m = URL_RE.search(line)
+            if m:
+                url = m.group(0)
+                break
+
+        if not url:
+            # 失敗時はログも返す（デバッグ用）
+            _kill_auth_proc()
+            return jsonify({"status": "error", "message": "認証URLを取得できませんでした", "log": "".join(out_lines)}), 500
+
+        return jsonify({"status": "ok", "url": url})
+
+@app.route("/api/auth/complete", methods=["POST"])
+def auth_complete():
+    global _auth_proc, _auth_started_at
+    data = request.get_json() or {}
+    code = (data.get("code") or "").strip()
+    if not code:
+        return jsonify({"status": "error", "message": "verification code が空です"}), 400
+
+    with _auth_lock:
+        if not _auth_proc or _auth_proc.poll() is not None:
+            return jsonify({"status": "error", "message": "認証セッションが存在しません。先に認証開始してください"}), 400
+
+        # セッションが古すぎるなら破棄（例：10分）
+        if _auth_started_at and (time.time() - _auth_started_at) > 600:
+            _kill_auth_proc()
+            return jsonify({"status": "error", "message": "認証セッションがタイムアウトしました。やり直してください"}), 400
+
+        try:
+            _auth_proc.stdin.write(code + "\n")
+            _auth_proc.stdin.flush()
+        except Exception as e:
+            _kill_auth_proc()
+            return jsonify({"status": "error", "message": f"コード送信に失敗: {e}"}), 500
+
+        # 終了を待つ
+        try:
+            out, _ = _auth_proc.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            _kill_auth_proc()
+            return jsonify({"status": "error", "message": "認証がタイムアウトしました。やり直してください"}), 500
+
+        rc = _auth_proc.returncode
+        _kill_auth_proc()
+        if rc != 0:
+            return jsonify({"status": "error", "message": "認証に失敗しました", "log": out}), 500
+
+        return jsonify({"status": "ok"})
+# ----
+
 
 # PDFビューアーがChromeで読み込めなかったときに対策として入れてみた。
 # キャッシュクリアで治ったのでコメントアウト化。

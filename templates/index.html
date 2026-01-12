@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8"/>
-    <title>PDF ParaParaTrans - 初期画面</title>
+    <title>PDF ParaParaTrans 2 - 初期画面</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='paraparatrans.svg') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/help-tooltip.css') }}">
@@ -10,10 +10,29 @@
 <body>
     <div style="display: flex; align-items: center;">
         <img src="{{ url_for('static', filename='paraparatrans.svg') }}" alt="Icon" style="height: 50px; margin-right: 10px;">
-        <h1>PDF ParaParaTrans</h1>
+        <h1>PDF ParaParaTrans 2</h1>
         <button onclick="refreshBookList()" data-help-id="refresh-book-list">最新の状態に更新</button>
+        <button onclick="openGoogleAuth()" data-help-id="google-auth">
+        Google認証
+        </button>
         <button id="show-full-help">Help</button>
     </div>
+
+    <div id="google-auth-panel"
+        style="display:none; margin:12px 0; padding:10px; border:1px solid #ccc;">
+        <div id="google-auth-msg" style="margin-bottom:8px;"></div>
+        <div id="google-auth-link-wrap" style="margin-bottom:8px;"></div>
+        <div id="google-auth-code-wrap" style="display:none;">
+            <input
+                id="google-auth-code"
+                type="text"
+                placeholder="Google認証後に表示された verification code を貼り付け"
+                style="width:420px;"
+            >
+            <button onclick="completeGoogleAuth()">送信</button>
+        </div>
+    </div>
+
     <form method="GET">
       <input type="text" name="filter" placeholder="タイトル/ファイル名でフィルタ" value="{{ filter_text|e }}">
       <button type="submit" data-help-id="filter-books">フィルタ</button>
@@ -41,12 +60,87 @@
         async function refreshBookList() {
             fetch("/", { method: "POST" })
             .then(response => {
-              if (response.ok) {
+                if (response.ok) {
                 window.location.reload(); // ページをリロードして更新内容を反映
-              } else {
+                } else {
                 console.error("リストリフレッシュに失敗しました");
-              }
+                }
             });    
+        }
+
+        async function openGoogleAuth() {
+            const panel = document.getElementById("google-auth-panel");
+            const msg = document.getElementById("google-auth-msg");
+            const linkWrap = document.getElementById("google-auth-link-wrap");
+            const codeWrap = document.getElementById("google-auth-code-wrap");
+            const codeInput = document.getElementById("google-auth-code");
+
+            panel.style.display = "block";
+            msg.textContent = "認証URLを生成中...";
+            linkWrap.innerHTML = "";
+            codeWrap.style.display = "none";
+            codeInput.value = "";
+
+            try {
+                const res = await fetch("/api/auth/start", { method: "POST" });
+                const j = await res.json();
+
+                if (!res.ok || j.status !== "ok") {
+                    msg.textContent = "認証URLの生成に失敗しました。";
+                    console.error(j);
+                    return;
+                }
+
+                msg.textContent =
+                    "リンクを開いてログインし、表示されたコードを下に貼り付けてください。";
+
+                const a = document.createElement("a");
+                a.href = j.url;
+                a.target = "_blank";
+                a.rel = "noopener noreferrer";
+                a.textContent = "Google 認証ページを開く";
+                a.style.fontWeight = "bold";
+
+                linkWrap.appendChild(a);
+                codeWrap.style.display = "inline-block";
+                codeInput.focus();
+            } catch (e) {
+                msg.textContent = "通信エラーが発生しました。";
+                console.error(e);
+            }
+        }
+
+        async function completeGoogleAuth() {
+            const msg = document.getElementById("google-auth-msg");
+            const codeInput = document.getElementById("google-auth-code");
+            const code = (codeInput.value || "").trim();
+
+            if (!code) {
+                msg.textContent = "verification code が空です。";
+                return;
+            }
+
+            msg.textContent = "認証処理中...";
+
+            try {
+                const res = await fetch("/api/auth/complete", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ code })
+                });
+
+                const j = await res.json();
+                if (!res.ok || j.status !== "ok") {
+                    msg.textContent = "認証に失敗しました。";
+                    console.error(j);
+                    return;
+                }
+
+                msg.textContent = "Google 認証が完了しました。";
+            } catch (e) {
+                msg.textContent = "通信エラーが発生しました。";
+                console.error(e);
+            }
         }
     </script>
     <script src="{{ url_for('static', filename='js/help.js') }}"></script>
