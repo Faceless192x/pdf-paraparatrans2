@@ -70,10 +70,10 @@ from modules.parapara_tagging_by_style import tag_paragraphs_by_style # 追加
 from modules.parapara_json2html import json2html
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-# PDFビューアーがChromeで読み込めなかったときに対策として入れてみた。
-# キャッシュクリアで治ったのでコメントアウト化。
-# import mimetypes
-# mimetypes.add_type('application/javascript', '.mjs')
+# mjsがtext/plain解釈されPDFビューアーが読み込めないケースへの対策。
+# 一度キャッシュされると壊れたままになるので、F12→ハードキャッシュクリアを推奨。
+import mimetypes
+mimetypes.add_type('application/javascript', '.mjs')
 
 # PDFとJSONの配置ディレクトリ（必要に応じて変更してください）
 BASE_FOLDER = "./data"  # Windows例。Linux等の場合はパスを変更してください
