@@ -48,11 +48,22 @@ def join_replaced_paragraphs(book_data):
         curr_src_joined = p.get('src_joined', '')
         curr_trans_status = p.get('trans_status', '')
 
-        if p.get('join', 0) == 1 and join_target_paragraphs[tag]:
+        if p.get('join', 0) == 1 and join_target_paragraphs.get(tag):
             # 結合指定の段落(join=1)で同タグの開始段落があれば開始段落のsrc_joinedにsrc_textをに追加。
             target_src_joined = join_target_paragraphs[tag].get('src_joined', '')
+            target_trans_status = join_target_paragraphs[tag].get('trans_status', '')
             merged = (target_src_joined + " " + curr_src_text).strip()
             join_target_paragraphs[tag]['src_joined'] = merged
+            join_target_paragraphs[tag]['src_replaced'] = merged
+
+            if target_trans_status in ['none', 'auto']:
+                join_target_paragraphs[tag]['trans_text'] = merged
+                join_target_paragraphs[tag]['trans_status'] = "none"
+
+            # 違う場合はtrans_autoもクリア
+            # 2個以上結合される場合どうしても変わってしまうのでクリアされるのは仕様上やむなし
+            if target_src_joined != merged:
+                join_target_paragraphs[tag]['trans_auto'] = merged
 
             # 現在の段落はクリア
             p['src_joined'] = ''
@@ -66,16 +77,16 @@ def join_replaced_paragraphs(book_data):
             # 結合指定のない段落(join=0)に来たら
             p['src_joined'] = curr_src_text
             p['src_replaced'] = curr_src_text
+            if curr_trans_status in ['none', 'auto']:
+                p['trans_text'] = curr_src_text
+                p['trans_status'] = "none"
 
             # 違う場合はtrans_autoもクリア
             if curr_src_text != curr_src_joined:
                 p['trans_auto'] = curr_src_text
-                # ステータスが none/auto の場合は翻訳もクリア
-                if curr_trans_status in ['none', 'auto']:
-                    p['trans_text'] = curr_src_text
-                    p['trans_status'] = "none"
-        # 自分を結合対象段落にセット
-        join_target_paragraphs[tag] = p
+
+            # 自分を結合対象段落にセット
+            join_target_paragraphs[tag] = p
 
     return book_data
 

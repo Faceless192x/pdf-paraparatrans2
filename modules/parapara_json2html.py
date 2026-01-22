@@ -137,17 +137,21 @@ def json2html(json_file_path: str):
             open_group = group_id
 
         unique_paragraph_id = f"{paragraph.get('page_number','0')}_{paragraph.get('id','0')}"
-        block_tag = paragraph.get("block_tag","div").lower()
-        if block_tag in ("header","footer"):
+        original_block_tag = str(paragraph.get("block_tag", "div"))
+        block_tag = original_block_tag.lower()
+        if block_tag in ("header", "footer"):
             continue
+
+        safe_flow_tags = {"p", "div"} | {f"h{i}" for i in range(1, 7)}
+        render_tag = block_tag if block_tag in safe_flow_tags else "div"
 
         # 段落を追加
         content_entries += f'''
         <div class="paragraph-container">
             <div class="paragraph-anchor" id="{unique_paragraph_id}"></div>
             <div class="paragraph-id hidden-text">{unique_paragraph_id}</div>
-            <div class="trans-text"><{paragraph.get("block_tag","div")}>{trans_text}</{paragraph.get("block_tag","div")}></div>
-            <div class="src-joined"><{paragraph.get("block_tag","div")}>{src_joined}</{paragraph.get("block_tag","div")}></div>
+            <div class="trans-text"><{render_tag} data-block-tag="{block_tag}">{trans_text}</{render_tag}></div>
+            <div class="src-joined"><{render_tag} data-block-tag="{block_tag}">{src_joined}</{render_tag}></div>
         </div>
         '''
 

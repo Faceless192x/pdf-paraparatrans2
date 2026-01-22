@@ -31,6 +31,7 @@ HotkeyMapper.map("Alt+8", () => updateBlockTagForSelected("footer"), { descripti
 HotkeyMapper.map("Alt+9", () => updateBlockTagForSelected("remove"), { description: "タグ:remove", useCapture : true });
 HotkeyMapper.map("Alt+L", () => updateBlockTagForSelected("li"), { description: "タグ:li", useCapture : true });
 HotkeyMapper.map("Alt+T", () => updateBlockTagForSelected("tr"), { description: "タグ:tr", useCapture : true });
+HotkeyMapper.map("Alt+H", () => updateBlockTagForSelected("th"), { description: "タグ:th", useCapture : true });
 
 HotkeyMapper.map("Alt+.", toggleGroupSelectedParagraphs, { description: "グループ化/解除" });
 HotkeyMapper.map("Alt++", toggleJoinForSelected, { description: "パラグラフ結合/解除" });

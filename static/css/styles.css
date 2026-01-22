@@ -76,6 +76,11 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="
     --tr-border: #d97706;
     --tr-header-bg: #34495e;
     --tr-header-fg: white;
+
+    /* Table header cell tag (th): highlight tone */
+    --th-bg: #e0e7ff;
+    --th-fg: #1e293b;
+    --th-border: #4f46e5;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -90,6 +95,10 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="
         --tr-alt-bg: #2f1e06;
         --tr-fg: #ffe7c2;
         --tr-border: #ffb454;
+
+        --th-bg: #1e1b4b;
+        --th-fg: #e0e7ff;
+        --th-border: #818cf8;
     }
 }
 

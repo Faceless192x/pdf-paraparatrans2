@@ -190,6 +190,11 @@
     font-weight: bold;
     background-color: var(--tr-bg);
 }
+.block-tag-th {
+    font-family: monospace;
+    font-weight: bold;
+    background-color: var(--th-bg);
+}
 
 .paragraph-box.block-tag-li .src-html,
 .paragraph-box.block-tag-li .src-text,
@@ -210,6 +215,15 @@
 .paragraph-box.block-tag-tr .src-replaced,
 .paragraph-box.block-tag-tr .trans-auto,
 .paragraph-box.block-tag-tr .trans-text {
+    padding-left: 16px;
+}
+
+.paragraph-box.block-tag-th .src-html,
+.paragraph-box.block-tag-th .src-text,
+.paragraph-box.block-tag-th .src-joined,
+.paragraph-box.block-tag-th .src-replaced,
+.paragraph-box.block-tag-th .trans-auto,
+.paragraph-box.block-tag-th .trans-text {
     padding-left: 16px;
 }
 

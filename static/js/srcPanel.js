@@ -157,8 +157,11 @@ function renderParagraphs() {
                             <option value="li">li</option>
                             <option value="ul">ul</option>
                             <option value="dd">dd</option>
+                            <option value="tr">tr</option>
+                            <option value="th">th</option>
                             <option value="header">header</option>
                             <option value="footer">footer</option>
+                            <option value="remove">remove</option>
                         </select>
                     </label>
                     <button class='style-update-button'>同スタイルを一括更新</button>
