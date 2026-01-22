@@ -22,7 +22,13 @@ __pycache__/
 
 # 仮想環境 (venvやpipenv)
 venv/
+.venv/
 .env
+
+# Python ツールのキャッシュ
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # OS特有の不要ファイル
 .DS_Store

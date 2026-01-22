@@ -24,6 +24,8 @@ TRANSLATE_ENDPOINT = (
 
 SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 
+DEBUG_TOKEN_PREFIX = os.getenv("DEBUG_TOKEN_PREFIX", "").lower() in ("1", "true", "yes", "on")
+
 
 def get_access_token() -> str:
     """
@@ -40,7 +42,9 @@ def get_access_token() -> str:
 def translate_text(text: str, source: str = "en", target: str = "ja") -> str:
 
     access_token = get_access_token()
-    print(f"Access Token Prefix: {access_token[:20]}...")  # 最初だけ確認
+
+    if DEBUG_TOKEN_PREFIX:
+        print(f"Access Token Prefix: {access_token[:20]}...")
 
     headers = {
         "Authorization": f"Bearer {access_token}",
