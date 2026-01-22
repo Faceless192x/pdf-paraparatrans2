@@ -893,10 +893,14 @@ def dict_update_api():
 
 if __name__ == "__main__":
     # portはenvファイルの設定に従う。未指定の場合は5077
-    port = os.getenv("PORT", 5077)
-    if not port.isdigit():
-        raise ValueError(f"Invalid PORT: {port}")
-    port = int(port)  
+    port_str = os.getenv("PORT", "5077")
+    if not port_str.isdigit():
+        raise ValueError(f"Invalid PORT: {port_str}")
+    port = int(port_str)
+
+    # debug/reloader は起動直後のプロセス二重起動でリクエストが落ちる原因になるため、
+    # 明示的に環境変数でのみ有効化し、reloaderは常に無効化する。
+    debug = os.getenv("FLASK_DEBUG", "").lower() in ("1", "true", "yes", "on")
     # ターミナルにリンクを出力
     print(f"Flask server is running at: http://localhost:{port}/")
-    app.run(host="0.0.0.0", port=port, debug=True, threaded=True)
+    app.run(host="0.0.0.0", port=port, debug=debug, threaded=True, use_reloader=False)
