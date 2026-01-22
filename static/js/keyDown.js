@@ -2,7 +2,7 @@
 
 HotkeyMapper.map("ArrowUp", () => moveCurrentParagraphUp(false), { description: "パラグラフを移動(上)"});
 HotkeyMapper.map("ArrowDown", () => moveCurrentParagraphDown(false), { description: "パラグラフを移動(下)"});
-HotkeyMapper.map("Shift+ArrowUp", () => moveCurrentParagraphUp(true), { description: "選択しならが移動(上)"});
+HotkeyMapper.map("Shift+ArrowUp", () => moveCurrentParagraphUp(true), { description: "選択しながら移動(上)"});
 HotkeyMapper.map("Shift+ArrowDown", () => moveCurrentParagraphDown(true), { description: "選択しながら移動(下)"});
 
 HotkeyMapper.map("Ctrl+ArrowUp", () => focusNearestHeading(-1), { description: "前の見出し"});
@@ -10,12 +10,12 @@ HotkeyMapper.map("Ctrl+ArrowDown", () => focusNearestHeading(1), { description: 
 HotkeyMapper.map("Ctrl+Shift+ArrowUp", selectUntilPreviousHeading, { description: "前の見出しまで選択"});
 HotkeyMapper.map("Ctrl+Shift+ArrowDown", selectUntilNextHeading, { description: "次の見出しまで選択"});
 
-HotkeyMapper.map("ArrowLeft", prevPage, { description: "次のページ" });
-HotkeyMapper.map("ArrowRight", nextPage, { description: "前のページ" });
-HotkeyMapper.map("Ctrl+ArrowLeft", prevPage, { description: "次のページ" });
-HotkeyMapper.map("Ctrl+ArrowRight", nextPage, { description: "前のページ" });
-HotkeyMapper.map("Ctrl+Shift+ArrowLeft", prevPage, { description: "次のページ" });
-HotkeyMapper.map("Ctrl+Shift+ArrowRight", nextPage, { description: "前のページ" });
+HotkeyMapper.map("ArrowLeft", prevPage, { description: "前のページ" });
+HotkeyMapper.map("ArrowRight", nextPage, { description: "次のページ" });
+HotkeyMapper.map("Ctrl+ArrowLeft", prevPage, { description: "前のページ" });
+HotkeyMapper.map("Ctrl+ArrowRight", nextPage, { description: "次のページ" });
+HotkeyMapper.map("Ctrl+Shift+ArrowLeft", prevPage, { description: "前のページ" });
+HotkeyMapper.map("Ctrl+Shift+ArrowRight", nextPage, { description: "次のページ" });
 
 // パラグラフに対する編集はAltキー
 //moveSelectedByOffset
@@ -49,9 +49,9 @@ HotkeyMapper.map("Alt+C", resetTranslationForSelected, { description: "翻訳ク
 HotkeyMapper.map("Alt+/", translateCurrentParagraph, { description: "パラグラフを翻訳", useCapture: true, allowInInput: true });
 
 HotkeyMapper.map("Alt+ArrowUp", () => moveSelectedByOffset(-1), { description: "選択範囲を上へ"});
-HotkeyMapper.map("Alt+ArrowDown", () => moveSelectedByOffset(1), { description: "選択範囲を下へ)"});
+HotkeyMapper.map("Alt+ArrowDown", () => moveSelectedByOffset(1), { description: "選択範囲を下へ"});
 HotkeyMapper.map("Ctrl+Alt+ArrowUp", () => moveSelectedBefore(0), { description: "選択範囲を先頭へ"});
-HotkeyMapper.map("Ctrl+Alt+ArrowDown", () => moveSelectedAfter(9999), { description: "選択範囲を末尾へ)"});
+HotkeyMapper.map("Ctrl+Alt+ArrowDown", () => moveSelectedAfter(9999), { description: "選択範囲を末尾へ"});
 
 HotkeyMapper.map("F2", () => toggleEditUICurrent(), { description: "編集切り替え", useCapture : true });
 
@@ -60,6 +60,8 @@ HotkeyMapper.map("F2", () => toggleEditUICurrent(), { description: "編集切り
 HotkeyMapper.map("Escape", resetSelection, { description: "選択解除" });
 HotkeyMapper.map("Ctrl+S", saveCurrentPageOrder, { description: "構造保存" });
 HotkeyMapper.map("Ctrl+Alt+/", transPage, { description: "ページ翻訳", useCapture: true });
+HotkeyMapper.map("PageUp", rollUp, { description: "スクロールアップ" });
+HotkeyMapper.map("PageDown", rollDown, { description: "スクロールダウン" });
 HotkeyMapper.map("RollUp", rollUp, { description: "スクロールアップ" });
 HotkeyMapper.map("RollDown", rollDown, { description: "スクロールダウン" });
 

@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="PDF ParaParaTrans 2 概要図">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#111a2e"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#151f35"/>
+      <stop offset="1" stop-color="#0f172a"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+    <style>
+      .title{font:700 44px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", sans-serif; fill:#e7eefc}
+      .sub{font:500 18px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", sans-serif; fill:#b9c6e6}
+      .label{font:700 16px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", sans-serif; fill:#d7e2ff}
+      .text{font:500 14px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", sans-serif; fill:#b9c6e6}
+      .mono{font:600 13px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; fill:#d7e2ff}
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Header -->
+  <text x="64" y="92" class="title">PDF ParaParaTrans 2</text>
+  <text x="64" y="124" class="sub">段落を整えて、用語を固定して、PDFを見ながら推敲する。</text>
+
+  <!-- Main card -->
+  <g filter="url(#shadow)">
+    <rect x="64" y="160" rx="18" ry="18" width="1072" height="398" fill="url(#card)" stroke="#243356"/>
+  </g>
+
+  <!-- Three panels -->
+  <g>
+    <rect x="96" y="208" rx="14" ry="14" width="296" height="310" fill="#0b1220" stroke="#243356"/>
+    <text x="118" y="242" class="label">目次パネル</text>
+    <text x="118" y="268" class="text">h1-h6 を階層表示 → 章へジャンプ</text>
+    <rect x="118" y="292" width="252" height="1" fill="#243356"/>
+    <text x="118" y="320" class="mono">Chapter 1</text>
+    <text x="118" y="346" class="mono">  1.1 Heading</text>
+    <text x="118" y="372" class="mono">  1.2 Heading</text>
+    <text x="118" y="398" class="mono">Chapter 2</text>
+    <text x="118" y="424" class="mono">  2.1 Heading</text>
+    <text x="118" y="460" class="text">見出し推定: フォント/出現傾向</text>
+  </g>
+
+  <g>
+    <rect x="452" y="208" rx="14" ry="14" width="296" height="310" fill="#0b1220" stroke="#243356"/>
+    <text x="474" y="242" class="label">PDFビュー</text>
+    <text x="474" y="268" class="text">選択段落をPDF上でハイライト</text>
+
+    <!-- fake page -->
+    <rect x="486" y="292" rx="10" ry="10" width="228" height="210" fill="#0f172a" stroke="#243356"/>
+    <rect x="506" y="314" width="188" height="10" rx="5" fill="#22304f"/>
+    <rect x="506" y="338" width="164" height="10" rx="5" fill="#22304f"/>
+    <rect x="506" y="362" width="176" height="10" rx="5" fill="#22304f"/>
+    <rect x="506" y="386" width="168" height="10" rx="5" fill="#22304f"/>
+    <rect x="506" y="410" width="184" height="10" rx="5" fill="#22304f"/>
+
+    <!-- highlight -->
+    <rect x="500" y="356" width="200" height="30" rx="10" fill="#ffd34a" opacity="0.22" stroke="#ffd34a" stroke-opacity="0.45"/>
+    <rect x="506" y="362" width="176" height="10" rx="5" fill="#ffd34a" opacity="0.25"/>
+  </g>
+
+  <g>
+    <rect x="808" y="208" rx="14" ry="14" width="296" height="310" fill="#0b1220" stroke="#243356"/>
+    <text x="830" y="242" class="label">段落パネル</text>
+    <text x="830" y="268" class="text">原文/置換文/訳文を並べて編集</text>
+
+    <!-- paragraph cards -->
+    <rect x="830" y="292" rx="12" ry="12" width="252" height="64" fill="#0f172a" stroke="#243356"/>
+    <text x="848" y="320" class="mono">src_joined</text>
+    <text x="848" y="342" class="text">段落を連結して翻訳単位を整える</text>
+
+    <rect x="830" y="368" rx="12" ry="12" width="252" height="64" fill="#0f172a" stroke="#243356"/>
+    <text x="848" y="396" class="mono">src_replaced</text>
+    <text x="848" y="418" class="text">用語を辞書で固定してから翻訳</text>
+
+    <rect x="830" y="444" rx="12" ry="12" width="252" height="64" fill="#0f172a" stroke="#243356"/>
+    <text x="848" y="472" class="mono">trans_text</text>
+    <text x="848" y="494" class="text">推敲して確定（ステータス管理）</text>
+  </g>
+
+  <!-- Flow arrows -->
+  <g opacity="0.9">
+    <path d="M392 364 C418 364, 424 364, 448 364" fill="none" stroke="#5f7cff" stroke-width="4"/>
+    <polygon points="448,364 436,357 436,371" fill="#5f7cff"/>
+
+    <path d="M748 364 C774 364, 780 364, 804 364" fill="none" stroke="#5f7cff" stroke-width="4"/>
+    <polygon points="804,364 792,357 792,371" fill="#5f7cff"/>
+  </g>
+
+  <!-- Bottom badges -->
+  <g>
+    <rect x="96" y="536" rx="999" ry="999" width="260" height="38" fill="#142042" stroke="#243356"/>
+    <text x="118" y="560" class="text">Google / DeepL 対応</text>
+
+    <rect x="370" y="536" rx="999" ry="999" width="330" height="38" fill="#142042" stroke="#243356"/>
+    <text x="392" y="560" class="text">(自動タグ付け) 見出し推定 + join候補</text>
+
+    <rect x="714" y="536" rx="999" ry="999" width="390" height="38" fill="#142042" stroke="#243356"/>
+    <text x="736" y="560" class="text">辞書置換 → 翻訳 → 対訳HTML出力</text>
+  </g>
+</svg>
