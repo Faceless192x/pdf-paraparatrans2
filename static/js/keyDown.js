@@ -35,6 +35,7 @@ HotkeyMapper.map("Alt+T", () => updateBlockTagForSelected("tr"), { description: 
 HotkeyMapper.map("Alt+.", toggleGroupSelectedParagraphs, { description: "グループ化/解除" });
 HotkeyMapper.map("Alt++", toggleJoinForSelected, { description: "パラグラフ結合/解除" });
 HotkeyMapper.map("Alt+;", toggleJoinForSelected, { description: "パラグラフ結合/解除" });
+HotkeyMapper.map("Ctrl+Alt++", joinParagraphs, { description: "2.連結", useCapture: true });
 
 HotkeyMapper.map("Alt+N", () => updateTransStatusForSelected("none"), { description: "ステータス:none", useCapture : true });
 HotkeyMapper.map("Alt+A", () => updateTransStatusForSelected("auto"), { description: "ステータス:auto", useCapture : true });
@@ -43,6 +44,8 @@ HotkeyMapper.map("Alt+F", () => updateTransStatusForSelected("fixed"), { descrip
 
 HotkeyMapper.map("Alt+J", () => DictPopup.show(), { description: "対訳辞書登録", useCapture : true });
 HotkeyMapper.map("Alt+C", resetTranslationForSelected, { description: "翻訳クリア", useCapture : true });
+
+HotkeyMapper.map("Alt+/", translateCurrentParagraph, { description: "パラグラフを翻訳", useCapture: true, allowInInput: true });
 
 HotkeyMapper.map("Alt+ArrowUp", () => moveSelectedByOffset(-1), { description: "選択範囲を上へ"});
 HotkeyMapper.map("Alt+ArrowDown", () => moveSelectedByOffset(1), { description: "選択範囲を下へ)"});
@@ -55,6 +58,7 @@ HotkeyMapper.map("F2", () => toggleEditUICurrent(), { description: "編集切り
 
 HotkeyMapper.map("Escape", resetSelection, { description: "選択解除" });
 HotkeyMapper.map("Ctrl+S", saveCurrentPageOrder, { description: "構造保存" });
+HotkeyMapper.map("Ctrl+Alt+/", transPage, { description: "ページ翻訳", useCapture: true });
 HotkeyMapper.map("RollUp", rollUp, { description: "スクロールアップ" });
 HotkeyMapper.map("RollDown", rollDown, { description: "スクロールダウン" });
 
@@ -87,6 +91,24 @@ function toggleGroupSelectedParagraphsUp() {
 }
 function toggleGroupSelectedParagraphsDown() {
     toggleGroupSelectedParagraphs(1);
+}
+
+function translateCurrentParagraph() {
+    const currentDiv = document.querySelector('.paragraph-box.current');
+    if (!currentDiv) return;
+
+    const idStr = (currentDiv.id || '').replace('paragraph-', '');
+    const paragraphDict = bookData?.pages?.[currentPage]?.paragraphs?.[idStr];
+    if (!paragraphDict) return;
+
+    if (!paragraphDict.src_replaced) {
+        paragraphDict.src_replaced = paragraphDict.src_text;
+    }
+    if (typeof transParagraph !== 'function') {
+        console.warn('transParagraph is not defined');
+        return;
+    }
+    transParagraph(paragraphDict, currentDiv);
 }
 
 function onKeyDown(event, divSrc, paragraph, srcText, transText, blockTagSpan) {

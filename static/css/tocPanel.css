@@ -201,3 +201,8 @@ tr[data-open="false"] .toc-toggle::before {
 .toc-src, .toc-trans {
   position: relative;
 }
+/* ===== Template-inline styles extracted to CSS ===== */
+#tocPanelHeader {
+    padding-left: 10px;
+    border-bottom: 1px solid;
+}

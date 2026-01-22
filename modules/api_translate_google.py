@@ -25,7 +25,9 @@ from google.auth.exceptions import DefaultCredentialsError
   pip install google-auth requests python-dotenv
 """
 
+# google のAPIキーを.envファイルから取得
 load_dotenv()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 PROJECT_ID = os.getenv("GOOGLE_PROJECT_ID")
 QUOTA_PROJECT_ID = os.getenv("GOOGLE_QUOTA_PROJECT_ID") or PROJECT_ID
@@ -37,6 +39,7 @@ if not QUOTA_PROJECT_ID:
 SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 
 TRANSLATE_ENDPOINT_V2 = "https://translation.googleapis.com/language/translate/v2"
+
 
 
 def _find_gcloud_exe() -> str | None:
@@ -132,34 +135,53 @@ def get_access_token() -> str:
 
 
 def translate_text(text: str, source: str = "en", target: str = "ja") -> str:
-    """Google Translate v2 を ADC(OAuth) で呼び出して翻訳する。"""
-    access_token = get_access_token()
-
-    if DEBUG_TOKEN_PREFIX:
-        print(f"Access Token Prefix: {access_token[:20]}...")
-
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json; charset=utf-8",
-        # 請求先/クォータを明示（特に user ADC で重要）
-        "x-goog-user-project": QUOTA_PROJECT_ID,
-    }
+    """Google Translate v2 を APIキー優先で呼び出す。
+    - GOOGLE_API_KEY があれば APIキー
+    - 無ければ ADC(OAuth)
+    """
 
     body = {
         "q": [text],
         "source": source,
         "target": target,
-        # 元コードが HTML を渡しているので format=html を明示
         "format": "html",
     }
 
-    resp = requests.post(TRANSLATE_ENDPOINT_V2, headers=headers, data=json.dumps(body))
+    # ===== APIキー優先 =====
+    if GOOGLE_API_KEY:
+        params = {
+            "key": GOOGLE_API_KEY,
+        }
+        resp = requests.post(
+            TRANSLATE_ENDPOINT_V2,
+            params=params,
+            data=json.dumps(body),
+            headers={"Content-Type": "application/json; charset=utf-8"},
+        )
+    else:
+        # ===== ADC (OAuth) =====
+        access_token = get_access_token()
+
+        if DEBUG_TOKEN_PREFIX:
+            print(f"Access Token Prefix: {access_token[:20]}...")
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json; charset=utf-8",
+            "x-goog-user-project": QUOTA_PROJECT_ID,
+        }
+
+        resp = requests.post(
+            TRANSLATE_ENDPOINT_V2,
+            headers=headers,
+            data=json.dumps(body),
+        )
+
     if resp.status_code != 200:
         raise RuntimeError(f"Translate API error: {resp.status_code} {resp.text}")
 
     data = resp.json()
     return data["data"]["translations"][0]["translatedText"]
-
 
 if __name__ == "__main__":
     html_text = "google:<p>Hello <strong>ParaParaTrans</strong>!</p>"

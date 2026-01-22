@@ -161,20 +161,146 @@ function normalizeHotkey(hotkey) {
     }));
   }
 
+  
+  function ensureHotkeyHelpStyle() {
+    if (document.getElementById("hotkey-help-style")) return;
+
+    const style = document.createElement("style");
+    style.id = "hotkey-help-style";
+    style.textContent = `
+#hotkey-help {
+  display: none;
+  flex-direction: column;
+  position: fixed;
+  width: 420px;
+  background: rgba(0, 0, 0, 0.55);
+  color: white;
+  border: 4px solid rgba(255, 255, 255, 0.45);
+  border-radius: 8px;
+  box-sizing: border-box;
+  backdrop-filter: blur(5px);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+  font-family: monospace;
+  z-index: 9999;
+  min-width: 260px;
+  min-height: 160px;
+}
+
+#hotkey-help .hotkey-help-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  background: rgba(64, 128, 64, 0.4);
+  cursor: move;
+  user-select: none;
+  padding: 6px 10px;
+}
+
+#hotkey-help .hotkey-help-close {
+  background: transparent;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 16px;
+}
+
+#hotkey-help .hotkey-help-table-container {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 10px 10px;
+  box-sizing: border-box;
+}
+
+#hotkey-help .hotkey-help-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+#hotkey-help .hotkey-help-table th,
+#hotkey-help .hotkey-help-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  vertical-align: top;
+  text-align: left;
+}
+
+#hotkey-help-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  z-index: 9998; /* #hotkey-help より下 */
+  display: none;
+}
+    `;
+    document.head.appendChild(style);
+
+    // ドラッグ中にマウスイベントを安定して拾うためのオーバーレイ
+    if (!document.getElementById("hotkey-help-overlay")) {
+      const overlay = document.createElement("div");
+      overlay.id = "hotkey-help-overlay";
+      document.body.appendChild(overlay);
+    }
+  }
+
+  function initHotkeyHelpDrag(container) {
+    if (!container || container.dataset.dragInit === "1") return;
+    container.dataset.dragInit = "1";
+
+    const overlay = document.getElementById("hotkey-help-overlay");
+    let isDragging = false;
+    let startX = 0, startY = 0;
+
+    container.addEventListener("mousedown", (e) => {
+      const header = e.target.closest(".hotkey-help-header");
+      if (!header) return;
+
+      isDragging = true;
+      startX = e.clientX - container.offsetLeft;
+      startY = e.clientY - container.offsetTop;
+
+      if (overlay) overlay.style.display = "block";
+      e.stopPropagation();
+      e.preventDefault();
+    });
+
+    document.addEventListener("mousemove", (e) => {
+      if (!isDragging) return;
+      container.style.left = `${e.clientX - startX}px`;
+      container.style.top = `${e.clientY - startY}px`;
+      container.style.right = "auto";
+      container.style.bottom = "auto";
+      e.preventDefault();
+    });
+
+    document.addEventListener("mouseup", () => {
+      if (!isDragging) return;
+      isDragging = false;
+      if (overlay) overlay.style.display = "none";
+    });
+  }
+
   function showHelpWindow() {
+    ensureHotkeyHelpStyle();
+
     let container = document.getElementById("hotkey-help");
     if (!container) {
       const mappings = getMappings();
-  
+
       container = document.createElement("div");
       container.id = "hotkey-help";
       container.className = "hotkey-help-window";
       container.tabIndex = -1;
-  
+
       container.innerHTML = `
         <div class="hotkey-help-header">
           <span>ショートカットキー一覧</span>
-          <button class="hotkey-help-close" aria-label="閉じる" onclick="this.closest('#hotkey-help').remove()">×</button>
+          <button class="hotkey-help-close" aria-label="閉じる">×</button>
         </div>
         <div class="hotkey-help-table-container">
           <table class="hotkey-help-table">
@@ -189,18 +315,28 @@ function normalizeHotkey(hotkey) {
           </table>
         </div>
       `;
-  
+
+      // 閉じる（remove ではなく display: none で「フロートしたまま」維持）
+      container.querySelector(".hotkey-help-close")?.addEventListener("click", () => {
+        container.style.display = "none";
+      });
+
       document.body.appendChild(container);
-      container.focus();
+      initHotkeyHelpDrag(container);
     }
+
+    // 再表示（前回の位置のまま）
+    container.style.display = "flex";
+    container.focus();
   }
+
   
   document.addEventListener("keydown", (e) => {
     const popup = document.getElementById("hotkey-help");
     if (popup && e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      popup.remove();
+      popup.style.display = "none";
     }
   });
 

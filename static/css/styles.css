@@ -1,11 +1,38 @@
 html, body {
     margin: 0;
-    padding: 0;
+    padding: 2px;
     height: 100vh; /* ビューポート全体を使用 */
     display: flex;
     flex-direction: column;
     overflow: hidden; /* 全体のスクロールは防止 */
     color-scheme: light dark;
+}
+
+html {
+    box-sizing: border-box;
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: inherit;
+}
+
+.book-list td:nth-child(4),
+.book-list td:nth-child(5),
+.book-list td:nth-child(6),
+.book-list td:nth-child(7) {
+    text-align: right;
+}
+
+button,
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+select,
+textarea,
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]) {
+    padding: 4px 6px;
 }
 
 
@@ -36,14 +63,34 @@ html, body {
     --h6-bg: #b8e994;
     --h6-fg: black;
 
-    --li-bg: #dfe6e9;
-    --li-fg: black;
+    /* List item tag (li): cool tone */
+    --li-bg: #e6f6ff;
+    --li-fg: #00324d;
+    --li-border: #0077b6;
+    --li-marker: #0077b6;
 
-    --tr-bg: #ecf0f1;
-    --tr-alt-bg: #dcdde1;
-    --tr-fg: black;
+    /* Table row tag (tr): warm tone */
+    --tr-bg: #fff2db;
+    --tr-alt-bg: #ffe7c2;
+    --tr-fg: #4a2b00;
+    --tr-border: #d97706;
     --tr-header-bg: #34495e;
     --tr-header-fg: white;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        /* Dark mode overrides (keep high contrast + clear separation) */
+        --li-bg: #0c2a3a;
+        --li-fg: #d6f1ff;
+        --li-border: #5cc8ff;
+        --li-marker: #5cc8ff;
+
+        --tr-bg: #3a2608;
+        --tr-alt-bg: #2f1e06;
+        --tr-fg: #ffe7c2;
+        --tr-border: #ffb454;
+    }
 }
 
 /* 背景色を適用 */
@@ -130,3 +177,81 @@ header {
     background: rgba(255, 255, 255, 0); /* 透明 */
     display: none; /* 初期は非表示 */
 }
+/* ===== Template-inline styles extracted to CSS ===== */
+.app-header {
+    display: flex;
+    align-items: center;
+}
+
+.app-header h1 {
+    margin: 8px;
+}
+
+.app-icon {
+    height: 50px;
+    margin-right: 10px;
+}
+
+.header-container {
+    display: flex;
+    align-items: stretch;
+    box-sizing: border-box;
+    border-bottom: 1px solid #ccc;
+    padding: 2px;
+}
+
+.header-left {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
+    white-space: normal;
+}
+
+.basic-info,
+.controls {
+    flex-shrink: 0;
+}
+
+.inline-block-margin {
+    display: inline-block;
+    margin: 2px;
+}
+
+.title-input {
+    width: 200px;
+}
+
+.page-input {
+    vertical-align: middle;
+    font-size: 120%;
+    width: 60px;
+    text-align: center;
+    border: 2px solid;
+}
+
+.trans_status_counts {
+    display: inline-block;
+    vertical-align: middle;
+    border: 1px solid #000;
+    border-collapse: collapse;
+    font-size: 80%;
+    margin: 2px;
+}
+
+.trans_status_counts td {
+    padding: 0 5px;
+}
+
+.btn-step-extract { border: 2px solid #e74c3c; }
+.btn-step-join    { border: 2px solid #ffeb3b; }
+.btn-step-dict    { border: 2px solid #3498db; }
+.btn-step-transall{ border: 2px solid #ff9800; font-weight: bold; }
+.btn-step-export  { border: 2px solid #2ecc71; }
+
+.pdf-iframe {
+    width: 100%;
+    height: 100%;
+}
+
+

@@ -24,76 +24,79 @@
   </head>
 
 <body data-pdf-name="{{ pdf_name }}">
-    <div class="header-container" style="display:flex; align-items:stretch; box-sizing:border-box; border-bottom:1px solid #ccc; padding: 2px;">
-        <div class="left" style="display:flex; flex-direction:column; justify-content:space-between; overflow:hidden; white-space: normal;">
-          <div class="basic-info" style="flex-shrink:0;">
-            <span style="display:inline-block; margin: 2px;">
+    <div class="header-container">
+        <div class="left header-left">
+          <div class="basic-info">
+            <span class="inline-block-margin">
               <button onclick="window.location='{{ url_for('index') }}'" data-help-id="一覧画面に戻る">戻る</button>
-              Title: <input type="text" id="titleInput" value="{{ book_data.title|e }}" style="width:200px">
+              Title: <input type="text" id="titleInput" value="{{ book_data.title|e }}" class="title-input">
+              <button id="saveOrderButton" data-help-id="表題と構造を保存">保存</button>
               FileName: {{ pdf_name }} / Update: {{ updated_date }}
             </span>
-            <span style="display:inline-block; margin: 2px;">
-              <button onclick="extractParagraphs()" style="border: 2px solid #e74c3c" data-help-id="パラグラフの抽出">1.パラグラフ抽出</button>
+            <span class="inline-block-margin">
+              <button onclick="extractParagraphs()" class="btn-step btn-step-extract" data-help-id="パラグラフの抽出">1.パラグラフ抽出</button>
               <button onclick="autoTagging()" data-help-id="自動タグ付け">(自動タグ付け)</button>
-              <button onclick="joinParagraphs()" style="border: 2px solid #ffeb3b" data-help-id="パラグラフの連結">2.連結</button>
-              <button onclick="dictCreate()" data-help-id="辞書の作成">(辞書抽出)</button>
+              <button onclick="joinParagraphs()" class="btn-step btn-step-join" data-help-id="パラグラフの連結">2.連結</button>
               <button onclick="dictTrans()" hidden data-help-id="辞書の翻訳">(辞書翻訳)</button>
-              <button onclick="dictReplaceAll()" style="border: 2px solid #3498db" data-help-id="全ての対訳を置換">3.全対訳置換</button>
-              <button onclick="transAllPages()" style="border: 2px solid #ff9800; font-weight: bold;" data-help-id="全てのページを翻訳">4.全翻訳</button>
+              <button onclick="dictReplaceAll()" class="btn-step btn-step-dict" data-help-id="全ての対訳を置換">3.全対訳置換</button>
+              <button onclick="transAllPages()" class="btn-step btn-step-transall" data-help-id="全てのページを翻訳">4.全翻訳</button>
               <button onclick="saveStructure()" hidden data-help-id="構造の保存">(構成ファイル出力)</button>
-              <button onclick="exportHtml()" style="border: 2px solid #2ecc71;" data-help-id="HTMLのエクスポート">5.対訳HTML出力</button>
+              <button onclick="exportHtml()" class="btn-step btn-step-export" data-help-id="HTMLのエクスポート">5.対訳HTML出力</button>
               <button onclick="fetchBookData()" hidden data-help-id="ブックデータのリロード">リロード</button>
               <button id="renderButton" hidden data-help-id="HTMLのレンダリング">レンダリング</button>
+              <button onclick="dictCreate()" data-help-id="辞書の作成">(辞書抽出)</button>
             </span>
           </div>
-          <div class="controls" style="flex-shrink:0;">
-            <span style="display:inline-block; margin: 2px;">
+          <div class="controls">
+            <table class="trans_status_counts">
+              <tr>
+                <th>none</th>
+                <td id="countNone">0</td>
+                <th>auto</th>
+                <td id="countAuto">0</td>
+                <th>draft</th>
+                <td id="countDraft">0</td>
+                <th>fixed</th>
+                <td id="countFixed">0</td>
+              </tr>
+            </table>
+
+            <span class="inline-block-margin">
               <span id="toggleTocPanel" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local" data-help-id="目次パネルの表示/非表示">目次</span>
-              <span id="togglePdfPanel" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local;default:true" data-help-id="PDFパネルの表示/非表示">PDF</span>
+              <span id="togglePdfPanel" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local" data-help-id="PDFパネルの表示/非表示">PDF</span>
+              <span id="toggleSrcHtml" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local" data-help-id="ソースHTMLの表示/非表示">Html</span>
+              <span id="toggleSrcText" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local;default:true" data-help-id="原文の表示/非表示">原文</span>
+              <span id="toggleSrcJoined" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local" data-help-id="連結文の表示/非表示">連結文</span>
+              <span id="toggleSrcReplaced" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local" data-help-id="置換文の表示/非表示">置換文</span>
+              <span id="toggleTransAuto" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local" data-help-id="自動翻訳の表示/非表示">Auto</span>
+              <span id="toggleTransText" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local;default:true" data-help-id="訳文の表示/非表示">訳文</span>
+            </span>
+
+            <span class="inline-block-margin">
               <button onclick="prevPage()" data-help-id="前のページ">◀</button>
               <input type="number" id="pageInput" value="1" min="1" max="1" 
-                    style=" vertical-align:middle; font-size:120%; width: 60px; text-align: center; border: 2px solid; " onchange="jumpToPage(this.value)">
+                    class="page-input" onchange="jumpToPage(this.value)">
               <span>/</span>
               <span id="pageCount">1</span>
               <button onclick="nextPage()" data-help-id="次のページ">▶</button>
             </span>
-            <span style="display:inline-block; margin: 2px;">
-              <span id="toggleSrcHtml" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local" data-help-id="ソースHTMLの表示/非表示">Html</span>
-              <span id="toggleSrcText" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local" data-help-id="原文の表示/非表示">原文</span>
-              <span id="toggleSrcJoined" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local" data-help-id="連結文の表示/非表示">連結文</span>
-              <span id="toggleSrcReplaced" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local;default:true" data-help-id="置換文の表示/非表示">置換文</span>
-              <span id="toggleTransAuto" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local;default:true" data-help-id="自動翻訳の表示/非表示">Auto</span>
-              <span id="toggleTransText" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local" data-help-id="訳文の表示/非表示">訳文</span>
-            </span>
-            <table class="trans_status_counts" style="display:inline-block; vertical-align:middle; border:1px solid #000; border-collapse:collapse; font-size:80%; margin: 2px;">
-              <tr>
-                <th>none</th>
-                <td style="padding:0 5px;" id="countNone">0</td>
-                <th>auto</th>
-                <td style="padding:0 5px;" id="countAuto">0</td>
-                <th>draft</th>
-                <td style="padding:0 5px;" id="countDraft">0</td>
-                <th>fixed</th>
-                <td style="padding:0 5px;" id="countFixed">0</td>
-              </tr>
-            </table>
-            <button id="openDictButton" data-help-id="辞書登録">辞書登録</button>
-            <button id="pageDictReplaceButton" style="border: 2px solid #3498db;" data-help-id="ページ対訳置換">ページ対訳置換</button>
-            <button id="pageTransButton" style="border: 2px solid #ff9800; font-weight: bold;" data-help-id="ページの翻訳">ページ翻訳</button>
+
+            <button id="pageDictReplaceButton" class="btn-step btn-step-dict" data-help-id="ページ対訳置換">ページ対訳置換</button>
+            <button id="pageTransButton" class="btn-step btn-step-transall" data-help-id="ページの翻訳">ページ翻訳</button>
             <button id="openLogButton" onclick="showLog()" data-help-id="ログを開く">Log</button>
             <button id="openHotKeyButton" onclick="HotkeyMapper.showHelpWindow()" data-help-id="ホットキーマッパーを開く">HotKey</button>
             <button id="show-full-help">Help</button>
-            <button id="saveOrderButton" data-help-id="構造の順序を保存">構造保存</button>
+            <button id="openDictButton" data-help-id="辞書登録">辞書登録</button>
           </div>
         </div>
       </div>
 
     <div class="container">
         <div id="tocPanel" class="panel">
-          <div id="tocPanelHeader" class="panel-header" style="padding-left:10px; border-bottom: 1px solid">
+          <div id="tocPanelHeader" class="panel-header">
             <span id="toggleTocPage" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local">Page</span>
             <span id="toggleTocSrc" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local">原文</span>
-            <span id="toggleTocTrans" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local;default:true">訳文</span>
+            <span id="toggleTocTrans" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local">訳文</span>
           </div>
           <div class="toc-scroll-wrapper">
             <table class="tocTable">
@@ -104,8 +107,8 @@
         </div>
         <div id="resizer1" class="resizer"></div>
 
-        <div id="pdfPanel" class="panel flex-panel" style="min-width: 20;">
-            <iframe id="pdfIframe" style="width:100%; height:100%;"></iframe>
+        <div id="pdfPanel" class="panel flex-panel pdf-panel">
+            <iframe id="pdfIframe" class="pdf-iframe"></iframe>
             <div id="overlay" class="overlay"></div>
         </div>
 

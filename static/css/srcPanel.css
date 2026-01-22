@@ -184,15 +184,33 @@
     font-family: monospace;
     font-weight: bold;
     background-color: var(--li-bg);
-    color: var(--li-fg);
-    border-bottom: var(--li-fg) 3px solid;
 }
 .block-tag-tr {
     font-family: monospace;
     font-weight: bold;
     background-color: var(--tr-bg);
-    color: var(--tr-fg);
-    border-bottom: var(--tr-fg) 3px solid;
+}
+
+.paragraph-box.block-tag-li .src-html,
+.paragraph-box.block-tag-li .src-text,
+.paragraph-box.block-tag-li .src-joined,
+.paragraph-box.block-tag-li .src-replaced,
+.paragraph-box.block-tag-li .trans-auto,
+.paragraph-box.block-tag-li .trans-text {
+    padding-left: 16px;
+    background-image:
+        radial-gradient(circle at 8px 1em, var(--li-marker, currentColor) 0 4px, transparent 4px),
+        linear-gradient(to right, var(--li-bg) 0, var(--li-bg) 12px, transparent 12px);
+        background-repeat: no-repeat;
+}
+
+.paragraph-box.block-tag-tr .src-html,
+.paragraph-box.block-tag-tr .src-text,
+.paragraph-box.block-tag-tr .src-joined,
+.paragraph-box.block-tag-tr .src-replaced,
+.paragraph-box.block-tag-tr .trans-auto,
+.paragraph-box.block-tag-tr .trans-text {
+    padding-left: 16px;
 }
 
 

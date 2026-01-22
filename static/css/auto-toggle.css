@@ -81,6 +81,12 @@ span.auto-toggle {
   padding-top: 4px;
 }
 
+/* checkbox appearance を少し大きく（チェック部分含む） */
+.auto-toggle-checkbox-container input[type="checkbox"] {
+  transform: scale(1.4);
+  transform-origin: left center;
+}
+
 /* ==== ダークモードスタイル ==== */
 @media (prefers-color-scheme: dark) {
   .auto-toggle.switch .slider {
