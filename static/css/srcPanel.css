@@ -86,7 +86,10 @@
 
 .src-html, .src-text, .src-joined, .src-replaced, .trans-auto, .trans-text {
     flex: 1 1 50%;
-    word-wrap: break-word;
+    min-width: 0; /* flex の既定 min-width:auto によるはみ出し防止 */
+    overflow-wrap: anywhere; /* ピリオド連続などでも必要時に折り返す */
+    word-wrap: break-word; /* 互換用 */
+    word-break: break-word;
     padding: 5px;
 }
 .edit-ui {

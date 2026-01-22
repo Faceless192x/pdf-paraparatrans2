@@ -259,7 +259,7 @@ async function nextPage() { // async を追加
 }
 
 async function jumpToPage(pageNum, options = {}) { // async を追加
-    const { updateUrl = true, replaceHistory = false } = options;
+    const { updateUrl = true, replaceHistory = false, forceRender = false } = options;
 
     const targetPage = clampPage(pageNum);
 
@@ -267,11 +267,17 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
     console.log("currentPage " + currentPage);
     console.log("pageInput.value" + document.getElementById("pageInput").value);
 
-    // 同一ページ指定の場合はURL同期のみ行う
+    // 同一ページ指定の場合は、通常はURL同期のみ。
+    // ただしデータ更新後などは forceRender で再描画する。
     if (targetPage === currentPage) {
         document.getElementById("pageInput").value = currentPage;
         if (updateUrl) {
             updateUrlForPage(currentPage, { replace: replaceHistory });
+        }
+        if (forceRender) {
+            renderParagraphs();
+            document.getElementById("srcPanel").focus();
+            setCurrentParagraph(0);
         }
         return;
     }

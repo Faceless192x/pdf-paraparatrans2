@@ -77,13 +77,10 @@ def join_replaced_paragraphs(book_data):
             # 結合指定のない段落(join=0)に来たら
             p['src_joined'] = curr_src_text
             p['src_replaced'] = curr_src_text
-            if curr_trans_status in ['none', 'auto']:
-                p['trans_text'] = curr_src_text
-                p['trans_status'] = "none"
 
-            # 違う場合はtrans_autoもクリア
-            if curr_src_text != curr_src_joined:
+            if curr_trans_status in ['none']:
                 p['trans_auto'] = curr_src_text
+                p['trans_text'] = curr_src_text
 
             # 自分を結合対象段落にセット
             join_target_paragraphs[tag] = p
