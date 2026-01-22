@@ -32,13 +32,13 @@
 # TRANSLATOR=google
 TRANSLATOR=deepl
 
-GOOGLE_API_KEY=YOUR_GOOGLE_API_KEY
+GOOGLE_API_KEY=
 DEEPL_AUTH_KEY=xxxxx_your_key_here_xxxxx
 ```
 
 注意:
 - `.env` は秘密情報を含むので、Gitにコミットしないでください。
-- Codespaces を使う場合は、Secrets に `DEEPL_AUTH_KEY` を登録してもOKです。
+- Codespaces を使う場合は、Codespaces Secrets に `DEEPL_AUTH_KEY`（必要なら `TRANSLATOR=deepl`）を登録してもOKです。
 
 ### 3. 起動して動作確認
 

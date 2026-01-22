@@ -42,13 +42,15 @@ APIキーが漏れると第三者に使われる可能性があります。可�
 
 リポジトリ直下の `.env_sample` を `.env` にコピーし、キーを貼り付けます。
 
+Codespaces の場合は `.env` を作らず、Codespaces Secrets に `GOOGLE_API_KEY` を登録する運用でもOKです。
+
 例:
 
 ```env
 TRANSLATOR=google
 
 GOOGLE_API_KEY=xxxxx_your_key_here_xxxxx
-DEEPL_AUTH_KEY=YOUR_DEEPL_AUTH_KEY
+DEEPL_AUTH_KEY=
 ```
 
 ### 5. 起動して動作確認

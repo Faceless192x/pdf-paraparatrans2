@@ -82,18 +82,27 @@
     ```
     pip install -r requirements.txt
     ```
-3. `.env_sample` を `.env` としてコピーし、内容を整える:
+3. （推奨）GitHub 側で Codespaces Secrets を登録（Gitに入れない）:
+    - `TRANSLATOR`（`google` / `deepl` / `google_v3`）
+    - `GOOGLE_API_KEY`（Google APIキー方式を使う場合）
+    - `DEEPL_AUTH_KEY`（DeepL を使う場合）
+    - ※ `google_v3` は追加で `GOOGLE_PROJECT_ID` 等が必要です（[SETUP_GOOGLE_TRANSLATE_V3.md](SETUP_GOOGLE_TRANSLATE_V3.md)）
+    - Secrets が渡っているかは「値を表示せず」次で確認できます:
+      ```
+      python -c "import os; print('TRANSLATOR=', os.getenv('TRANSLATOR')); print('has GOOGLE_API_KEY=', bool(os.getenv('GOOGLE_API_KEY'))); print('has DEEPL_AUTH_KEY=', bool(os.getenv('DEEPL_AUTH_KEY')))"
+      ```
+4. （任意）ローカルと同じ運用にしたい場合は `.env_sample` を `.env` としてコピーし、内容を整える:
     ```
     cp .env_sample .env
     ```
-    - `.env` を開いて **KEY情報を登録**（または Codespaces の Secrets に `TRANSLATOR` / `GOOGLE_API_KEY` / `DEEPL_AUTH_KEY` を登録）
-    - ※ `.env` が無い場合は起動時に雛形が自動生成されますが、基本は `.env_sample` からコピーしてください。
-4. `data` フォルダを作成し、変換したいPDFを入れる（エクスプローラーにドラッグ＆ドロップでOK）
-5. ターミナルで起動する:
+    - `.env` のキーは **空欄=未設定** として扱われます（プレースホルダ文字列は入れないでください）
+    - ※ `.env` が無い場合は起動時に雛形が自動生成されます。
+5. `data` フォルダを作成し、変換したいPDFを入れる（エクスプローラーにドラッグ＆ドロップでOK）
+6. ターミナルで起動する:
     ```
     python pdf-paraparatrans.py
     ```
-6. 起動ログに出る `http://localhost:5077/` を `Ctrl + Click` で開く
+7. 起動ログに出る `http://localhost:5077/` を `Ctrl + Click` で開く
 
 ### ローカル環境（zipダウンロード）
 

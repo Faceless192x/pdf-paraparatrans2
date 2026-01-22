@@ -11,10 +11,11 @@ import google.auth
 from google.auth.transport.requests import Request
 from google.auth.exceptions import DefaultCredentialsError
 
-"""Google Translate API (v2) via ADC (Application Default Credentials).
+"""Google Translate API (v2).
 
-- APIキーではなく ADC を使って OAuth2 アクセストークンを取得して呼び出す。
-- ADC が見つからない場合は、gcloud を使って browser login を起動して作成する。
+- APIキー（GOOGLE_API_KEY）があれば APIキー方式で呼び出す（PROJECT_ID不要）
+- 無ければ ADC (Application Default Credentials) で OAuth2 アクセストークンを取得して呼び出す
+- ADC が見つからない場合は、gcloud を使って browser login を起動して作成する
 
 .env 例:
   GOOGLE_PROJECT_ID=your-gcp-project-id   # (推奨) 課金/請求先
@@ -25,16 +26,13 @@ from google.auth.exceptions import DefaultCredentialsError
   pip install google-auth requests python-dotenv
 """
 
-# google のAPIキーを.envファイルから取得
+# 環境変数/.env を読み込み
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 PROJECT_ID = os.getenv("GOOGLE_PROJECT_ID")
 QUOTA_PROJECT_ID = os.getenv("GOOGLE_QUOTA_PROJECT_ID") or PROJECT_ID
 DEBUG_TOKEN_PREFIX = os.getenv("DEBUG_TOKEN_PREFIX", "").lower() in ("1", "true", "yes", "on")
-
-if not QUOTA_PROJECT_ID:
-    raise RuntimeError("GOOGLE_QUOTA_PROJECT_ID (or GOOGLE_PROJECT_ID) is required.")
 
 SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 
@@ -107,6 +105,11 @@ def _run_gcloud(args: list[str]) -> None:
 
 def _ensure_adc_login_interactive() -> None:
     """ADCが無い場合に、ブラウザログインを起動してADCを作る。"""
+    if not QUOTA_PROJECT_ID:
+        raise RuntimeError(
+            "ADC (OAuth) を使う場合は GOOGLE_QUOTA_PROJECT_ID または GOOGLE_PROJECT_ID が必要です。\n"
+            "APIキー方式を使う場合は GOOGLE_API_KEY を設定してください。"
+        )
     _run_gcloud(["auth", "application-default", "login"])
     _run_gcloud(["auth", "application-default", "set-quota-project", QUOTA_PROJECT_ID])
 
@@ -116,6 +119,11 @@ def get_access_token() -> str:
 
     ADCが無ければ gcloud でログインを起動して、成功したら続行する。
     """
+    if not QUOTA_PROJECT_ID:
+        raise RuntimeError(
+            "ADC (OAuth) を使う場合は GOOGLE_QUOTA_PROJECT_ID または GOOGLE_PROJECT_ID が必要です。\n"
+            "APIキー方式を使う場合は GOOGLE_API_KEY を設定してください。"
+        )
     try:
         creds, _ = google.auth.default(scopes=SCOPES)
     except DefaultCredentialsError:
@@ -168,8 +176,10 @@ def translate_text(text: str, source: str = "en", target: str = "ja") -> str:
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json; charset=utf-8",
-            "x-goog-user-project": QUOTA_PROJECT_ID,
         }
+
+        if QUOTA_PROJECT_ID:
+            headers["x-goog-user-project"] = QUOTA_PROJECT_ID
 
         resp = requests.post(
             TRANSLATE_ENDPOINT_V2,

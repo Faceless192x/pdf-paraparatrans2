@@ -20,8 +20,9 @@ ENV_TEMPLATE = """
 TRANSLATOR=google
 # TRANSLATOR=deepl
 
-GOOGLE_API_KEY=YOUR_GOOGLE_API_KEY
-DEEPL_AUTH_KEY=YOUR_DEEPL_AUTH_KEY
+# ※値が空なら未設定扱いです（プレースホルダ文字列は入れないでください）
+GOOGLE_API_KEY=
+DEEPL_AUTH_KEY=
 """
 
 # .envが存在しない場合にひな形を出力

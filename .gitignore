@@ -24,6 +24,7 @@ __pycache__/
 venv/
 .venv/
 .env
+.env.*
 
 # Python ツールのキャッシュ
 .pytest_cache/
