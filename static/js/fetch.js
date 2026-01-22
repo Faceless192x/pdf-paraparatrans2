@@ -12,11 +12,12 @@ async function fetchBookData() {
 
         document.getElementById("titleInput").value = bookData.title;
         document.getElementById("pageCount").innerText = bookData.page_count;
+        document.getElementById("pageInput").max = bookData.page_count;
 
         updateTransStatusCounts(bookData.trans_status_counts); // この関数も辞書対応が必要か確認
         updateBookStyles();
         showToc();
-        jumpToPage(currentPage);
+        jumpToPage(currentPage, { replaceHistory: true });
     } catch (error) {
         console.error("Error fetching book data:", error);
         alert("書籍データの取得中にエラーが発生しました。"); // ユーザーへの通知

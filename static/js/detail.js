@@ -3,7 +3,68 @@ pdfName = document.body.dataset.pdfName;
 bookData = {};
 currentPage = 1;
 
+function getPageFromUrl() {
+    try {
+        const url = new URL(window.location.href);
+        const q = url.searchParams.get('page');
+        if (q) {
+            const n = parseInt(q, 10);
+            return Number.isFinite(n) ? n : null;
+        }
+
+        const hash = (url.hash || '').replace(/^#/, '');
+        if (!hash) return null;
+
+        const hashParams = new URLSearchParams(hash);
+        const h = hashParams.get('page') || hashParams.get('p');
+        if (!h) return null;
+        const n = parseInt(h, 10);
+        return Number.isFinite(n) ? n : null;
+    } catch (e) {
+        console.warn('getPageFromUrl failed:', e);
+        return null;
+    }
+}
+
+function clampPage(pageNum) {
+    let page = parseInt(pageNum, 10);
+    if (!Number.isFinite(page) || page < 1) page = 1;
+
+    const max = parseInt(bookData?.page_count, 10);
+    if (Number.isFinite(max) && max > 0) {
+        page = Math.min(Math.max(1, page), max);
+    }
+    return page;
+}
+
+function updateUrlForPage(pageNum, { replace = false } = {}) {
+    const page = parseInt(pageNum, 10);
+    if (!Number.isFinite(page) || page < 1) return;
+
+    const url = new URL(window.location.href);
+    const current = url.searchParams.get('page');
+    if (current === String(page) && (history.state?.page === page)) {
+        return;
+    }
+    url.searchParams.set('page', String(page));
+
+    const state = { page };
+    if (replace) {
+        history.replaceState(state, '', url);
+    } else {
+        history.pushState(state, '', url);
+    }
+}
+
 window.onload = async function() { // async を追加
+    const pageFromUrl = getPageFromUrl();
+    if (pageFromUrl) {
+        currentPage = pageFromUrl;
+    }
+
+    // 初期状態をURLに反映（履歴は増やさない）
+    updateUrlForPage(currentPage, { replace: true });
+
     initResizers();
     initTocPanel();
     initPdfPanel();
@@ -34,6 +95,15 @@ document.addEventListener('DOMContentLoaded', function() {
     window.autoToggle.init();
     // トグル/チェックボックスのカスタムイベント
     document.addEventListener('auto-toggle-change', autoToggleChanged);
+
+    // ブラウザの戻る/進むでページ移動
+    window.addEventListener('popstate', async (event) => {
+        const page = event?.state?.page ?? getPageFromUrl();
+        if (!page) return;
+        const targetPage = clampPage(page);
+        if (targetPage === currentPage) return;
+        await jumpToPage(targetPage, { updateUrl: false });
+    });
 });
 
 // すべてのauto-toggleの状態変化を監視する（toggleごとでもよいが、リスナーを増やさないことを選択）
@@ -188,21 +258,38 @@ async function nextPage() { // async を追加
     }
 }
 
-async function jumpToPage(pageNum) { // async を追加
+async function jumpToPage(pageNum, options = {}) { // async を追加
+    const { updateUrl = true, replaceHistory = false } = options;
+
+    const targetPage = clampPage(pageNum);
+
     console.log("jumpToPage:pageNum " + pageNum);
     console.log("currentPage " + currentPage);
     console.log("pageInput.value" + document.getElementById("pageInput").value);
+
+    // 同一ページ指定の場合はURL同期のみ行う
+    if (targetPage === currentPage) {
+        document.getElementById("pageInput").value = currentPage;
+        if (updateUrl) {
+            updateUrlForPage(currentPage, { replace: replaceHistory });
+        }
+        return;
+    }
 
     if (isPageEdited) {
         await saveCurrentPageOrder(); // await を追加
     }
 
     // 保存後にページを移動する
-    currentPage = parseInt(pageNum,10);
+    currentPage = targetPage;
     document.getElementById("pageInput").value = currentPage;
 
+    if (updateUrl) {
+        updateUrlForPage(currentPage, { replace: replaceHistory });
+    }
+
     // 「PDFファイルのURL」を作成
-    const pdfUrl = encodeURIComponent(`/pdf_view/${pdfName}/${pageNum}`);
+    const pdfUrl = encodeURIComponent(`/pdf_view/${pdfName}/${currentPage}`);
     console.log("jumpToPage: " + pdfUrl);
     // PDF.js ビューワをiframeに読み込み、?file= でPDFのURLを指定
     const viewerUrl = `/static/pdfjs/web/viewer.html?file=${pdfUrl}`;
