@@ -1,0 +1,17 @@
+Wingdings
+Webdings
+Segoe UI Symbol
+Apple Symbols
+Font Awesome
+Material Icons
+Ionicons
+Entypo
+Fork Awesome
+Zocial
+OpenMoji
+Glyphicons
+Line Awesome
+Typicons
+Noto Emoji
+Twemoji
+Symbols Nerd Font

@@ -4,6 +4,8 @@ import json
 import datetime
 import io
 import sys
+import shutil
+import time
 from PyPDF2 import PdfReader, PdfWriter
 import uuid  # ファイル名の一意性を確保するために追加
 import tempfile
@@ -65,12 +67,13 @@ from modules.parapara_join import join_replaced_paragraphs_in_file
 from modules.parapara_symbolfont_rebuild import rebuild_src_text_in_file
 
 from modules.api_translate import translate_text
-from modules.parapara_trans import paraparatrans_json_file
+from modules.parapara_trans import paraparatrans_json_file, recalc_trans_status_counts
 from modules.parapara_init import parapara_init  # parapara_initをインポート
 # スタイルによるblock_tag一括更新
 from modules.parapara_tagging_by_style import tag_paragraphs_by_style # 追加
 # 対訳HTMLの出力
 from modules.parapara_json2html import json2html
+from modules.parapara_align_trans_by_src_joined import align_translations_by_src_joined
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 # mjsがtext/plain解釈されPDFビューアーが読み込めないケースへの対策。
@@ -78,11 +81,102 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 import mimetypes
 mimetypes.add_type('application/javascript', '.mjs')
 
-# PDFとJSONの配置ディレクトリ（必要に応じて変更してください）
-BASE_FOLDER = "./data"  # Windows例。Linux等の場合はパスを変更してください
-DICT_PATH = os.path.join(BASE_FOLDER, "dict.txt")
-SIMBLE_DICT_PATH = os.path.join(BASE_FOLDER, "symbolfonts.txt")
-SYMBOLFONT_DICT_PATH = os.path.join(BASE_FOLDER, "symbolfont_dict.txt")
+def _get_app_dir():
+    """アプリの基準ディレクトリを返す（起動CWDに依存しない）。"""
+    if getattr(sys, "frozen", False):
+        # PyInstaller等でEXE化されている場合: exeのある場所を基準
+        return os.path.dirname(sys.executable)
+    # 通常の実行: このファイルの場所を基準
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+APP_DIR = _get_app_dir()
+
+# data/ は入出力（pdf/json/html）、config/ はユーザー設定（辞書・settings）
+DATA_FOLDER = os.path.abspath(os.getenv("PARAPARATRANS_DATA_DIR", os.path.join(APP_DIR, "data")))
+CONFIG_FOLDER = os.path.abspath(os.getenv("PARAPARATRANS_CONFIG_DIR", os.path.join(APP_DIR, "config")))
+
+# 既存コード互換のため BASE_FOLDER は data/ を指す
+BASE_FOLDER = DATA_FOLDER
+
+DICT_PATH = os.path.join(CONFIG_FOLDER, "dict.txt")
+SIMBLE_DICT_PATH = os.path.join(CONFIG_FOLDER, "symbolfonts.txt")
+SYMBOLFONT_DICT_PATH = os.path.join(CONFIG_FOLDER, "symbolfont_dict.txt")
+
+
+def _migrate_user_file(filename: str) -> None:
+    """旧 data/ 配下のユーザーファイルを config/ に移行（存在する場合のみ）。"""
+    old_path = os.path.join(DATA_FOLDER, filename)
+    new_path = os.path.join(CONFIG_FOLDER, filename)
+
+    if os.path.exists(new_path):
+        return
+    if not os.path.exists(old_path):
+        return
+
+    os.makedirs(CONFIG_FOLDER, exist_ok=True)
+    try:
+        shutil.move(old_path, new_path)
+        print(f"{filename} を data/ から config/ に移行しました: {new_path}")
+    except Exception:
+        shutil.copy2(old_path, new_path)
+        print(f"{filename} を data/ から config/ にコピーしました: {new_path}")
+
+
+os.makedirs(DATA_FOLDER, exist_ok=True)
+os.makedirs(CONFIG_FOLDER, exist_ok=True)
+
+
+def _startup_cleanup_tmp_files(folder: str, min_age_seconds: int = 600) -> int:
+    """起動時に残った tmp ファイルを掃除する。
+
+    - mkstemp 由来の tmpXXXXXX.* が異常終了等で残ることがある
+    - ユーザー操作不要にするため、起動時に「十分古いもの」だけ削除する
+    """
+    try:
+        entries = os.listdir(folder)
+    except OSError:
+        return 0
+
+    now = time.time()
+    removed = 0
+    for name in entries:
+        # tempfile.mkstemp() の典型: tmp + ランダム
+        if not name.startswith("tmp"):
+            continue
+        if not (name.endswith(".tmp") or name.endswith(".json") or name.endswith(".txt")):
+            continue
+
+        path = os.path.join(folder, name)
+        if not os.path.isfile(path):
+            continue
+
+        try:
+            age = now - os.path.getmtime(path)
+        except OSError:
+            continue
+        if age < min_age_seconds:
+            continue
+
+        try:
+            os.remove(path)
+            removed += 1
+        except OSError:
+            pass
+
+    return removed
+
+
+removed_tmp = 0
+removed_tmp += _startup_cleanup_tmp_files(DATA_FOLDER)
+removed_tmp += _startup_cleanup_tmp_files(CONFIG_FOLDER)
+if removed_tmp:
+    print(f"起動時クリーンアップ: tmpファイルを{removed_tmp}件削除しました")
+
+_migrate_user_file("dict.txt")
+_migrate_user_file("symbolfonts.txt")
+_migrate_user_file("symbolfont_dict.txt")
+_migrate_user_file("paraparatrans.settings.json")
 
 # dict.txtのひな形
 DICT_TEMPLATE = """#英語\t#日本語\t#状態\t#出現回数
@@ -95,7 +189,7 @@ Detect Magic\t《魔力検知》\t1\t0
 # dict.txtが存在しない場合にひな形を出力
 if not os.path.exists(DICT_PATH):
     print(f"dict.txt が存在しません。ひな形を作成します: {DICT_PATH}")
-    os.makedirs(BASE_FOLDER, exist_ok=True)
+    os.makedirs(os.path.dirname(DICT_PATH), exist_ok=True)
     with open(DICT_PATH, "w", encoding="utf-8") as f:
         f.write(DICT_TEMPLATE)
 
@@ -103,7 +197,7 @@ if not os.path.exists(DICT_PATH):
 SYMBOLFONT_DICT_TEMPLATE = """# symbolfont_dict.txt\n#\n# 形式: フォント名.キャラクター\t置換後文字列\n# 例:\n#   Wingdings.a\t■\n#   Wingdings.b\t▲\n#\n# メモ:\n# - フォント名は大小/空白/アンダースコア差を吸収して照合されます。\n# - 置換後文字列には翻訳拒否タグ等を含めてもOK（翻訳側で扱う想定）。\n\nWingdings.a\t■\nWingdings.b\t▲\n"""
 if not os.path.exists(SYMBOLFONT_DICT_PATH):
     print(f"symbolfont_dict.txt が存在しません。ひな形を作成します: {SYMBOLFONT_DICT_PATH}")
-    os.makedirs(BASE_FOLDER, exist_ok=True)
+    os.makedirs(os.path.dirname(SYMBOLFONT_DICT_PATH), exist_ok=True)
     with open(SYMBOLFONT_DICT_PATH, "w", encoding="utf-8") as f:
         f.write(SYMBOLFONT_DICT_TEMPLATE)
 
@@ -115,8 +209,8 @@ def get_resource_path(relative_path):
         # PyInstallerで実行されている場合
         base_path = sys._MEIPASS
     else:
-        # 通常の実行
-        base_path = os.path.abspath(".")
+        # 通常の実行（起動CWDに依存しない）
+        base_path = APP_DIR
 
     return os.path.join(base_path, relative_path)
 
@@ -159,12 +253,12 @@ def get_pdf_files():
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    settings_path = os.path.join(BASE_FOLDER, "paraparatrans.settings.json")
+    settings_path = os.path.join(CONFIG_FOLDER, "paraparatrans.settings.json")
     
     # POSTリクエストの場合はリストをリフレッシュ
     if request.method == "POST":
         try:
-            parapara_init(BASE_FOLDER)
+            parapara_init(BASE_FOLDER, CONFIG_FOLDER)
             app.logger.info("リストがリフレッシュされました")
         except Exception as e:
             app.logger.error(f"リストリフレッシュ中にエラーが発生しました: {str(e)}")
@@ -172,7 +266,7 @@ def index():
 
     # paraparatrans.settings.jsonが存在しない場合、parapara_initを実行
     if not os.path.exists(settings_path):
-        parapara_init(BASE_FOLDER)
+        parapara_init(BASE_FOLDER, CONFIG_FOLDER)
     
     # paraparatrans.settings.jsonを読み込む
     with open(settings_path, "r", encoding="utf-8") as f:
@@ -380,6 +474,33 @@ def paraparatrans_api(pdf_name):
         app.logger.error(f"翻訳処理中にエラーが発生しました: {str(e)}")
         return jsonify({"status": "error", "message": f"翻訳処理中にエラーが発生しました: {str(e)}"}), 500
 
+
+@app.route("/api/align_trans_by_src_joined/<pdf_name>", methods=["POST"])
+def align_trans_by_src_joined_api(pdf_name):
+    """同一 src_joined の訳を、より上位 trans_status の訳へ揃える。"""
+    _, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "対象のJSONファイルが存在しません"}), 404
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            book_data = json.load(f)
+
+        _, changed = align_translations_by_src_joined(book_data)
+        recalc_trans_status_counts(book_data)
+        atomicsave_json(json_path, book_data)
+
+        return jsonify(
+            {
+                "status": "ok",
+                "changed": changed,
+                "trans_status_counts": book_data.get("trans_status_counts"),
+            }
+        ), 200
+    except Exception as e:
+        app.logger.error(f"訳揃え処理中にエラーが発生しました: {str(e)}")
+        return jsonify({"status": "error", "message": f"訳揃え処理中にエラーが発生しました: {str(e)}"}), 500
+
 # APIW:book_data取得
 @app.route("/api/reload_book_data/<pdf_name>", methods=["GET"])
 def reload_book_data_api(pdf_name):
@@ -560,7 +681,7 @@ def auto_join_replaced_paragraphs_api(pdf_name):
 @app.route("/api/dict_create/<pdf_name>", methods=["POST"])
 def dict_create_api(pdf_name):
     pdf_path, json_path = get_paths(pdf_name)
-    COMMON_WORDS_PATH = "./modules/english_common_words.txt"
+    COMMON_WORDS_PATH = get_resource_path(os.path.join("modules", "english_common_words.txt"))
     if not os.path.exists(json_path):
         return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
     try:
@@ -584,7 +705,7 @@ def dict_trans_api(pdf_name):
 
 @app.route("/api/update_book_info/<pdf_name>", methods=["POST"])
 def update_book_info_api(pdf_name):
-    settings_path = os.path.join(BASE_FOLDER, "paraparatrans.settings.json")
+    settings_path = os.path.join(CONFIG_FOLDER, "paraparatrans.settings.json")
     
     # settingsファイルが存在しない場合はエラーを返す
     if not os.path.exists(settings_path):

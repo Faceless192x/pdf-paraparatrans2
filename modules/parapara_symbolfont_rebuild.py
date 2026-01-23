@@ -199,8 +199,8 @@ def main() -> None:
     parser.add_argument(
         "symbolfont_dict",
         nargs="?",
-        default=os.path.join("data", "symbolfont_dict.txt"),
-        help="symbolfont_dict.txt（省略時: data/symbolfont_dict.txt）",
+        default=os.path.join("config", "symbolfont_dict.txt"),
+        help="symbolfont_dict.txt（省略時: config/symbolfont_dict.txt）",
     )
     args = parser.parse_args()
 

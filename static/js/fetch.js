@@ -88,6 +88,40 @@ async function dictReplacePage() {
     }
 }
 
+/** @function alignTransBySrcJoined */
+async function alignTransBySrcJoined() {
+    await saveCurrentPageOrder();
+    const msg = "同一src_joinedの訳を文書全体で揃えます。\nよろしいですか？";
+    if (!confirm(msg)) return;
+    showLog();
+
+    try {
+        const response = await fetch(`/api/align_trans_by_src_joined/${encodeURIComponent(pdfName)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: ''
+        });
+        const data = await response.json();
+        if (data.status === "ok") {
+            console.log(`訳揃えが成功しました。updated=${data.changed}`);
+            if (data.trans_status_counts) {
+                updateTransStatusCounts(data.trans_status_counts);
+            }
+        } else {
+            console.error('エラー:', data.message);
+            alert('訳揃えエラー(response): ' + data.message);
+        }
+        hideLog();
+    } catch (error) {
+        console.error('Error:', error);
+        alert('訳揃え中にエラー(catch)');
+    } finally {
+        await fetchBookData();
+    }
+}
+
 async function dictReplaceAll() {
     let msg = "全ページに対して対訳辞書による置換を行います";
     msg += "\nこの処理は時間がかかります。";

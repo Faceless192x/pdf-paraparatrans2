@@ -3,9 +3,12 @@ import sys
 import json
 from glob import glob
 
-def parapara_init(data_folder):
+
+def parapara_init(data_folder, settings_folder=None):
+    if settings_folder is None:
+        settings_folder = data_folder
     # 1. paraparatrans.settings.jsonを読み込み。存在しなければ空の辞書を生成。
-    settings_path = os.path.join(data_folder, "paraparatrans.settings.json")
+    settings_path = os.path.join(settings_folder, "paraparatrans.settings.json")
     if os.path.exists(settings_path):
         with open(settings_path, "r", encoding="utf-8") as f:
             settings = json.load(f)
@@ -63,6 +66,7 @@ def parapara_init(data_folder):
             }
 
     # 6. paraparatrans.settings.jsonに出力
+    os.makedirs(settings_folder, exist_ok=True)
     with open(settings_path, "w", encoding="utf-8") as f:
         json.dump(settings, f, ensure_ascii=False, indent=4)
     

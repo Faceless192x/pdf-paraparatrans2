@@ -81,6 +81,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // ページ翻訳
     document.getElementById('pageDictReplaceButton').addEventListener('click', dictReplacePage);
     document.getElementById('pageTransButton').addEventListener('click', transPage);
+    document.getElementById('alignTransBySrcJoinedButton').addEventListener('click', alignTransBySrcJoined);
     // 辞書登録ボタン
     document.getElementById('openDictButton').addEventListener('click', () => {
         // DictPopup.show() は dict.js で定義されている
