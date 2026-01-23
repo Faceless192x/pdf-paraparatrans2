@@ -417,6 +417,9 @@ async function updateParagraphs(sendParagraphs, title = null) {
         if (data.status === "ok") {
             isPageEdited = false;
             console.log("パラグラフ更新が成功しました");
+            if (data.trans_status_counts) {
+                updateTransStatusCounts(data.trans_status_counts);
+            }
         } else {
             console.error("パラグラフ更新エラー:", data.message);
             alert("パラグラフ更新エラー: " + data.message);

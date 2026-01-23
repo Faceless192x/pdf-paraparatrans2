@@ -214,6 +214,12 @@ function updateTransStatusCounts(counts) {
         console.warn("counts が存在しません");
         return;
     }
+
+    // settings更新(updateBookInfo)で使うため、bookData にも保持しておく
+    if (typeof bookData === 'object' && bookData) {
+        bookData.trans_status_counts = counts;
+    }
+
     document.getElementById("countNone").innerText = counts.none;
     document.getElementById("countAuto").innerText = counts.auto;
     document.getElementById("countDraft").innerText = counts.draft;

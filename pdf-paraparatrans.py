@@ -642,6 +642,51 @@ def recalc_trans_status_counts(book_data):
                 print(f"Warning: Unknown trans_status '{st}' found in paragraph ID {p.get('id', 'N/A')} on page {page_id}. Counted as 'none'.")
     book_data["trans_status_counts"] = counts
 
+
+_TRANS_STATUS_KEYS = ("none", "auto", "draft", "fixed")
+
+
+def _normalize_trans_status(status):
+    if status in _TRANS_STATUS_KEYS:
+        return status
+    return "none"
+
+
+def ensure_trans_status_counts(book_data):
+    """book_data["trans_status_counts"] を差分更新できる形に正規化する。"""
+    counts = book_data.get("trans_status_counts")
+    if not isinstance(counts, dict):
+        counts = {}
+    normalized = {}
+    for k in _TRANS_STATUS_KEYS:
+        v = counts.get(k, 0)
+        try:
+            normalized[k] = int(v)
+        except Exception:
+            normalized[k] = 0
+    book_data["trans_status_counts"] = normalized
+    return normalized
+
+
+def is_trans_status_counts_usable_for_delta(book_data) -> bool:
+    counts = book_data.get("trans_status_counts")
+    if not isinstance(counts, dict):
+        return False
+    return all(k in counts for k in _TRANS_STATUS_KEYS)
+
+
+def apply_trans_status_delta(book_data, old_status, new_status):
+    """trans_status の変更分だけ trans_status_counts を更新する（全件再集計を避ける）。"""
+    counts = ensure_trans_status_counts(book_data)
+    old_s = _normalize_trans_status(old_status)
+    new_s = _normalize_trans_status(new_status)
+    if old_s == new_s:
+        return
+
+    # 念のため負数は避ける（counts が古い/壊れていても暴走しないように）
+    counts[old_s] = max(0, counts.get(old_s, 0) - 1)
+    counts[new_s] = counts.get(new_s, 0) + 1
+
 # 単パラグラフの翻訳を保存するAPI
 @app.route("/api/update_paragraph/<pdf_name>", methods=["POST"])
 def update_paragraph_api(pdf_name):
@@ -666,17 +711,34 @@ def update_paragraph_api(pdf_name):
     if not paragraph:
         return jsonify({"status": "error", "message": "(update_paragraph_api 2)該当パラグラフが見つかりません"}), 404
 
+    # trans_status_counts は全件再集計だと重いので、基本は変更分だけ更新する。
+    # ただし counts が欠損/破損している場合は、最後に1回だけ再集計する。
+    old_status = paragraph.get("trans_status", "none")
+    old_status_norm = _normalize_trans_status(old_status)
+    can_delta = is_trans_status_counts_usable_for_delta(book_data)
+    if can_delta:
+        # これから old_status を 1 減らすので、0 以下は不整合とみなして再集計へ
+        try:
+            if int(book_data["trans_status_counts"].get(old_status_norm, 0)) <= 0:
+                can_delta = False
+        except Exception:
+            can_delta = False
+
     paragraph["src_text"] = new_src_text
     paragraph["trans_auto"] = new_trans_auto
     paragraph["trans_text"] = new_trans_text
     paragraph["trans_status"] = new_status
     paragraph["block_tag"] = new_block_tag
     paragraph["modified_at"] = datetime.datetime.now().isoformat()
-    recalc_trans_status_counts(book_data) # recalc_trans_status_counts も辞書対応が必要
+
+    if can_delta:
+        apply_trans_status_delta(book_data, old_status, new_status)
+    else:
+        recalc_trans_status_counts(book_data)
 
     try:
         atomicsave_json(json_path, book_data)  # アトミックセーブ
-        return jsonify({"status": "ok"}), 200
+        return jsonify({"status": "ok", "trans_status_counts": book_data.get("trans_status_counts")}), 200
     except ValueError as ve:
         return jsonify({"status": "error", "message:": "(update_paragraph_api 3)" + str(ve)}), 400
     except Exception as e:
@@ -731,6 +793,11 @@ def update_paragraphs_api(pdf_name):
             elif "join" in p:
                 del p["join"]  # joinを削除
 
+        # 差分更新ができる場合は差分で、無理なら最後に1回だけ再集計する
+        can_delta = is_trans_status_counts_usable_for_delta(book_data)
+        if can_delta:
+            ensure_trans_status_counts(book_data)
+
         request_paragraphs = request_data.get("paragraphs")
         for request_paragraph in request_paragraphs:
             page_number = str(request_paragraph.get("page_number"))
@@ -738,14 +805,24 @@ def update_paragraphs_api(pdf_name):
             # print(f"page:{page_number} id:{id}")
             paragraph_dict = book_data["pages"][page_number]["paragraphs"][id]
 
+            old_status = paragraph_dict.get("trans_status", "none")
+            if can_delta:
+                old_status_norm = _normalize_trans_status(old_status)
+                try:
+                    if int(book_data["trans_status_counts"].get(old_status_norm, 0)) <= 0:
+                        can_delta = False
+                except Exception:
+                    can_delta = False
             apply_update(paragraph_dict, request_paragraph)
+            new_status = paragraph_dict.get("trans_status", "none")
+            if can_delta:
+                apply_trans_status_delta(book_data, old_status, new_status)
 
-
-        # 翻訳ステータスカウントを再計算
-        recalc_trans_status_counts(book_data)
+        if not can_delta:
+            recalc_trans_status_counts(book_data)
 
         atomicsave_json(json_path, book_data)
-        return jsonify({"status": "ok"}), 200
+        return jsonify({"status": "ok", "trans_status_counts": book_data.get("trans_status_counts")}), 200
 
     except ValueError as ve:
         return jsonify({"status": "error", "message": str(ve)}), 400
