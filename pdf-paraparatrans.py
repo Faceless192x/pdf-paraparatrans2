@@ -62,6 +62,8 @@ from modules.parapara_dict_replacer import file_replace_with_dict
 # 対訳置換後にjoinに従ってsrc_replacedを結合
 from modules.parapara_join import join_replaced_paragraphs_in_file
 
+from modules.parapara_symbolfont_rebuild import rebuild_src_text_in_file
+
 from modules.api_translate import translate_text
 from modules.parapara_trans import paraparatrans_json_file
 from modules.parapara_init import parapara_init  # parapara_initをインポート
@@ -80,6 +82,7 @@ mimetypes.add_type('application/javascript', '.mjs')
 BASE_FOLDER = "./data"  # Windows例。Linux等の場合はパスを変更してください
 DICT_PATH = os.path.join(BASE_FOLDER, "dict.txt")
 SIMBLE_DICT_PATH = os.path.join(BASE_FOLDER, "symbolfonts.txt")
+SYMBOLFONT_DICT_PATH = os.path.join(BASE_FOLDER, "symbolfont_dict.txt")
 
 # dict.txtのひな形
 DICT_TEMPLATE = """#英語\t#日本語\t#状態\t#出現回数
@@ -95,6 +98,14 @@ if not os.path.exists(DICT_PATH):
     os.makedirs(BASE_FOLDER, exist_ok=True)
     with open(DICT_PATH, "w", encoding="utf-8") as f:
         f.write(DICT_TEMPLATE)
+
+# symbolfont_dict.txt のひな形（存在しない場合だけ作成）
+SYMBOLFONT_DICT_TEMPLATE = """# symbolfont_dict.txt\n#\n# 形式: フォント名.キャラクター\t置換後文字列\n# 例:\n#   Wingdings.a\t■\n#   Wingdings.b\t▲\n#\n# メモ:\n# - フォント名は大小/空白/アンダースコア差を吸収して照合されます。\n# - 置換後文字列には翻訳拒否タグ等を含めてもOK（翻訳側で扱う想定）。\n\nWingdings.a\t■\nWingdings.b\t▲\n"""
+if not os.path.exists(SYMBOLFONT_DICT_PATH):
+    print(f"symbolfont_dict.txt が存在しません。ひな形を作成します: {SYMBOLFONT_DICT_PATH}")
+    os.makedirs(BASE_FOLDER, exist_ok=True)
+    with open(SYMBOLFONT_DICT_PATH, "w", encoding="utf-8") as f:
+        f.write(SYMBOLFONT_DICT_TEMPLATE)
 
 app.add_url_rule('/logstream', 'logstream', create_log_stream_endpoint())
 
@@ -492,6 +503,21 @@ def auto_tagging_api(pdf_name):
     except Exception as e:
         return jsonify({"status": "error", "message": f"自動タグ付けエラー: {str(e)}"}), 500
     return jsonify({"status": "ok", "message": "自動タグ付け完了"}), 200
+
+
+@app.route("/api/rebuild_src_text/<pdf_name>", methods=["POST"])
+def rebuild_src_text_api(pdf_name):
+    """src_html から src_text を再生成し、symbolfont_dict による置換を適用する。"""
+    pdf_path, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
+
+    try:
+        changed = rebuild_src_text_in_file(json_path, SYMBOLFONT_DICT_PATH)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"src_text再生成エラー: {str(e)}"}), 500
+
+    return jsonify({"status": "ok", "message": f"src_text再生成完了 (更新: {changed}段落)", "changed": changed}), 200
 
 # API: スタイルによるblock_tag一括更新
 @app.route("/api/update_block_tags_by_style/<pdf_name>", methods=["POST"])

@@ -11,12 +11,12 @@
     <div class="app-header">
         <img src="{{ url_for('static', filename='paraparatrans.svg') }}" alt="Icon" class="app-icon">
         <h1>PDF ParaParaTrans</h1>
-        <button onclick="refreshBookList()" data-help-id="refresh-book-list">最新の状態に更新</button>
+        <button onclick="refreshBookList()" data-help-id="ブックリストの更新">最新の状態に更新</button>
         <button id="show-full-help">Help</button>
     </div>
     <form method="GET">
       <input type="text" name="filter" placeholder="タイトル/ファイル名でフィルタ" value="{{ filter_text|e }}">
-      <button type="submit" data-help-id="filter-books">フィルタ</button>
+      <button type="submit" data-help-id="ブックのフィルタリング">フィルタ</button>
     </form>
     <table class="book-list">
         <thead>
