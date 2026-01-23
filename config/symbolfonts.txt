@@ -15,3 +15,5 @@ Typicons
 Noto Emoji
 Twemoji
 Symbols Nerd Font
+GloranthaCoreRunes
+GloranthaRuneIcons

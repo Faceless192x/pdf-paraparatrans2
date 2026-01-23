@@ -45,7 +45,7 @@
 - Python 3.x（分からなければWindowsはMicrosoft Store版でOK）
 - 翻訳APIのキー（Google / DeepL のどちらか）
 - 翻訳したいPDF（`data` フォルダに入れます）
-- 用語辞書や各種設定（`config` フォルダ。初回起動時に自動作成されます）
+- 用語辞書（`config` フォルダ。初回起動時に自動作成されます）
 
 <details>
 <summary>表示項目（列）とステータス（詳細）</summary>

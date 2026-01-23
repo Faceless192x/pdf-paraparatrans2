@@ -176,7 +176,29 @@ if removed_tmp:
 _migrate_user_file("dict.txt")
 _migrate_user_file("symbolfonts.txt")
 _migrate_user_file("symbolfont_dict.txt")
-_migrate_user_file("paraparatrans.settings.json")
+
+
+def _migrate_settings_to_data() -> None:
+    """旧 config/ 配下の settings を data/ に移行（存在する場合のみ）。"""
+    filename = "paraparatrans.settings.json"
+    old_path = os.path.join(CONFIG_FOLDER, filename)
+    new_path = os.path.join(DATA_FOLDER, filename)
+
+    if os.path.exists(new_path):
+        return
+    if not os.path.exists(old_path):
+        return
+
+    os.makedirs(DATA_FOLDER, exist_ok=True)
+    try:
+        shutil.move(old_path, new_path)
+        print(f"{filename} を config/ から data/ に移行しました: {new_path}")
+    except Exception:
+        shutil.copy2(old_path, new_path)
+        print(f"{filename} を config/ から data/ にコピーしました: {new_path}")
+
+
+_migrate_settings_to_data()
 
 # dict.txtのひな形
 DICT_TEMPLATE = """#英語\t#日本語\t#状態\t#出現回数
@@ -253,12 +275,12 @@ def get_pdf_files():
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    settings_path = os.path.join(CONFIG_FOLDER, "paraparatrans.settings.json")
+    settings_path = os.path.join(DATA_FOLDER, "paraparatrans.settings.json")
     
     # POSTリクエストの場合はリストをリフレッシュ
     if request.method == "POST":
         try:
-            parapara_init(BASE_FOLDER, CONFIG_FOLDER)
+            parapara_init(BASE_FOLDER, DATA_FOLDER)
             app.logger.info("リストがリフレッシュされました")
         except Exception as e:
             app.logger.error(f"リストリフレッシュ中にエラーが発生しました: {str(e)}")
@@ -266,7 +288,7 @@ def index():
 
     # paraparatrans.settings.jsonが存在しない場合、parapara_initを実行
     if not os.path.exists(settings_path):
-        parapara_init(BASE_FOLDER, CONFIG_FOLDER)
+        parapara_init(BASE_FOLDER, DATA_FOLDER)
     
     # paraparatrans.settings.jsonを読み込む
     with open(settings_path, "r", encoding="utf-8") as f:
@@ -705,7 +727,7 @@ def dict_trans_api(pdf_name):
 
 @app.route("/api/update_book_info/<pdf_name>", methods=["POST"])
 def update_book_info_api(pdf_name):
-    settings_path = os.path.join(CONFIG_FOLDER, "paraparatrans.settings.json")
+    settings_path = os.path.join(DATA_FOLDER, "paraparatrans.settings.json")
     
     # settingsファイルが存在しない場合はエラーを返す
     if not os.path.exists(settings_path):
