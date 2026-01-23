@@ -322,7 +322,14 @@ async function saveParagraphData(paragraphDict) {
 // ラジオボタンの切り替えでedit-uiの背景色を変更
 function updateEditUiBackground(divSrc, transStatus) {
     const editUi = divSrc.querySelector('.edit-ui');
-    editUi.className = `edit-ui status-${transStatus}`;
+    if (editUi) {
+        editUi.className = `edit-ui status-${transStatus}`;
+    }
+
+    const editBox = divSrc.querySelector('.edit-box');
+    if (editBox) {
+        editBox.className = `edit-box status-${transStatus}`;
+    }
 }
 
 // ラジオボタンの変更イベントを追加

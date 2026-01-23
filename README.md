@@ -119,7 +119,7 @@
 
 > **注意**
 > - Codespaces はGitHub側で **支払い情報（クレジットカード等）の登録が必要** な場合があります。
-> - 個人アカウントには無償枠がありますが、超過すると課金される場合があります（最新条件はGitHub側の案内を参照）。
+> - 個人アカウントには無償枠が付くことがありますが、超過すると課金される場合があります（最新条件はGitHub側の案内を参照）。
 > - 使い方が掴めたら、コストと速度の面で **ローカル環境での運用がおすすめ** です。
 
 1. GitHubのリポジトリ画面で **Code** → **Codespaces** → **Create codespace** を選択
@@ -127,10 +127,15 @@
     ```
     pip install -r requirements.txt
     ```
-3. （推奨）GitHub 側で Codespaces Secrets を登録（コードやファイルにキーを書かない）
-    - `TRANSLATOR`（`google` / `deepl`）
-    - `GOOGLE_API_KEY`（Google APIキー方式を使う場合）
-    - `DEEPL_AUTH_KEY`（DeepL を使う場合）
+3. （推奨）GitHub 側で **Codespaces Secrets（User secrets）** を登録（コードやファイルにキーを書かない）
+    1. GitHub 画面右上の **自分のアイコン** → **Settings**
+    2. 左メニューの **Codespaces** → **Secrets**
+    3. **New secret** を押して、以下を必要な分だけ登録
+        - `TRANSLATOR`（`google` または `deepl`）
+        - `GOOGLE_API_KEY`（Google APIキー方式を使う場合）
+        - `DEEPL_AUTH_KEY`（DeepL を使う場合）
+    4. （表示される場合）**Repository access** で、このリポジトリに使えるよう許可
+    5. 反映されない場合は Codespace を **再起動**（または Rebuild）
 4. `data` フォルダを作成し、変換したいPDFをアップロードして入れる
     - VS Code（Web）のファイルツリーに `data` が無ければ作成
     - PDFはドラッグ＆ドロップでアップロードできます

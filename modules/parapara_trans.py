@@ -7,11 +7,23 @@ import os
 import html
 import json
 import re
+import logging
 from datetime import datetime
 import tempfile
 
 from api_translate import translate_text  # 翻訳関数は別ファイルで定義済み
 import stream_logger
+
+
+def _debug_pagetrans_enabled() -> bool:
+    v = os.getenv("PARAPARA_DEBUG_PAGETRANS", "").strip().lower()
+    return v in {"1", "true", "yes", "on"}
+
+
+def _pagetrans_debug(msg: str):
+    if _debug_pagetrans_enabled():
+        # 既存の仕組みに載せるため print を使う（SSE/ログ出力に流れる）
+        print(f"[PAGETRANS_DEBUG] {msg}")
 
 def process_group(paragraphs_group):
     """
@@ -120,16 +132,43 @@ def pagetrans(filepath, book_data, page_number):
     paragraphs_dict = book_data["pages"][str(page_number)].get("paragraphs", {}) # 辞書として取得
     print(f"FOR DEBUG:段落数: {len(paragraphs_dict)}")
 
-    for para_id, paragraph in paragraphs_dict.items():
-        # ステータスに関わらず、自動翻訳をかけたらsrc_replacedが空の場合、trans_autoを空にする
-        # trans_textは触らない。確定させた翻訳は壊れないようにする。
-        if paragraph["src_replaced"] == "":
+    # デバッグ時は「既存訳が壊れていないか」を検知するため、事前スナップショットを取る
+    before = {}
+    if _debug_pagetrans_enabled():
+        for pid, p in paragraphs_dict.items():
+            before[str(pid)] = {
+                "trans_status": p.get("trans_status"),
+                "src_joined": p.get("src_joined"),
+                "src_replaced": p.get("src_replaced"),
+                "trans_auto": p.get("trans_auto"),
+                "trans_text": p.get("trans_text"),
+            }
+        _pagetrans_debug(f"start page={page_number} paragraphs={len(before)}")
+
+    # src_joined が明示的に空の段落（joinで結合された側など）は翻訳対象外。
+    # 期待値: src_replacedは空、trans_autoも空、trans_textは触らない。
+    for paragraph in paragraphs_dict.values():
+        if "src_joined" in paragraph and paragraph.get("src_joined") == "":
+            paragraph["src_replaced"] = ""
             paragraph["trans_auto"] = ""
+
+    for para_id, paragraph in paragraphs_dict.items():
+        if "src_joined" in paragraph and paragraph.get("src_joined") == "":
+            continue
+
+        src_replaced = paragraph.get("src_replaced", "")
+        trans_status = paragraph.get("trans_status")
+
+        # 未翻訳(none)の段落のみ、src_replaced が空なら trans_auto を空にする
+        # （auto/draft/fixed の既存訳はここで壊さない）
+        if trans_status == "none" and src_replaced == "":
+            paragraph["trans_auto"] = ""
+
+        # (要望2) 英字2文字以下なら src_replaced セットでよい（none/auto に適用）
         # statusがdraftとfixedは翻訳処理では触らない
-        if paragraph["trans_status"] in {"none", "auto"}:
-            # 翻訳対象テキストが英字2文字以下の場合常に自動翻訳済み扱い
-            if count_alphabet_chars(paragraph["src_replaced"]) < 3:
-                paragraph["trans_auto"] = paragraph["src_replaced"]
+        if trans_status in {"none", "auto"}:
+            if src_replaced != "" and count_alphabet_chars(src_replaced) < 3:
+                paragraph["trans_auto"] = src_replaced
                 paragraph["trans_status"] = "auto"
 
     filtered_paragraphs = [
@@ -166,6 +205,52 @@ def pagetrans(filepath, book_data, page_number):
 
     atomicsave_json(filepath, book_data)  # 最後にアトミックセーブ
     print(f"ページ {page_number} の翻訳が完了しました。")
+
+    # デバッグ: 既存(auto/draft/fixed)の段落で想定外の書き換えが発生していないか検知
+    if _debug_pagetrans_enabled() and before:
+        unexpected = []
+        for pid, p in paragraphs_dict.items():
+            pid = str(pid)
+            b = before.get(pid)
+            if not b:
+                continue
+
+            pre_status = b.get("trans_status")
+            post_status = p.get("trans_status")
+            pre_src_joined = b.get("src_joined")
+            post_src_joined = p.get("src_joined")
+            pre_src_replaced = b.get("src_replaced") or ""
+            post_src_replaced = p.get("src_replaced") or ""
+            pre_trans_auto = b.get("trans_auto")
+            post_trans_auto = p.get("trans_auto")
+
+            # 既存訳が存在する状態(未翻訳以外)で、join側でも短文規則でも説明できない trans_auto 変化を拾う
+            if pre_status in {"auto", "draft", "fixed"}:
+                is_joined_empty = (pre_src_joined == "") or (post_src_joined == "")
+                is_short_rule = (count_alphabet_chars(pre_src_replaced) < 3 and pre_src_replaced != "")
+                if pre_trans_auto != post_trans_auto and (not is_joined_empty) and (not is_short_rule):
+                    unexpected.append(
+                        {
+                            "id": pid,
+                            "pre_status": pre_status,
+                            "post_status": post_status,
+                            "pre_src_replaced": pre_src_replaced,
+                            "post_src_replaced": post_src_replaced,
+                            "pre_trans_auto": pre_trans_auto,
+                            "post_trans_auto": post_trans_auto,
+                        }
+                    )
+
+        if unexpected:
+            _pagetrans_debug(f"UNEXPECTED trans_auto changes: count={len(unexpected)}")
+            for item in unexpected[:50]:
+                _pagetrans_debug(
+                    "id={id} status {pre_status}->{post_status} src_replaced '{pre_src_replaced}'->'{post_src_replaced}' trans_auto '{pre_trans_auto}'->'{post_trans_auto}'".format(
+                        **item
+                    )
+                )
+        else:
+            _pagetrans_debug("no unexpected trans_auto changes")
 
 # json を読み込んでobjectを戻す
 def load_json(json_path: str):

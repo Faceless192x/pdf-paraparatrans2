@@ -401,12 +401,13 @@ async function updateParagraphs(sendParagraphs, title = null) {
 
 async function transParagraph(paragraph, divSrc) {
     try {
+        const textToTranslate = (paragraph?.src_replaced ?? '');
         const response = await fetch('/api/translate', {
             method: 'POST',
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({ text: paragraph.src_replaced })
+            body: JSON.stringify({ text: textToTranslate })
         });
         const data = await response.json();
         console.log("翻訳結果:", data.translated_text);
@@ -419,6 +420,13 @@ async function transParagraph(paragraph, divSrc) {
             let autoRadio = divSrc.querySelector(`input[name='status-${paragraph.id}'][value='auto']`);
             updateEditUiBackground(divSrc, paragraph.trans_status);
             if (autoRadio) { autoRadio.checked = true; }
+
+            // ページ翻訳などで再読込された際に「未保存の訳」が英語に戻らないよう、ここで永続化する
+            if (typeof saveParagraphData === 'function') {
+                await saveParagraphData(paragraph);
+            } else {
+                console.warn('saveParagraphData is not available; translation will not be persisted.');
+            }
         } else {
             console.error("パラグラフ更新エラー:", data.message);
             alert("パラグラフ更新エラー: " + data.message);

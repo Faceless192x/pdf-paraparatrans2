@@ -104,9 +104,8 @@ function translateCurrentParagraph() {
     const paragraphDict = bookData?.pages?.[currentPage]?.paragraphs?.[idStr];
     if (!paragraphDict) return;
 
-    if (!paragraphDict.src_replaced) {
-        paragraphDict.src_replaced = paragraphDict.src_text;
-    }
+    // 翻訳入力は src_replaced(置換後) のみを使用。
+    // 空の場合は空のまま翻訳APIへ渡す（フォールバックしない）。
     if (typeof transParagraph !== 'function') {
         console.warn('transParagraph is not defined');
         return;
