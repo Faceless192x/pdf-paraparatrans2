@@ -74,6 +74,7 @@ function renderTocTableRows(tocNode) {
           <td class="toc-page">${node.page_number}</td>
           <td class="toc-src toc-${node.block_tag}">
             ${toggleMarker}<a href="#" data-id="${node.id}" data-page-number="${node.page_number}">${node.src_joined}</a>
+          </td>
           <td class="toc-trans toc-${node.block_tag}">
             ${toggleMarker}<a href="#" data-id="${node.id}" data-page-number="${node.page_number}">${node.trans_text}</a>
           </td>
