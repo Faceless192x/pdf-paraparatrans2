@@ -9,7 +9,8 @@ function headlineParagraphs() {
 
   for (const [page_number, page] of Object.entries(bookData["pages"])) {
     for (const [id, paragraphDict] of Object.entries(page["paragraphs"])) {
-      if (/^h[1-6]$/.test(paragraphDict["block_tag"])) {
+      const joinFlag = Number(paragraphDict?.join ?? 0);
+      if (/^h[1-6]$/.test(paragraphDict["block_tag"]) && joinFlag !== 1) {
         headlines.push({
           rowId: paragraphDict["page_number"] + "_" + paragraphDict["id"],
           page_number: paragraphDict["page_number"],
@@ -19,7 +20,8 @@ function headlineParagraphs() {
           y0: paragraphDict["bbox"][1],
           block_tag: paragraphDict["block_tag"],
           src_joined:paragraphDict["src_joined"],
-          trans_text:paragraphDict["trans_text"]
+          trans_text:paragraphDict["trans_text"],
+          join: joinFlag,
         });
       }
     }
@@ -91,7 +93,7 @@ function renderTocTableRows(tocNode) {
 
 function buildTocTree(paragraphsArray) { // 引数を配列として受け取る
   // 配列をフィルタリング
-  const headlines = paragraphsArray.filter(p => /^h[1-6]$/.test(p.block_tag));
+  const headlines = paragraphsArray.filter(p => /^h[1-6]$/.test(p.block_tag) && Number(p?.join ?? 0) !== 1);
 
   const root = {
     rowId: "-1_-1", // ルートノードのIDは特別扱い

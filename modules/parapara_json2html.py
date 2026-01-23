@@ -36,8 +36,17 @@ def json2html(json_file_path: str):
         last_level = 0
 
         for paragraph in paragraphs:
+            try:
+                join_flag = int(paragraph.get("join") or 0)
+            except (TypeError, ValueError):
+                join_flag = 0
+
             block_tag = paragraph.get("block_tag", "div").lower()
             if block_tag not in [f'h{i}' for i in range(1, 7)]:
+                continue
+
+            # join=1 の段落は、前段落へ結合される側なので目次対象外
+            if join_flag == 1:
                 continue
 
             level = int(block_tag[1])
