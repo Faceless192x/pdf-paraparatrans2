@@ -81,6 +81,10 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="
     --th-bg: #e0e7ff;
     --th-fg: #1e293b;
     --th-border: #4f46e5;
+
+    /* Tables: readable borders for both light/dark (follows OS setting) */
+    --table-border: rgba(0, 0, 0, 0.22);
+    --table-border-strong: rgba(0, 0, 0, 0.35);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -99,7 +103,28 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="
         --th-bg: #1e1b4b;
         --th-fg: #e0e7ff;
         --th-border: #818cf8;
+
+        --table-border: rgba(255, 255, 255, 0.22);
+        --table-border-strong: rgba(255, 255, 255, 0.35);
     }
+}
+
+/* ===== Tables (borders) ===== */
+table.book-list,
+table.trans_status_counts,
+table.tocTable {
+    border-collapse: collapse;
+    border: 1px solid var(--table-border-strong);
+}
+
+table.book-list th,
+table.book-list td,
+table.trans_status_counts th,
+table.trans_status_counts td,
+table.tocTable th,
+table.tocTable td {
+    border: 1px solid var(--table-border);
+    padding: 4px 6px;
 }
 
 /* 背景色を適用 */
@@ -242,7 +267,7 @@ header {
 .trans_status_counts {
     display: inline-block;
     vertical-align: middle;
-    border: 1px solid #000;
+    border: 1px solid var(--table-border-strong);
     border-collapse: collapse;
     font-size: 80%;
     margin: 2px;
