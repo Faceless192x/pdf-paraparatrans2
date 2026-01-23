@@ -2,6 +2,10 @@
 
 このドキュメントでは、PDF ParaParaTrans 2 で **Google 翻訳 API v3** を使うためのセットアップ手順をまとめます。
 
+> **注意（2026年1月時点）**
+> - 本手順は 2026年1月時点の情報です。Google Cloud 側の画面構成/名称/手順は変更される可能性があります。
+> - `gcloud` / ADC / 課金 / Glossary 周辺の要件は更新されることがあるため、うまくいかない場合は公式ドキュメントの案内も併せて確認してください。
+
 - これは **上級者向け** です（GCPプロジェクト / 課金 / 認証設定などが必要）。
 - **Glossary(Grossary) を使う予定がない場合は不要** です。
   - 通常は [SETUP_GOOGLE_TRANSLATE.md](SETUP_GOOGLE_TRANSLATE.md) の **APIキー方式**（`GOOGLE_API_KEY`）の方が簡単です。

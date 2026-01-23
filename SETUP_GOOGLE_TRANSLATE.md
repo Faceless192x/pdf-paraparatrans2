@@ -1,6 +1,11 @@
 # Google 翻訳 API のセットアップ
 
 このドキュメントでは、PDF ParaParaTrans 2 で Google 翻訳 API を使うためのセットアップ手順（APIキー方式）をまとめます。
+
+> **注意（2026年1月時点）**
+> - 本手順は 2026年1月時点の情報です。Google Cloud 側の画面構成/名称/手順は変更される可能性があります。
+> - APIキーの作成・制限・課金設定まわりも更新されることがあるため、うまくいかない場合は公式ドキュメントの案内も併せて確認してください。
+
 ※筆者環境で手順を毎回検証できていないため、Google Cloud 側のUI名称等が変わっている可能性があります。
 
 ## 前提条件
@@ -52,6 +57,35 @@ TRANSLATOR=google
 GOOGLE_API_KEY=xxxxx_your_key_here_xxxxx
 DEEPL_AUTH_KEY=
 ```
+
+### （Codespacesの場合）GitHub UIから Secrets を登録する
+
+Codespaces を使う場合は、`.env` を作らず **Codespaces Secrets** を登録する運用が安全でおすすめです。
+登録した値は Codespace 起動時に **環境変数**として渡されます。
+
+#### リポジトリ単位（このリポジトリだけで使う）
+
+1. GitHub のリポジトリ画面を開く
+2. **Settings** → **Secrets and variables** → **Codespaces**
+3. **New repository secret** を押す
+4. 以下を登録
+	 - Name: `GOOGLE_API_KEY`
+	 - Value: 発行した API キー
+	 - （任意）Name: `TRANSLATOR` / Value: `google`
+
+#### 組織（Organization）単位（複数リポジトリで共通利用）
+
+1. Organization の **Settings** → **Secrets and variables** → **Codespaces**
+2. **New organization secret** を押す
+3. 適用するリポジトリを選択して登録
+
+#### 反映について
+
+- 既に起動中の Codespace がある場合、Secrets 追加後は **Codespace を再起動**すると確実です。
+	- 反映しない場合は **Rebuild container** が必要なことがあります。
+
+補足:
+- Actions の Secrets（`Settings → Secrets and variables → Actions`）とは別物です。Codespaces で使う場合は **Codespaces** 側に登録してください。
 
 ### 5. 起動して動作確認
 
