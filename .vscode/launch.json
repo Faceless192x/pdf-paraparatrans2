@@ -1,0 +1,81 @@
+{
+    // IntelliSense を使用して利用可能な属性を学べます。
+    // 既存の属性の説明をホバーして表示します。
+    // 詳細情報は次を確認してください: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run PDF ParaParaTrans 2",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/pdf-paraparatrans.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env",
+            "preLaunchTask": "Init workspace (data + deps)",
+            "justMyCode": true
+        },
+        {
+            "name": "Python Debugger: Python File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}"
+        },
+        {
+            "name": "Debug pdf_parapara2json",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/pdf_parapara2json.py",
+            "args": ["input.pdf"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Python: column_annotator.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/data/20250428/column_annotator.py",
+            "args": [
+                "test01.pdf"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/data/20250428"
+        },
+        {
+            "name": "Python: Debug rect_json_test",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/data/20250505/debug_rect_json.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/data/20250505"
+        },        
+        {
+            "name": "Python: Join",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/modules/parapara_join.py",
+            "console": "integratedTerminal",
+            "args": ["./data/CHA4044_Ernalda.json","1","1"],
+            "cwd": "${workspaceFolder}"
+        },        
+        {
+            "name": "Python: 翻訳",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/modules/parapara_trans.py",
+            "console": "integratedTerminal",
+            "args": ["./data/CHA4044_Ernalda.json"],
+            "cwd": "${workspaceFolder}"
+        },        
+        {
+            "name": "Python: parapara_blocks_to_paragraphs.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/data/20250428/parapara_blocks_to_paragraphs.py",
+            "args": [
+                "test01.columns.json"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/data/20250428"
+        }
+    ]
+}

@@ -11,7 +11,11 @@ __pycache__/
 *.pyo
 
 # エディタ・IDEの設定
-.vscode/
+# 基本は無視するが、ユーザー向けの起動設定はリポジトリに含める
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
 .idea/
 *.sublime-workspace
 
