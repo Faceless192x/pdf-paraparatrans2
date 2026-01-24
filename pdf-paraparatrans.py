@@ -535,7 +535,20 @@ def reload_book_data_api(pdf_name):
 
 @app.route("/pdf_view/<pdf_name>")
 def pdf_view(pdf_name):
-    return send_from_directory(BASE_FOLDER, pdf_name)
+    pdf_path, _ = get_paths(pdf_name)
+    if not os.path.exists(pdf_path):
+        app.logger.error(f"File not found: {pdf_path}")
+        return "PDFファイルが見つかりません", 404
+
+    # BytesIO を返すと Range/条件付きリクエストが効かず PDF.js が遅くなりがちなので、
+    # 実ファイルパスを send_file で返してブラウザ側キャッシュ/Range を活かす。
+    resp = send_file(pdf_path, as_attachment=False, conditional=True)
+    try:
+        resp.cache_control.public = True
+        resp.cache_control.max_age = 3600
+    except Exception:
+        pass
+    return resp
 
 # PDFの指定ページを表示するAPI
 @app.route("/pdf_view/<pdf_name>/<int:page_number>")

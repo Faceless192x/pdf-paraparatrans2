@@ -301,18 +301,51 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
         updateUrlForPage(currentPage, { replace: replaceHistory });
     }
 
-    // 「PDFファイルのURL」を作成
-    const pdfUrl = encodeURIComponent(`/pdf_view/${pdfName}/${currentPage}`);
-    console.log("jumpToPage: " + pdfUrl);
-    // PDF.js ビューワをiframeに読み込み、?file= でPDFのURLを指定
-    const viewerUrl = `/static/pdfjs/web/viewer.html?file=${pdfUrl}`;
-    document.getElementById("pdfIframe").src = viewerUrl;
-
-    setTimeout(fitToWidth, 600);
+    // PDFはフルPDFを一度だけ読み込み、ページ移動は PDFViewerApplication 経由で行う。
+    // これにより「毎回iframeを再ロード」「サーバ側で1ページPDFを都度生成」を避けて高速化する。
+    ensurePdfViewerLoaded(currentPage);
+    setPdfViewerPage(currentPage);
 
     renderParagraphs();
     document.getElementById("srcPanel").focus();
     setCurrentParagraph(0);
+}
+
+function ensurePdfViewerLoaded(initialPage = 1) {
+    const iframe = document.getElementById('pdfIframe');
+    if (!iframe) return;
+
+    const pdfFileUrl = `/pdf_view/${encodeURIComponent(pdfName)}`;
+    const viewerBaseUrl = `/static/pdfjs/web/viewer.html?file=${encodeURIComponent(pdfFileUrl)}`;
+
+    if (iframe.dataset.viewerBaseUrl !== viewerBaseUrl) {
+        iframe.dataset.viewerBaseUrl = viewerBaseUrl;
+        iframe.src = `${viewerBaseUrl}#page=${initialPage}`;
+    }
+}
+
+function setPdfViewerPage(pageNum) {
+    const iframe = document.getElementById('pdfIframe');
+    if (!iframe) return;
+
+    const viewerWin = iframe.contentWindow;
+    if (!viewerWin || !viewerWin.PDFViewerApplication || !viewerWin.PDFViewerApplication.pdfViewer) {
+        setTimeout(() => setPdfViewerPage(pageNum), 100);
+        return;
+    }
+
+    const app = viewerWin.PDFViewerApplication;
+    const apply = () => {
+        app.pdfViewer.currentPageNumber = pageNum;
+        // 既存挙動に合わせて「幅に合わせる」を維持
+        app.pdfViewer.currentScaleValue = 'page-width';
+    };
+
+    if (app.pdfDocument) {
+        apply();
+    } else {
+        viewerWin.document.addEventListener('documentloaded', apply, { once: true });
+    }
 }
 
 function initResizers() {

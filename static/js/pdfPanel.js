@@ -25,33 +25,33 @@ function highlightRectsOnPage(pageNumber, rects) {
     // 既存のハイライトをクリア
     clearHighlights();
 
-    // --- PDFビューアは常に1ページなので、ページ番号 1 (インデックス 0) のビューを取得 ---
-    const pageView = pdfViewer.getPageView(0); // 常にインデックス 0 を指定
+    const pageIndex = Math.max(0, (parseInt(pageNumber, 10) || 1) - 1);
+    const pageView = pdfViewer.getPageView(pageIndex);
 
     // pageView または textLayer がまだ利用できない場合 (初期ロード時など)
-    if (!pageView || !pageView.div || !pageView.textLayer || !pageView.textLayer.div) {
-         console.warn(`Page view or textLayer for page 1 not found or not rendered yet.`);
+        if (!pageView || !pageView.div || !pageView.textLayer || !pageView.textLayer.div) {
+            console.warn(`Page view or textLayer for page ${pageNumber} not found or not rendered yet.`);
 
          // 'pagerendered' イベントを待機して、レンダリング後にハイライト処理を実行
          const onPageRendered = (event) => {
-             // 常に1ページ目なのでページ番号チェックは不要 (event.detail.pageNumber === 1)
-             console.log(`Page 1 rendered, attempting to highlight.`);
-             // イベントリスナー内で再度 pageView を取得し、ハイライト処理を実行
-             const renderedPageView = pdfViewer.getPageView(0);
+             const renderedPageNumber = event?.detail?.pageNumber;
+             if (renderedPageNumber !== (parseInt(pageNumber, 10) || 1)) return;
+             iframe.contentWindow.document.removeEventListener('pagerendered', onPageRendered);
+
+             console.log(`Page ${pageNumber} rendered, attempting to highlight.`);
+             const renderedPageView = pdfViewer.getPageView(pageIndex);
              if (renderedPageView && renderedPageView.textLayer && renderedPageView.textLayer.div) {
-                 drawHighlights(renderedPageView, rects); // ハイライト描画部分を別関数に分離
+                 drawHighlights(renderedPageView, rects);
              } else {
-                 console.error(`Failed to get pageView or textLayer for page 1 even after pagerendered event.`);
+                 console.error(`Failed to get pageView or textLayer for page ${pageNumber} even after pagerendered event.`);
              }
          };
-         // イベントリスナーを一度だけ実行するように { once: true } を追加
-         iframe.contentWindow.document.addEventListener('pagerendered', onPageRendered, { once: true });
+         iframe.contentWindow.document.addEventListener('pagerendered', onPageRendered);
 
          return; // pageView がないのでここで処理を終了
      }
 
-    // pageView が既に存在する場合は、ハイライトを描画 (スクロールは不要)
-    drawHighlights(pageView, rects); // ハイライト描画処理を呼び出す
+    drawHighlights(pageView, rects);
 }
 
 // 親ドキュメントのスタイルシートから指定されたセレクタのスタイルプロパティを取得するヘルパー関数

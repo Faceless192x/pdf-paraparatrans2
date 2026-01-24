@@ -632,8 +632,7 @@ function setCurrentParagraph(index, isShiftHeld = false) {
         // pdfPanel.js の関数を呼び出してハイライト
         // highlightRectsOnPage は矩形の配列を期待するため、bbox を配列でラップする
         if (typeof highlightRectsOnPage === 'function') {
-            // --- PDFビューアは常に1ページなので、ページ番号 1 を渡す ---
-            highlightRectsOnPage(1, [paragraphDict.bbox]);
+            highlightRectsOnPage(currentPage, [paragraphDict.bbox]);
         } else {
             console.warn("highlightRectsOnPage function is not defined in pdfPanel.js");
         }
