@@ -122,10 +122,9 @@
 > - 使い方が掴めたら、コストと速度の面で **ローカル環境での運用がおすすめ** です。
 
 1. GitHubのリポジトリ画面で **Code** → **Codespaces** → **Create codespace** を選択
-2. Codespaces が起動したら、下のターミナルで依存関係をインストール
-    ```
-    pip install -r requirements.txt
-    ```
+2. 依存関係のインストール
+    - 通常は Codespaces 作成時に自動で `pip install -r requirements.txt` が走ります
+    - もし入っていない/失敗した場合は、メニュー **Terminal → Run Task...** → **Install dependencies**
 3. （推奨）GitHub 側で **Codespaces Secrets（User secrets）** を登録（コードやファイルにキーを書かない）
     1. GitHub 画面右上の **自分のアイコン** → **Settings**
     2. 左メニューの **Codespaces** → **Secrets**
@@ -138,11 +137,11 @@
 4. `data` フォルダを作成し、変換したいPDFをアップロードして入れる
     - VS Code（Web）のファイルツリーに `data` が無ければ作成
     - PDFはドラッグ＆ドロップでアップロードできます
-5. ターミナルで起動する
-    ```
-    python pdf-paraparatrans.py
-    ```
-6. ターミナルに表示されたリンク `http://localhost:5077/` を開く(Ctrl+クリックでOK)
+5. 1クリックで起動する（おすすめ）
+    - 左の **Run and Debug**（▶）を開く
+    - 上部の実行構成で **Run PDF ParaParaTrans 2** を選び、▶を押す
+    - （ターミナル起動が好みなら）メニュー **Terminal → Run Task...** → **Run PDF ParaParaTrans 2**
+6. 起動したら `http://localhost:5077/` を開く
     - 起動後に **Ports**（ポート）に 5077 が表示されたら、そこから **Open in Browser** で開けます
     - もし開けない場合は、Portsで 5077 を **Public** にする必要がある場合があります（組織設定によります）
 
