@@ -399,7 +399,9 @@ document.addEventListener('click', (event) => {
 // “targetIndex” を受け取り、同じインデックスにある要素を取得して挿入
 function moveSelectedAfter(targetIndex) {
     const container = document.getElementById('srcParagraphs');
-    const selected = getSelectedParagraphsInOrder();
+    const currentDiv = document.querySelector('.paragraph-box.current');
+    const selected = getSelectedOrCurrentParagraphsInOrder();
+    if (selected.length === 0) return;
     const children = container.children;
     // 下限チェックのみ。上限を超えたら末尾扱い
     if (targetIndex < 0) return;
@@ -409,26 +411,54 @@ function moveSelectedAfter(targetIndex) {
         : children[targetIndex].nextSibling;
     selected.forEach(el => container.insertBefore(el, refNode));
     isPageEdited = true;
+
+    // 移動後も「カレント段落」とスクロール位置を追随させる
+    const focusDiv = currentDiv || selected[0];
+    if (focusDiv) {
+        const paragraphs = getAllParagraphs();
+        const newIndex = paragraphs.indexOf(focusDiv);
+        if (newIndex >= 0) {
+            // isShiftHeld=true で選択状態は維持したままカレントだけ更新
+            setCurrentParagraph(newIndex, true);
+        } else {
+            focusDiv.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+    }
 }
 
 /** @function moveSelectedBefore */
 // “targetIndex” を受け取り、同じインデックスにある要素を取得して挿入
 function moveSelectedBefore(targetIndex) {
     const container = document.getElementById('srcParagraphs');
-    const selected = getSelectedParagraphsInOrder();
+    const currentDiv = document.querySelector('.paragraph-box.current');
+    const selected = getSelectedOrCurrentParagraphsInOrder();
+    if (selected.length === 0) return;
     const children = container.children;
     // 範囲チェック
     if (targetIndex < 0 || targetIndex >= children.length) return;
     const target = children[targetIndex];
     selected.forEach(el => container.insertBefore(el, target));
     isPageEdited = true;
+
+    // 移動後も「カレント段落」とスクロール位置を追随させる
+    const focusDiv = currentDiv || selected[0];
+    if (focusDiv) {
+        const paragraphs = getAllParagraphs();
+        const newIndex = paragraphs.indexOf(focusDiv);
+        if (newIndex >= 0) {
+            setCurrentParagraph(newIndex, true);
+        } else {
+            focusDiv.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+    }
 }
 
 /** @function moveSelectedByOffset 
  * 選択されたパラグラフ範囲をオフセット分だけ in-place 移動 */
 function moveSelectedByOffset(offset) {
   const container = document.getElementById('srcParagraphs');
-  const selected = getSelectedParagraphsInOrder();
+    const currentDiv = document.querySelector('.paragraph-box.current');
+    const selected = getSelectedOrCurrentParagraphsInOrder();
   if (selected.length === 0) return;
 
   const children = Array.from(container.children);
@@ -442,10 +472,20 @@ function moveSelectedByOffset(offset) {
   // 前に挿入するなら target、自動末尾扱いなら target.nextSibling
   const refNode = offset < 0 ? target : target.nextSibling;
   selected.forEach(el => container.insertBefore(el, refNode));
-
-  currentParagraphIndex = to;
   isPageEdited = true;
-  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+
+  // 移動後も「カレント段落」とスクロール位置を追随させる
+  const focusDiv = currentDiv || selected[0];
+  if (focusDiv) {
+      const paragraphs = getAllParagraphs();
+      const newIndex = paragraphs.indexOf(focusDiv);
+      if (newIndex >= 0) {
+          // isShiftHeld=true で選択状態は維持したままカレントだけ更新
+          setCurrentParagraph(newIndex, true);
+      } else {
+          focusDiv.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+  }
 }
 
 /** @function getSelectedParagraphsInOrder */
@@ -453,6 +493,19 @@ function getSelectedParagraphsInOrder() {
     return Array.from(
         document.querySelectorAll('.paragraph-box.selected, .paragraph-box.current')
     );
+}
+
+function getSelectedParagraphsOnlyInOrder() {
+    return Array.from(document.querySelectorAll('.paragraph-box.selected'));
+}
+
+// 移動系で使う：複数選択時に「選択のみ」を対象にし、カレントが選択外なら巻き込まない。
+// 選択が無い場合のみカレントを対象にする。
+function getSelectedOrCurrentParagraphsInOrder() {
+    const selectedOnly = getSelectedParagraphsOnlyInOrder();
+    if (selectedOnly.length > 0) return selectedOnly;
+    const current = document.querySelector('.paragraph-box.current');
+    return current ? [current] : [];
 }
 
 /** @function: updateBlockTagForSelected */
@@ -792,6 +845,105 @@ function focusNearestHeading(direction) {
             return;
         }
     }
+}
+
+function isHeadingParagraphDiv(paragraphDiv) {
+    if (!paragraphDiv) return false;
+    const idStr = (paragraphDiv.id || '').replace('paragraph-', '');
+    const p = bookData?.pages?.[currentPage]?.paragraphs?.[idStr];
+    return !!(p && /^h[1-6]$/.test(p.block_tag));
+}
+
+function findPreviousHeadingIndex(paragraphs, fromIndex, skipSet = null) {
+    for (let i = fromIndex - 1; i >= 0; i--) {
+        const el = paragraphs[i];
+        if (skipSet && skipSet.has(el)) continue;
+        if (isHeadingParagraphDiv(el)) return i;
+    }
+    return -1;
+}
+
+function findNextHeadingIndex(paragraphs, fromIndex, skipSet = null) {
+    for (let i = fromIndex + 1; i < paragraphs.length; i++) {
+        const el = paragraphs[i];
+        if (skipSet && skipSet.has(el)) continue;
+        if (isHeadingParagraphDiv(el)) return i;
+    }
+    return -1;
+}
+
+function moveParagraphElementsRelativeToHeading(movingElements, mode, preserveSelection) {
+    const container = document.getElementById('srcParagraphs');
+    if (!container) return;
+    if (!movingElements || movingElements.length === 0) return;
+
+    const all = Array.from(container.children);
+    const movingSet = new Set(movingElements);
+
+    const currentDiv = document.querySelector('.paragraph-box.current');
+    const focusDiv = (currentDiv && movingSet.has(currentDiv)) ? currentDiv : movingElements[0];
+    const focusIndex = focusDiv ? all.indexOf(focusDiv) : -1;
+    if (focusIndex < 0) return;
+
+    const remaining = all.filter(el => !movingSet.has(el));
+
+    let insertIndexInRemaining = 0;
+    if (mode === 'prevHeadingBelow') {
+        const prevHeadingIndex = findPreviousHeadingIndex(all, focusIndex, movingSet);
+        if (prevHeadingIndex < 0) {
+            insertIndexInRemaining = 0;
+        } else {
+            const headingEl = all[prevHeadingIndex];
+            const headingPos = remaining.indexOf(headingEl);
+            insertIndexInRemaining = headingPos >= 0 ? headingPos + 1 : 0;
+        }
+    } else if (mode === 'nextHeadingAbove') {
+        const nextHeadingIndex = findNextHeadingIndex(all, focusIndex, movingSet);
+        if (nextHeadingIndex < 0) {
+            insertIndexInRemaining = remaining.length;
+        } else {
+            const headingEl = all[nextHeadingIndex];
+            const headingPos = remaining.indexOf(headingEl);
+            insertIndexInRemaining = headingPos >= 0 ? headingPos : remaining.length;
+        }
+    } else {
+        console.warn(`Unknown move mode: ${mode}`);
+        return;
+    }
+
+    const refNode = remaining[insertIndexInRemaining] || null;
+    movingElements.forEach(el => container.insertBefore(el, refNode));
+    isPageEdited = true;
+
+    const paragraphs = getAllParagraphs();
+    const newIndex = paragraphs.indexOf(focusDiv);
+    if (newIndex >= 0) {
+        setCurrentParagraph(newIndex, preserveSelection);
+    }
+}
+
+function moveCurrentBelowPreviousHeading() {
+    const currentDiv = document.querySelector('.paragraph-box.current');
+    if (!currentDiv) return;
+    moveParagraphElementsRelativeToHeading([currentDiv], 'prevHeadingBelow', false);
+}
+
+function moveCurrentAboveNextHeading() {
+    const currentDiv = document.querySelector('.paragraph-box.current');
+    if (!currentDiv) return;
+    moveParagraphElementsRelativeToHeading([currentDiv], 'nextHeadingAbove', false);
+}
+
+function moveSelectedBelowPreviousHeading() {
+    const selected = getSelectedOrCurrentParagraphsInOrder();
+    if (!selected || selected.length === 0) return;
+    moveParagraphElementsRelativeToHeading(selected, 'prevHeadingBelow', true);
+}
+
+function moveSelectedAboveNextHeading() {
+    const selected = getSelectedOrCurrentParagraphsInOrder();
+    if (!selected || selected.length === 0) return;
+    moveParagraphElementsRelativeToHeading(selected, 'nextHeadingAbove', true);
 }
 
 /** @function selectUntilNextHeading */
