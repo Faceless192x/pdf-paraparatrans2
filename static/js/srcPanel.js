@@ -37,6 +37,14 @@ async function onSaveButtonClick(event, paragraph, divSrc, srcText, transText, b
         paragraphDict.trans_text = transText.innerHTML;
         paragraphDict.block_tag = blockTagSelect.value;
         paragraphDict.trans_status = selectedStatus ? selectedStatus.value : paragraphDict.trans_status;
+
+        const joinCheckbox = divSrc.querySelector('.join-checkbox');
+        const joinOn = !!joinCheckbox?.checked;
+        if (joinOn) {
+            paragraphDict.join = 1;
+        } else if ('join' in paragraphDict) {
+            delete paragraphDict.join;
+        }
     } else {
         console.warn(`Paragraph with ID ${id} not found in paragraphs.`);
     }
@@ -144,6 +152,7 @@ function renderParagraphs() {
                     <span class="block-tag">${p.block_tag}</span>
                 </div>
                 <div class='edit-ui ${statusClass}'>
+                    <label class='join-toggle'><input type='checkbox' class='join-checkbox'> 結合</label>
                     <button class='reset-translation-button'>翻訳クリア</button>
                     <label>種別:
                         <select class="type-select">
@@ -187,10 +196,28 @@ function renderParagraphs() {
         let blockTagSelect = divSrc.querySelector('.type-select');
         let blockTagSpan = divSrc.querySelector('.block-tag'); // 修正: block_tag spanのクラス名を正しく指定
         let resetTranslationButton = divSrc.querySelector('.reset-translation-button'); // 追加
+        let joinCheckbox = divSrc.querySelector('.join-checkbox');
 
         blockTagSelect.value = p.block_tag;
         let statusRadio = divSrc.querySelector(`input[name='status-${p.id}'][value='${p.trans_status}']`);
         if (statusRadio) { statusRadio.checked = true; }
+
+        if (joinCheckbox) {
+            joinCheckbox.checked = (p.join === 1);
+            joinCheckbox.addEventListener('change', () => {
+                const idStr = String(p.id);
+                const paragraphDict = bookData?.pages?.[currentPage]?.paragraphs?.[idStr];
+                const joinEl = divSrc.querySelector('.join');
+
+                if (joinCheckbox.checked) {
+                    if (paragraphDict) paragraphDict.join = 1;
+                    if (joinEl) joinEl.classList.add('visible');
+                } else {
+                    if (paragraphDict && ('join' in paragraphDict)) delete paragraphDict.join;
+                    if (joinEl) joinEl.classList.remove('visible');
+                }
+            });
+        }
 
         editButton.addEventListener('click', () => toggleEditUI(divSrc));
         transButton.addEventListener('click', (e) => onTransButtonClick(e, p, divSrc));
@@ -292,7 +319,8 @@ async function saveParagraphData(paragraphDict) {
                 trans_auto: paragraphDict.trans_auto,
                 trans_text: paragraphDict.trans_text,
                 trans_status: paragraphDict.trans_status,
-                block_tag: paragraphDict.block_tag
+                block_tag: paragraphDict.block_tag,
+                join: paragraphDict.join === 1 ? 1 : 0
             })
         });
         const data = await response.json(); // await を追加

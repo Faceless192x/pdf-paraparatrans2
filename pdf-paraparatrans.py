@@ -854,6 +854,7 @@ def update_paragraph_api(pdf_name):
     new_trans_text = data["trans_text"]
     new_status = data["trans_status"]
     new_block_tag = data["block_tag"]
+    new_join = data.get("join")
 
     print("update_paragraph_api:" + json.dumps(data, indent=2, ensure_ascii=False))
 
@@ -885,6 +886,13 @@ def update_paragraph_api(pdf_name):
     paragraph["trans_text"] = new_trans_text
     paragraph["trans_status"] = new_status
     paragraph["block_tag"] = new_block_tag
+
+    if new_join is not None:
+        if int(new_join) == 1:
+            paragraph["join"] = 1
+        elif "join" in paragraph:
+            del paragraph["join"]
+
     paragraph["modified_at"] = datetime.datetime.now().isoformat()
 
     if can_delta:
