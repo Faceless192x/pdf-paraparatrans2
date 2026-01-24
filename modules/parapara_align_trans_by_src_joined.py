@@ -92,7 +92,7 @@ def align_translations_by_src_joined(book_data: dict) -> Tuple[dict, int]:
             before = (p.get("trans_status"), p.get("trans_text"), p.get("trans_auto"))
             p["trans_status"] = best_status
             p["trans_text"] = best_text
-            p["trans_auto"] = best_auto
+            p["trans_auto"] = best_text
             after = (p.get("trans_status"), p.get("trans_text"), p.get("trans_auto"))
 
             if before != after:
