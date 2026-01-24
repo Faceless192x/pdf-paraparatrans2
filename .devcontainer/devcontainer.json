@@ -1,5 +1,5 @@
 {
   "name": "pdf-paraparatrans2",
   "image": "mcr.microsoft.com/devcontainers/python:3.11",
-  "postCreateCommand": "rm -f .git/hooks/pre-push || true && git config --local filter.lfs.required false && git config --local filter.lfs.clean \"cat\" && git config --local filter.lfs.smudge \"cat\" && git config --local filter.lfs.process \"\" && git config --local --unset lfs.repositoryformatversion || true && python -m pip install -r requirements.txt"
+  "postCreateCommand": "rm -f .git/hooks/pre-push || true && git config --local filter.lfs.required false && git config --local filter.lfs.clean \"cat\" && git config --local filter.lfs.smudge \"cat\" && git config --local filter.lfs.process \"\" && git config --local --unset lfs.repositoryformatversion || true && mkdir -p data && python -m pip install -r requirements.txt"
 }

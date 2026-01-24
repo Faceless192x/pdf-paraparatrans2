@@ -116,14 +116,19 @@
 
 ### GitHub Codespaces（ローカルに入れたくない人向け / ブラウザだけでOK）
 
+> Codespaces の停止方法やバックアップ手順は、別ページにまとめました → [docs/CODESPACES.md](docs/CODESPACES.md)
+
 > **注意**
 > - Codespaces はGitHub側で **支払い情報（クレジットカード等）の登録が必要** な場合があります。
 > - 個人アカウントには無償枠が付くことがありますが、超過すると課金される場合があります（最新条件はGitHub側の案内を参照）。
+> - **作業が終わったら Codespace を停止**するのを推奨します（タブを閉じただけだと動き続ける場合があります）。
+> - Codespace を削除すると中のファイルは消えるため、`data/` と `config/` は**適時ダウンロード**してバックアップするのを推奨します。
 > - 使い方が掴めたら、コストと速度の面で **ローカル環境での運用がおすすめ** です。
 
 1. GitHubのリポジトリ画面で **Code** → **Codespaces** → **Create codespace** を選択
 2. 依存関係のインストール
     - 通常は Codespaces 作成時に自動で `pip install -r requirements.txt` が走ります
+    - **初回は数分待ち時間**が出ることがあります（依存関係のダウンロード/ビルドのため）
     - もし入っていない/失敗した場合は、メニュー **Terminal → Run Task...** → **Install dependencies**
 3. （推奨）GitHub 側で **Codespaces Secrets（User secrets）** を登録（コードやファイルにキーを書かない）
     1. GitHub 画面右上の **自分のアイコン** → **Settings**
@@ -134,8 +139,8 @@
         - `DEEPL_AUTH_KEY`（DeepL を使う場合）
     4. （表示される場合）**Repository access** で、このリポジトリに使えるよう許可
     5. 反映されない場合は Codespace を **再起動**（または Rebuild）
-4. `data` フォルダを作成し、変換したいPDFをアップロードして入れる
-    - VS Code（Web）のファイルツリーに `data` が無ければ作成
+4. `data` フォルダに、変換したいPDFをアップロードして入れる
+    - 通常は初回セットアップ時に `data` は自動で作成されます（無ければ作成してください）
     - PDFはドラッグ＆ドロップでアップロードできます
 5. 1クリックで起動する（おすすめ）
     - 左の **Run and Debug**（▶）を開く
