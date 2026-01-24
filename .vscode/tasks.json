@@ -7,7 +7,7 @@
       "command": "python",
       "args": [
         "-c",
-        "import os; os.makedirs('data', exist_ok=True)"
+        "import os; os.makedirs(\"data\", exist_ok=True)"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
