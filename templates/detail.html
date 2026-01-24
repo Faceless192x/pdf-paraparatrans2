@@ -28,7 +28,7 @@
         <div class="left header-left">
           <div class="basic-info">
             <span class="inline-block-margin">
-              <button onclick="window.location='{{ url_for('index') }}'" data-help-id="一覧画面に戻る">戻る</button>
+              <button type="button" data-href="{{ url_for('index') }}" onclick="window.location.href=this.dataset.href" data-help-id="一覧画面に戻る">戻る</button>
               Title: <input type="text" id="titleInput" value="{{ book_data.title|e }}" class="title-input">
               <button id="saveOrderButton" data-help-id="表題と構造を保存">保存</button>
               FileName: {{ pdf_name }} / Update: {{ updated_date }}
@@ -65,7 +65,7 @@
               <span id="toggleTocPanel" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local" data-help-id="目次パネルの表示/非表示">目次</span>
               <span id="togglePdfPanel" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local;default:true" data-help-id="PDFパネルの表示/非表示">PDF</span>
               <span id="toggleSrcHtml" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local" data-help-id="ソースHTMLの表示/非表示">Html</span>
-              <span id="toggleSrcText" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local" data-help-id="原文の表示/非表示">原文</span>
+              <span id="toggleSrcText" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local;default:true" data-help-id="原文の表示/非表示">原文</span>
               <span id="toggleSrcJoined" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local" data-help-id="連結文の表示/非表示">連結文</span>
               <span id="toggleSrcReplaced" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local;default:true" data-help-id="置換文の表示/非表示">置換文</span>
               <span id="toggleTransAuto" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local;default:true" data-help-id="自動翻訳の表示/非表示">Auto</span>

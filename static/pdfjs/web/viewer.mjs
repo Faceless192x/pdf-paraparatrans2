@@ -13531,6 +13531,51 @@ const PDFViewerApplication = {
     let file;
     const queryString = document.location.search.substring(1);
     const params = parseQueryString(queryString);
+
+    // 埋め込み側からクエリで動作を固定できるようにする
+    // NOTE: parseQueryString は key を lower-case 化するため、ここも lower-case で参照する。
+    const _isTrue = v => v === "true" || v === "1";
+    const _isFalse = v => v === "false" || v === "0";
+    if (params.has("disableautofetch") && _isTrue(params.get("disableautofetch"))) {
+      AppOptions.set("disableAutoFetch", true);
+    }
+    if (params.has("enablescripting") && _isFalse(params.get("enablescripting"))) {
+      AppOptions.set("enableScripting", false);
+    }
+
+    // 表示モードを固定（埋め込み時にUI連動のズレを減らす）
+    // scrollModeOnLoad / spreadModeOnLoad が UNKNOWN の場合のみ保存状態が採用されるため、
+    // ここで確定値を入れると常に指定モードになる。
+    if (params.has("scrollmode")) {
+      switch ((params.get("scrollmode") || "").toLowerCase()) {
+        case "page":
+          AppOptions.set("scrollModeOnLoad", ScrollMode.PAGE);
+          break;
+        case "vertical":
+          AppOptions.set("scrollModeOnLoad", ScrollMode.VERTICAL);
+          break;
+        case "horizontal":
+          AppOptions.set("scrollModeOnLoad", ScrollMode.HORIZONTAL);
+          break;
+        case "wrapped":
+          AppOptions.set("scrollModeOnLoad", ScrollMode.WRAPPED);
+          break;
+      }
+    }
+    if (params.has("spreadmode")) {
+      switch ((params.get("spreadmode") || "").toLowerCase()) {
+        case "none":
+          AppOptions.set("spreadModeOnLoad", SpreadMode.NONE);
+          break;
+        case "odd":
+          AppOptions.set("spreadModeOnLoad", SpreadMode.ODD);
+          break;
+        case "even":
+          AppOptions.set("spreadModeOnLoad", SpreadMode.EVEN);
+          break;
+      }
+    }
+
     file = params.get("file") ?? AppOptions.get("defaultUrl");
     validateFileURL(file);
     const fileInput = this._openFileInput = document.createElement("input");

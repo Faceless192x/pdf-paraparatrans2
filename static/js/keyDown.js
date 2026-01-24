@@ -24,6 +24,8 @@ HotkeyMapper.map("Ctrl+ArrowRight", nextPage, { description: "次のページ" }
 HotkeyMapper.map("Ctrl+Shift+ArrowLeft", prevPage, { description: "前のページ" });
 HotkeyMapper.map("Ctrl+Shift+ArrowRight", nextPage, { description: "次のページ" });
 
+HotkeyMapper.map("/", focusPageNumberInput, { description: "ページ番号へフォーカス", useCapture: true });
+
 // パラグラフに対する編集はAltキー
 //moveSelectedByOffset
 HotkeyMapper.map("Alt+0", () => updateBlockTagForSelected("p"), { description: "タグ:p", useCapture : true });
@@ -97,6 +99,22 @@ function rollDown() {
     srcPanel.focus();
     if (srcPanel) {
         srcPanel.scrollBy({ top: srcPanel.clientHeight, behavior: 'smooth' }); // 1画面分下にスクロール
+    }
+}
+
+function focusPageNumberInput() {
+    const el = document.getElementById('pageInput');
+    if (!el) return;
+
+    el.focus();
+    try {
+        if (typeof el.select === 'function') el.select();
+        else if (typeof el.setSelectionRange === 'function') {
+            const v = String(el.value ?? "");
+            el.setSelectionRange(0, v.length);
+        }
+    } catch (e) {
+        // type=number 等で選択操作が不可の場合があるため無視
     }
 }
 

@@ -291,6 +291,11 @@ Beffadle|《惑い》|0|2
 ## 更新履歴
 - v2.0.0: 2026/01/22 全機能を刷新。ver2以前とのデータ互換はありません。
 
+## 権利表記
+- READMEや画面サンプルに、Chaosium Inc. の **Basic Roleplaying System Reference Document 1.0 (BRPSRD1.0)** の内容が含まれます。
+- BRPSRD1.0 は **BRP Open Game License, Version 1.0** に基づき提供されています（"BRP Open Game License v 1.0 © copyright 2020 Chaosium Inc."）。ライセンス条項および Open Game Content / Prohibited Content の定義は同PDF内の「LEGAL INFORMATION」を参照してください。
+- “Basic Roleplaying”, “BRP” などは Chaosium Inc. の商標/登録商標です。本プロジェクトは Chaosium Inc. と提携・承認・後援関係にありません。
+
 ## 🙏 寄付のお願い
 **PDF ParaParaTrans** はフリーウェアですが、翻訳APIを使用したテストを繰り返すため、50万字の無料枠を超過して困っています。
 

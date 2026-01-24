@@ -281,6 +281,11 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
         if (updateUrl) {
             updateUrlForPage(currentPage, { replace: replaceHistory });
         }
+
+        // 初回遷移時など、同一ページでもPDFビューアが未ロードの場合があるため必ず反映する。
+        ensurePdfViewerLoaded(currentPage);
+        setPdfViewerPage(currentPage);
+
         if (forceRender) {
             renderParagraphs();
             document.getElementById("srcPanel").focus();
@@ -316,7 +321,14 @@ function ensurePdfViewerLoaded(initialPage = 1) {
     if (!iframe) return;
 
     const pdfFileUrl = `/pdf_view/${encodeURIComponent(pdfName)}`;
-    const viewerBaseUrl = `/static/pdfjs/web/viewer.html?file=${encodeURIComponent(pdfFileUrl)}`;
+    // PDF.js側の挙動をURLで固定
+    // - disableautofetch=true: 先読みを抑制して初回の負荷を下げる
+    // - enablescripting=false: PDF内スクリプトを無効化
+    // - scrollmode=page: 単ページ（ページ単位スクロール）に固定
+    // - spreadmode=none: 見開き表示を無効化
+    const viewerBaseUrl = `/static/pdfjs/web/viewer.html?file=${encodeURIComponent(pdfFileUrl)}`
+        + `&disableautofetch=true&enablescripting=false`
+        + `&scrollmode=page&spreadmode=none`;
 
     if (iframe.dataset.viewerBaseUrl !== viewerBaseUrl) {
         iframe.dataset.viewerBaseUrl = viewerBaseUrl;

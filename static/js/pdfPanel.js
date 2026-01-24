@@ -2,6 +2,13 @@
 
 let currentHighlightLayer = null; // 現在のハイライト要素を保持する変数
 
+function pdfPanelDebugLog(...args) {
+    // `window.PDF_PANEL_DEBUG = true` でデバッグログを有効化
+    if (window.PDF_PANEL_DEBUG) {
+        console.log(...args);
+    }
+}
+
 function clearHighlights() {
     if (currentHighlightLayer) {
         currentHighlightLayer.remove();
@@ -38,7 +45,7 @@ function highlightRectsOnPage(pageNumber, rects) {
              if (renderedPageNumber !== (parseInt(pageNumber, 10) || 1)) return;
              iframe.contentWindow.document.removeEventListener('pagerendered', onPageRendered);
 
-             console.log(`Page ${pageNumber} rendered, attempting to highlight.`);
+             pdfPanelDebugLog(`Page ${pageNumber} rendered, attempting to highlight.`);
              const renderedPageView = pdfViewer.getPageView(pageIndex);
              if (renderedPageView && renderedPageView.textLayer && renderedPageView.textLayer.div) {
                  drawHighlights(renderedPageView, rects);
@@ -131,7 +138,7 @@ function drawHighlights(pageView, rects) {
 
         const [x0, y0, x1, y1] = pymupdfBbox;
 
-        console.log(`PyMuPDF bbox: x0 ${x0}, y0 ${y0}, x1 ${x1}, y1 ${y1}`);
+        pdfPanelDebugLog(`PyMuPDF bbox: x0 ${x0}, y0 ${y0}, x1 ${x1}, y1 ${y1}`);
 
         // --- PDF.js 標準座標系 [x0, y0, x1, y1] (Y=0が下) に変換 ---
         const pdfJsBbox = [
@@ -140,11 +147,11 @@ function drawHighlights(pageView, rects) {
             x1,                      // x1 (right)
             pageHeightInPoints - y1 // y0 (bottom)
         ];
-        console.log(`Converted PDF.js bbox: ${pdfJsBbox}`);
+        pdfPanelDebugLog(`Converted PDF.js bbox: ${pdfJsBbox}`);
 
         // viewport.convertToViewportRectangle は PDF.js 標準座標系を受け取る
         const viewportRect = viewport.convertToViewportRectangle(pdfJsBbox);
-        console.log(`Converted viewport rect: ${viewportRect}`);
+        pdfPanelDebugLog(`Converted viewport rect: ${viewportRect}`);
 
         const highlightDiv = document.createElement('div');
         // --- 親CSSからスタイルを取得して適用 ---
@@ -156,15 +163,15 @@ function drawHighlights(pageView, rects) {
         }
         // --- スタイル適用ここまで ---
 
-        height = viewportRect[3] - viewportRect[1]
-        console.log(`Highlight height: ${height}`);
+        const height = viewportRect[3] - viewportRect[1];
+        pdfPanelDebugLog(`Highlight height: ${height}`);
 
         // ビューポート座標で位置とサイズを設定 (viewportRect は [x1, y1, x2, y2])
         highlightDiv.style.left = `${viewportRect[0]}px`;
         highlightDiv.style.top = `${viewportRect[1]}px`;
         highlightDiv.style.width = `${viewportRect[2] - viewportRect[0]}px`;
         highlightDiv.style.height = `${viewportRect[3] - viewportRect[1]}px`;
-        console.log(`Highlight rect: ${highlightDiv.style.left}, ${highlightDiv.style.top}, ${highlightDiv.style.width}, ${highlightDiv.style.height}`);
+        pdfPanelDebugLog(`Highlight rect: ${highlightDiv.style.left}, ${highlightDiv.style.top}, ${highlightDiv.style.width}, ${highlightDiv.style.height}`);
 
         highlightContainer.appendChild(highlightDiv);
     });
