@@ -55,21 +55,21 @@ HotkeyMapper.map("Alt+C", resetTranslationForSelected, { description: "翻訳ク
 
 HotkeyMapper.map("Alt+/", translateCurrentParagraph, { description: "パラグラフを翻訳", useCapture: true, allowInInput: true });
 
-HotkeyMapper.map("Alt+ArrowUp", () => moveSelectedByOffset(-1), { description: "選択範囲を上へ"});
-HotkeyMapper.map("Alt+ArrowDown", () => moveSelectedByOffset(1), { description: "選択範囲を下へ"});
-HotkeyMapper.map("Ctrl+Alt+ArrowUp", moveSelectedBelowPreviousHeading, { description: "選択段落を前の見出しの下に移動" });
-HotkeyMapper.map("Ctrl+Alt+ArrowDown", moveSelectedAboveNextHeading, { description: "選択段落を次の見出しの上に移動" });
+HotkeyMapper.map("Alt+ArrowUp", () => moveSelectedByOffset(-1), { description: "選択（なければカレント）を上へ"});
+HotkeyMapper.map("Alt+ArrowDown", () => moveSelectedByOffset(1), { description: "選択（なければカレント）を下へ"});
+HotkeyMapper.map("Ctrl+Alt+ArrowUp", moveSelectedBelowPreviousHeading, { description: "選択（なければカレント）を前の見出しの下に移動" });
+HotkeyMapper.map("Ctrl+Alt+ArrowDown", moveSelectedAboveNextHeading, { description: "選択（なければカレント）を次の見出しの上に移動" });
 
 // Alt+Home/End: 先頭/末尾へ移動 + block_tag を header/footer に
 HotkeyMapper.map("Alt+Home", () => {
     moveSelectedBefore(0);
     updateBlockTagForSelected("header");
-}, { description: "選択範囲を先頭へ + header", useCapture : true });
+}, { description: "選択（なければカレント）を先頭へ + header", useCapture : true });
 
 HotkeyMapper.map("Alt+End", () => {
     moveSelectedAfter(9999);
     updateBlockTagForSelected("footer");
-}, { description: "選択範囲を末尾へ + footer", useCapture : true });
+}, { description: "選択（なければカレント）を末尾へ + footer", useCapture : true });
 
 HotkeyMapper.map("F2", () => toggleEditUICurrent(), { description: "編集切り替え", useCapture : true });
 
