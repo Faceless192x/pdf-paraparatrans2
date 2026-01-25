@@ -1,11 +1,26 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_submodules
+
+
+hiddenimports = [
+    'fitz',
+    'dotenv',
+    'numpy',
+    'PyPDF2',
+    'PyPDF2',
+    'deepl',
+    # google は namespace package のため PyInstaller が取りこぼすことがある
+    *collect_submodules('google'),
+]
+
+
 a = Analysis(
     ['pdf-paraparatrans.py'],
     pathex=[],
     binaries=[],
     datas=[('templates', 'templates'), ('static', 'static'), ('modules', 'modules')],
-    hiddenimports=['fitz', 'PyMuPDF', 'PyMuPDF', 'python-dotenv', 'numpy', 'PyPDF2', 'PyPDF2', 'google-cloud-translate', 'deepl'],
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

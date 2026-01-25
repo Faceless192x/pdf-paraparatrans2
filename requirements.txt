@@ -4,4 +4,6 @@ numpy
 PyPDF2
 PyMuPDF
 google-cloud-translate
+google-auth
+requests
 deepl
