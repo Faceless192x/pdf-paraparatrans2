@@ -77,6 +77,11 @@ from modules.parapara_tagging_by_style_y import tag_paragraphs_by_style_y_in_fil
 # 対訳HTMLの出力
 from modules.parapara_json2html import json2html
 from modules.parapara_align_trans_by_src_joined import align_translations_by_src_joined
+from modules.settings_sync import (
+    lazy_sync_settings_from_json_files,
+    save_settings,
+    sync_one_pdf_settings_from_json,
+)
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 # mjsがtext/plain解釈されPDFビューアーが読み込めないケースへの対策。
@@ -322,10 +327,20 @@ def index():
     with open(settings_path, "r", encoding="utf-8") as f:
         settings = json.load(f)
 
+    # settingsのキャッシュが古い場合、各PDFのjson更新日時（PDFごとのjson_mtime）を基準に必要分だけ同期
+    try:
+        changed, _updated = lazy_sync_settings_from_json_files(settings=settings, base_folder=BASE_FOLDER)
+        if changed:
+            save_settings(settings_path, settings, indent=4)
+    except Exception as e:
+        app.logger.warning(f"settingsのlazy同期に失敗しました: {str(e)}")
+
     # ファイルリストを取得
     files = settings.get("files", {})
     pdf_dict = get_pdf_files()
     for pdf_name, file_data in files.items():
+        if pdf_name not in pdf_dict:
+            continue
         # JSONファイルの存在に関わらず trans_status_counts を初期化または更新
         trans_counts = file_data.get("trans_status_counts", {})
         pdf_dict[pdf_name].update({
@@ -481,6 +496,15 @@ def translate_all_api(pdf_name):
         return jsonify({"status": "error", "message": "JSONが存在しません"}), 400
     try:
         paraparatrans_json_file(json_path, 1, 9999)
+
+        # settingsの該当PDF分だけ同期（PDFごとのjson_mtimeで追従）
+        settings_path = os.path.join(DATA_FOLDER, "paraparatrans.settings.json")
+        sync_one_pdf_settings_from_json(
+            settings_path=settings_path,
+            base_folder=BASE_FOLDER,
+            pdf_name=pdf_name,
+            indent=4,
+        )
         return jsonify({"status": "ok"}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": f"全翻訳エラー: {str(e)}"}), 500
@@ -596,6 +620,15 @@ def paraparatrans_api(pdf_name):
     print ("json_path:" + json_path + " start_page:" + str(start_page) + " end_page:" + str(end_page))
     try:
         updated_data = paraparatrans_json_file(json_path, start_page, end_page)
+
+        # settingsの該当PDF分だけ同期（翻訳数表示の追従）
+        settings_path = os.path.join(DATA_FOLDER, "paraparatrans.settings.json")
+        sync_one_pdf_settings_from_json(
+            settings_path=settings_path,
+            base_folder=BASE_FOLDER,
+            pdf_name=pdf_name,
+            indent=4,
+        )
         return jsonify({"status": "ok", "data": updated_data}), 200
     except Exception as e:
         app.logger.error(f"翻訳処理中にエラーが発生しました: {str(e)}")
