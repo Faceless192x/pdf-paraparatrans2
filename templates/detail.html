@@ -42,8 +42,9 @@
               <button onclick="dictReplaceAll()" class="btn-step btn-step-dict" data-help-id="すべてのページを対訳置換">3.全対訳置換</button>
               <button onclick="transAllPages()" class="btn-step btn-step-transall" data-help-id="すべてのページを翻訳">4.全翻訳</button>
               <button id="alignTransBySrcJoinedButton" class="btn-step btn-step-transall" data-help-id="同一連結文の訳揃え">(訳揃え)</button>
-              <button onclick="saveStructure()" hidden data-help-id="構造の保存">(構成ファイル出力)</button>
               <button onclick="exportHtml()" class="btn-step btn-step-export" data-help-id="HTMLのエクスポート">5.対訳HTML出力</button>
+              <button onclick="dictCreate()" data-help-id="辞書の作成">(辞書抽出)</button>
+              <button onclick="saveStructure()" hidden data-help-id="構造の保存">(構成ファイル出力)</button>
               <button onclick="fetchBookData()" hidden data-help-id="ブックデータのリロード">リロード</button>
               <button id="renderButton" hidden data-help-id="HTMLのレンダリング">レンダリング</button>
             </span>
@@ -85,7 +86,6 @@
 
             <button id="pageDictReplaceButton" class="btn-step btn-step-dict" data-help-id="ページ対訳置換">ページ対訳置換</button>
             <button id="pageTransButton" class="btn-step btn-step-transall" data-help-id="ページの翻訳">ページ翻訳</button>
-            <button onclick="dictCreate()" data-help-id="辞書の作成">(辞書抽出)</button>
             <button id="openDictButton" data-help-id="辞書登録">辞書登録</button>
             <button id="openLogButton" onclick="showLog()" data-help-id="ログを開く">Log</button>
             <button id="openHotKeyButton" onclick="HotkeyMapper.showHelpWindow()" data-help-id="ホットキーマッパーを開く">HotKey</button>
