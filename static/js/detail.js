@@ -287,9 +287,9 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
         setPdfViewerPage(currentPage);
 
         if (forceRender) {
-            renderParagraphs();
+            renderParagraphs({ resetScrollTop: true });
             document.getElementById("srcPanel").focus();
-            setCurrentParagraph(0);
+            setCurrentParagraph(0, false, { scrollIntoView: false });
         }
         return;
     }
@@ -311,9 +311,9 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
     ensurePdfViewerLoaded(currentPage);
     setPdfViewerPage(currentPage);
 
-    renderParagraphs();
+    renderParagraphs({ resetScrollTop: true });
     document.getElementById("srcPanel").focus();
-    setCurrentParagraph(0);
+    setCurrentParagraph(0, false, { scrollIntoView: false });
 }
 
 function ensurePdfViewerLoaded(initialPage = 1) {

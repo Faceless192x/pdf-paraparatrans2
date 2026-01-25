@@ -298,6 +298,7 @@ Beffadle|《惑い》|0|2
 | **Alt + ↑ / ↓** | 選択（なければカレント）を上下へ移動 |
 | **Ctrl + Alt + ↑ / ↓** | 選択（なければカレント）を前の見出しの下 / 次の見出しの上へ移動 |
 | **Alt + Home / End** | 選択（なければカレント）を先頭へ + `header` / 末尾へ + `footer` |
+| **Ctrl + Alt + Home / End** | （要確認）カレントと同じ `style + Y範囲` の段落を文書全体で `header` / `footer` に一括更新（ページ内の並び順も自動調整） |
 | **Ctrl + S** | 構造保存 |
 | **F2** | 編集UI切り替え |
 | **PageUp / PageDown** | srcパネルを1画面スクロール（環境によっては `RollUp/RollDown`） |

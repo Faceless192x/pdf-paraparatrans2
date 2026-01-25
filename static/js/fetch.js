@@ -293,6 +293,36 @@ async function taggingByStyle(targetStyle, targetTag) {
 }
 
 
+async function taggingByStyleY(targetStyle, y0, y1, action) {
+    try {
+        const response = await fetch(`/api/update_block_tags_by_style_y/${encodeURIComponent(pdfName)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                target_style: targetStyle,
+                y0: y0,
+                y1: y1,
+                action: action
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.status === "ok") {
+            alert(result.message || "スタイル+Y範囲の一括更新が完了しました。");
+            await fetchBookData();
+        } else {
+            alert(`スタイル+Y範囲の一括更新に失敗しました: ${result.message}`);
+        }
+    } catch (error) {
+        console.error('スタイル+Y範囲 一括更新エラー:', error);
+        alert('スタイル+Y範囲の一括更新中にエラーが発生しました。');
+    }
+}
+
+
 async function joinParagraphs() {
     let msg = "全ページのパラグラフに対して結合処理を行います";
     msg += "\n「置換文」列の置換はいったんリセットされます。";

@@ -5,11 +5,11 @@ HotkeyMapper.map("ArrowDown", () => moveCurrentParagraphDown(false), { descripti
 HotkeyMapper.map("Shift+ArrowUp", () => moveCurrentParagraphUp(true), { description: "選択しながら移動(上)"});
 HotkeyMapper.map("Shift+ArrowDown", () => moveCurrentParagraphDown(true), { description: "選択しながら移動(下)"});
 
-HotkeyMapper.map("Home", () => setCurrentParagraph(0), { description: "先頭パラグラフ" });
+HotkeyMapper.map("Home", () => setCurrentParagraph(0, false, { scrollBehavior: 'auto' }), { description: "先頭パラグラフ" });
 HotkeyMapper.map("End", () => {
     const paragraphs = (typeof getAllParagraphs === 'function') ? getAllParagraphs() : [];
     if (!paragraphs || paragraphs.length === 0) return;
-    setCurrentParagraph(paragraphs.length - 1);
+    setCurrentParagraph(paragraphs.length - 1, false, { scrollBehavior: 'auto' });
 }, { description: "末尾パラグラフ" });
 
 HotkeyMapper.map("Ctrl+ArrowUp", () => focusNearestHeading(-1), { description: "前の見出し"});
@@ -72,6 +72,16 @@ HotkeyMapper.map("Alt+End", () => {
     moveSelectedAfter(9999);
     updateBlockTagForSelected("footer");
 }, { description: "選択（なければカレント）を末尾へ + footer", useCapture : true });
+
+
+// Ctrl+Alt+Home/End: カレント段落の style + Y範囲で文書全体に header/footer を適用
+HotkeyMapper.map("Ctrl+Alt+Home", () => {
+    void applyCurrentParagraphStyleYToAll("header");
+}, { description: "(要確認) カレントと同style+Y範囲を全体header", useCapture: true });
+
+HotkeyMapper.map("Ctrl+Alt+End", () => {
+    void applyCurrentParagraphStyleYToAll("footer");
+}, { description: "(要確認) カレントと同style+Y範囲を全体footer", useCapture: true });
 
 HotkeyMapper.map("F2", () => toggleEditUICurrent(), { description: "編集切り替え", useCapture : true });
 
@@ -147,6 +157,76 @@ function translateCurrentParagraph() {
         return;
     }
     transParagraph(paragraphDict, currentDiv);
+}
+
+
+async function applyCurrentParagraphStyleYToAll(action) {
+    try {
+        const currentDiv = document.querySelector('.paragraph-box.current');
+        if (!currentDiv) return;
+
+        const idStr = (currentDiv.id || '').replace('paragraph-', '');
+        const paragraphDict = bookData?.pages?.[currentPage]?.paragraphs?.[idStr];
+        if (!paragraphDict) return;
+
+        const targetStyle = paragraphDict.base_style;
+        const bbox = paragraphDict.bbox;
+        if (!targetStyle || !bbox || !Array.isArray(bbox) || bbox.length < 4) {
+            alert("カレント段落の style または bbox が取得できません。");
+            return;
+        }
+
+        // bbox = [x0, y0, x1, y1]
+        const eps = 1.0;
+        let y0 = Number(bbox[1]);
+        let y1 = Number(bbox[3]);
+        if (!Number.isFinite(y0) || !Number.isFinite(y1)) {
+            alert("カレント段落の bbox(y0/y1) が不正です。");
+            return;
+        }
+        if (y0 > y1) {
+            const tmp = y0;
+            y0 = y1;
+            y1 = tmp;
+        }
+        const rangeY0 = y0 - eps;
+        const rangeY1 = y1 + eps;
+
+        // 対象件数を数えて確認（全体一括のため必須）
+        let count = 0;
+        for (const page of Object.values(bookData?.pages || {})) {
+            for (const p of Object.values(page?.paragraphs || {})) {
+                if (p.base_style !== targetStyle) continue;
+                const b = p.bbox;
+                if (!b || !Array.isArray(b) || b.length < 4) continue;
+                const py0 = Number(b[1]);
+                const py1 = Number(b[3]);
+                if (!Number.isFinite(py0) || !Number.isFinite(py1)) continue;
+                if (rangeY0 <= py0 && py1 <= rangeY1) count++;
+            }
+        }
+
+        if (count === 0) {
+            alert(`対象が見つかりませんでした（style='${targetStyle}', y=${rangeY0.toFixed(1)}..${rangeY1.toFixed(1)}）`);
+            return;
+        }
+
+        const msg = `文書全体の処理です。\n` +
+            `カレント段落と同じ style + Y範囲の段落（${count}件）を '${action}' に更新します。\n` +
+            `style='${targetStyle}'\n` +
+            `y0=${rangeY0.toFixed(1)}, y1=${rangeY1.toFixed(1)}\n\n` +
+            `よろしいですか？`;
+        if (!confirm(msg)) return;
+
+        if (typeof taggingByStyleY !== 'function') {
+            alert('taggingByStyleY が見つかりません（fetch.js の読み込みを確認してください）');
+            return;
+        }
+        await taggingByStyleY(targetStyle, rangeY0, rangeY1, action);
+    } catch (e) {
+        console.error('applyCurrentParagraphStyleYToAll error:', e);
+        alert('一括更新中にエラーが発生しました。');
+    }
 }
 
 function onKeyDown(event, divSrc, paragraph, srcText, transText, blockTagSpan) {

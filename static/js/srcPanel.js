@@ -88,7 +88,13 @@ function onEditCancelClick(event, paragraph, divSrc, srcText, transText, blockTa
 }
 
 /** @function renderParagraphs */
-function renderParagraphs() {
+function renderParagraphs(options = {}) {
+    const { resetScrollTop = false } = options;
+    if (resetScrollTop) {
+        const srcPanel = document.getElementById("srcPanel");
+        if (srcPanel) srcPanel.scrollTop = 0;
+    }
+
     let srcContainer = document.getElementById("srcParagraphs");
     srcContainer.style.display = 'none'; // チラつき防止にいったん非表示
     srcContainer.innerHTML = "";
@@ -238,11 +244,46 @@ async function onStyleUpdateButtonClick(event, paragraph, divSrc) {
     const targetStyle = paragraph.base_style; // 現在のパラグラフのスタイルを取得
     const targetTag = divSrc.querySelector('.type-select').value; // 選択されているblock_tagを取得
 
-    // 対象スタイルを持つパラグラフの数をカウント
+    // header/footer/remove は style + Y範囲 で一括更新する
+    const isSpecial = (targetTag === 'header' || targetTag === 'footer' || targetTag === 'remove');
+    const eps = 1.0;
+
+    let rangeY0 = null;
+    let rangeY1 = null;
+    if (isSpecial) {
+        const bbox = paragraph?.bbox;
+        if (!bbox || !Array.isArray(bbox) || bbox.length < 4) {
+            alert('この段落の bbox が取得できないため、style+Y範囲の一括更新はできません。');
+            return;
+        }
+        let y0 = Number(bbox[1]);
+        let y1 = Number(bbox[3]);
+        if (!Number.isFinite(y0) || !Number.isFinite(y1)) {
+            alert('この段落の bbox(y0/y1) が不正です。');
+            return;
+        }
+        if (y0 > y1) {
+            const tmp = y0;
+            y0 = y1;
+            y1 = tmp;
+        }
+        rangeY0 = y0 - eps;
+        rangeY1 = y1 + eps;
+    }
+
+    // 対象パラグラフの数をカウント
     let count = 0;
     for (const page of Object.values(bookData["pages"])) {
         for (const p of Object.values(page["paragraphs"])) {
-            if (p.base_style === targetStyle) {
+            if (p.base_style !== targetStyle) continue;
+            if (isSpecial) {
+                const b = p.bbox;
+                if (!b || !Array.isArray(b) || b.length < 4) continue;
+                const py0 = Number(b[1]);
+                const py1 = Number(b[3]);
+                if (!Number.isFinite(py0) || !Number.isFinite(py1)) continue;
+                if (rangeY0 <= py0 && py1 <= rangeY1) count++;
+            } else {
                 count++;
             }
         }
@@ -253,9 +294,22 @@ async function onStyleUpdateButtonClick(event, paragraph, divSrc) {
         return;
     }
 
-    const confirmation = confirm(`このパラグラフと同じスタイル '${targetStyle}' のパラグラフ ${count} 件をすべて '${targetTag}' に更新します。よろしいですか？`);
+    let msg = `このパラグラフと同じスタイル '${targetStyle}' のパラグラフ ${count} 件をすべて '${targetTag}' に更新します。`;
+    if (isSpecial) {
+        msg += `\n(判定条件: style + Y範囲 y0=${rangeY0.toFixed(1)}, y1=${rangeY1.toFixed(1)})`;
+    }
+    msg += `\n\n文書全体の処理です。よろしいですか？`;
 
-    if (confirmation) {
+    const confirmation = confirm(msg);
+    if (!confirmation) return;
+
+    if (isSpecial) {
+        if (typeof taggingByStyleY !== 'function') {
+            alert('taggingByStyleY が見つかりません（fetch.js の読み込みを確認してください）');
+            return;
+        }
+        await taggingByStyleY(targetStyle, rangeY0, rangeY1, targetTag);
+    } else {
         await taggingByStyle(targetStyle, targetTag);
     }
 }
@@ -629,7 +683,12 @@ function getAllParagraphs() {
 /** @function setCurrentParagraph 
  * 指定されたインデックスのパラグラフをカレントにする
 */
-function setCurrentParagraph(index, isShiftHeld = false) {
+function setCurrentParagraph(index, isShiftHeld = false, options = {}) {
+    const {
+        scrollIntoView = true,
+        scrollBlock = 'center',
+        scrollBehavior = 'smooth',
+    } = options;
     const paragraphs = getAllParagraphs();
 
     // 常にページ全体のパラグラフを処理
@@ -651,7 +710,9 @@ function setCurrentParagraph(index, isShiftHeld = false) {
     current.classList.add('current');
     // current.classList.add('selected');
 
-    current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (scrollIntoView) {
+        current.scrollIntoView({ block: scrollBlock, behavior: scrollBehavior });
+    }
 
     const id = current.id.replace('paragraph-', '');
     const paragraphDict = bookData["pages"][currentPage]["paragraphs"][id];

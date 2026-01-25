@@ -72,6 +72,8 @@ from modules.parapara_trans import paraparatrans_json_file, recalc_trans_status_
 from modules.parapara_init import parapara_init  # parapara_initをインポート
 # スタイルによるblock_tag一括更新
 from modules.parapara_tagging_by_style import tag_paragraphs_by_style # 追加
+# スタイル + Y範囲による header/footer タグ付け
+from modules.parapara_tagging_by_style_y import tag_paragraphs_by_style_y_in_file
 # 対訳HTMLの出力
 from modules.parapara_json2html import json2html
 from modules.parapara_align_trans_by_src_joined import align_translations_by_src_joined
@@ -802,6 +804,34 @@ def update_block_tags_by_style_api(pdf_name):
     except Exception as e:
         app.logger.error(f"スタイルによるblock_tag一括更新エラー: {str(e)}")
         return jsonify({"status": "error", "message": f"スタイルによるblock_tag一括更新エラー: {str(e)}"}), 500
+
+
+# API: スタイル + Y範囲による block_tag 更新（header/footer/remove）
+@app.route("/api/update_block_tags_by_style_y/<pdf_name>", methods=["POST"])
+def update_block_tags_by_style_y_api(pdf_name):
+    data = request.get_json() or {}
+    target_style = data.get("target_style")
+    y0 = data.get("y0")
+    y1 = data.get("y1")
+    action = data.get("action")
+
+    if not target_style:
+        return jsonify({"status": "error", "message": "target_style は必須です"}), 400
+    if y0 is None or y1 is None:
+        return jsonify({"status": "error", "message": "y0 と y1 は必須です"}), 400
+    if action not in ["header", "footer", "remove"]:
+        return jsonify({"status": "error", "message": "action は header/footer/remove のいずれかです"}), 400
+
+    _, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
+
+    try:
+        changed = tag_paragraphs_by_style_y_in_file(json_path, target_style, float(y0), float(y1), action)
+        return jsonify({"status": "ok", "message": f"更新しました (変更: {changed}段落)", "changed": changed}), 200
+    except Exception as e:
+        app.logger.error(f"スタイル+Y範囲によるblock_tag一括更新エラー: {str(e)}")
+        return jsonify({"status": "error", "message": f"スタイル+Y範囲によるblock_tag一括更新エラー: {str(e)}"}), 500
 
 
 @app.route("/api/join_replaced_paragraphs/<pdf_name>", methods=["POST"])
