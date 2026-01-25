@@ -60,10 +60,6 @@ input[type="reset"]:disabled {
     white-space: pre-wrap;
 }
 
-.pdf-upload-button {
-    /* hook for upload button; spacing is handled by .app-header { gap } */
-}
-
 
 :root {
     --dark-red: #8A3A42;
@@ -245,17 +241,40 @@ header {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 14px;
 }
 
-.app-header h1 {
+.app-header .app-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.app-header .app-title h1 {
     margin: 0;
-    margin-right: auto;
+}
+
+.app-header .header-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
 }
 
 .app-icon {
     height: 50px;
     margin-right: 0;
+}
+
+@media (max-width: 720px) {
+    .app-header {
+        gap: 10px;
+    }
+
+    /* 狭い画面ではボタン群は次の行へ（左寄せで視線移動を最小化） */
+    .app-header .header-actions {
+        flex-basis: 100%;
+    }
 }
 
 .header-container {

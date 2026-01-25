@@ -9,12 +9,16 @@
 </head>
 <body>
     <div class="app-header">
-        <img src="{{ url_for('static', filename='paraparatrans.svg') }}" alt="Icon" class="app-icon">
-        <h1>PDF ParaParaTrans</h1>
-        <button onclick="refreshBookList()" data-help-id="ブックリストの更新">一覧を更新</button>
-        <input id="pdf-upload-input" type="file" accept="application/pdf,.pdf" style="display:none">
-        <button type="button" id="pdf-upload-button" class="pdf-upload-button" data-help-id="PDFのアップロード">PDFを追加</button>
-        <button id="show-full-help">Help</button>
+        <div class="app-title">
+            <img src="{{ url_for('static', filename='paraparatrans.svg') }}" alt="Icon" class="app-icon">
+            <h1>PDF ParaParaTrans</h1>
+        </div>
+        <div class="header-actions">
+            <button onclick="refreshBookList()" data-help-id="ブックリストの更新">一覧を更新</button>
+            <input id="pdf-upload-input" type="file" accept="application/pdf,.pdf" style="display:none">
+            <button type="button" id="pdf-upload-button" class="pdf-upload-button" data-help-id="PDFのアップロード">PDFを追加</button>
+            <button id="show-full-help">Help</button>
+        </div>
     </div>
     <div id="pdf-upload-status" class="upload-status"></div>
     <form method="GET">
