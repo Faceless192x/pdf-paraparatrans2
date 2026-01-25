@@ -161,11 +161,12 @@ def load_symbol_fonts(file_path=None):
     """
     # 固定リスト
     default_symbol_fonts = [
-        "Wingdings", "Webdings", "Segoe UI Symbol", "Apple Symbols",
-        "Font Awesome", "Material Icons", "Ionicons", "Entypo",
-        "Fork Awesome", "Zocial", "OpenMoji", "Glyphicons",
-        "Line Awesome", "Typicons", "Noto Emoji", "Twemoji",
-        "Symbols Nerd Font"
+        "Wingdings", "Webdings", "Segoe_UI_Symbol", "Apple_Symbols",
+        "Font_Awesome", "Material_Icons", "Ionicons", "Entypo",
+        "Fork_Awesome", "Zocial", "OpenMoji", "Glyphicons",
+        "Line_Awesome", "Typicons", "Noto_Emoji", "Twemoji",
+        "Symbols_Nerd_Font",
+        "GloranthaCoreRunes","GloranthaRuneIcons"
     ]
 
     # ファイルパスが指定されていない場合、固定リストを返す

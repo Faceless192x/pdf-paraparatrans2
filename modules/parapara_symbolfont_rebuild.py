@@ -8,7 +8,8 @@ parapara JSON の各段落について、`src_html` を元に `src_text` を再�
 シンボルフォント由来の ASCII 文字をフォント別の置換文字列に置換します。
 
 - 抽出時にしか補正できない問題を避けるため「後工程」で何度でも適用できます。
-- 何がシンボルフォントかは `symbolfont_dict.txt` のフォント名群（キー）で判断します。
+- 何がシンボルフォントかは `symbolfont_dict.txt` のフォント名群（キー）が
+    JSON の span class 名（例: `GloranthaCoreRunes_Regular_0100`）の先頭に一致するかで判断します。
 
 辞書ファイル形式
 ----------------
@@ -107,13 +108,17 @@ def rebuild_src_text_from_src_html(src_html: str, symbolfont_map: Dict[str, Dict
         return ""
 
     out_parts = []
+    # クラス名に対する前方一致で辞書を選ぶ（より長いキーを優先）
+    dict_font_keys = sorted(symbolfont_map.keys(), key=len, reverse=True)
     for span_class, raw_text in iter_spans_from_src_html(src_html):
         # HTML エスケープが入るケースにも一応対応（通常は入っていない想定）
         text = html.unescape(raw_text)
 
-        font_from_class = _font_from_class(span_class)
-        norm_font = _normalize_font_name(font_from_class)
-        replace_table = symbolfont_map.get(norm_font)
+        # span class は `${font_with_underscores}_${size_str}` を想定
+        # dict 側のキー（フォント名/クラス名）は span class の先頭一致で判定する
+        norm_span_class = _normalize_font_name(span_class)
+        matched_key = next((k for k in dict_font_keys if norm_span_class.startswith(k)), None)
+        replace_table = symbolfont_map.get(matched_key) if matched_key else None
 
         # 既存仕様に合わせてタブは '|' にする
         text = text.replace("\t", "|")

@@ -26,11 +26,12 @@ def load_symbol_fonts(file_path=None):
     シンボルフォント名リストをファイルから読み込む。未指定/ファイル未検出時はデフォルトリストを返す。
     """
     default = [
-        "Wingdings", "Webdings", "Segoe UI Symbol", "Apple Symbols",
-        "Font Awesome", "Material Icons", "Ionicons", "Entypo",
-        "Fork Awesome", "Zocial", "OpenMoji", "Glyphicons",
-        "Line Awesome", "Typicons", "Noto Emoji", "Twemoji",
-        "Symbols Nerd Font"
+        "Wingdings", "Webdings", "Segoe_UI_Symbol", "Apple_Symbols",
+        "Font_Awesome", "Material_Icons", "Ionicons", "Entypo",
+        "Fork_Awesome", "Zocial", "OpenMoji", "Glyphicons",
+        "Line_Awesome", "Typicons", "Noto_Emoji", "Twemoji",
+        "Symbols_Nerd_Font",
+        "GloranthaCoreRunes","GloranthaRuneIcons"
     ]
     if not file_path or not os.path.exists(file_path):
         return default

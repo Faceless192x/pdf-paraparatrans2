@@ -1,19 +1,20 @@
 Wingdings
 Webdings
-Segoe UI Symbol
-Apple Symbols
-Font Awesome
-Material Icons
+Segoe_UI_Symbol
+Apple_Symbols
+Font_Awesome
+Material_Icons
 Ionicons
 Entypo
-Fork Awesome
+Fork_Awesome
 Zocial
 OpenMoji
 Glyphicons
-Line Awesome
+Line_Awesome
 Typicons
-Noto Emoji
+Noto_Emoji
 Twemoji
-Symbols Nerd Font
+Symbols_Nerd_Font
+RuneFontCoreRunes
 GloranthaCoreRunes
 GloranthaRuneIcons

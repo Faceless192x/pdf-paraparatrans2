@@ -87,7 +87,7 @@
     - Windows 11は、開いているターミナルで `python` と入力してEnter → Microsoft Storeが開いたら「入手」でインストールできます
 5. 必要なパッケージをインストール
     ```
-    pip install -r requirements.txt
+    python -m pip install -r requirements.txt
     ```
 6. 翻訳APIキーを設定（最初はここだけ頑張ればOK）
     - `.env_sample` を `.env` にコピー
@@ -113,7 +113,7 @@
 9. ブラウザで `http://localhost:5077/` を開く（PDF一覧が出ます）
 
 > ### macOS の場合
-> コマンドが `python3` / `pip3` の場合があります。
+> コマンドが `python3` / `python3 -m pip` の場合があります。
 
 ### GitHub Codespaces（ローカルに入れたくない人向け / ブラウザだけでOK）
 
@@ -130,7 +130,10 @@
 2. 依存関係のインストール
     - 通常は Codespaces 作成時に自動で `pip install -r requirements.txt` が走ります
     - **初回は数分待ち時間**が出ることがあります（依存関係のダウンロード/ビルドのため）
-    - もし入っていない/失敗した場合は、メニュー **Terminal → Run Task...** → **Install dependencies**
+    - もし入っていない/失敗した場合は、ターミナルで以下を実行してください
+        ```
+        python -m pip install -r requirements.txt
+        ```
 3. （推奨）GitHub 側で **Codespaces Secrets（User secrets）** を登録（コードやファイルにキーを書かない）
     1. GitHub 画面右上の **自分のアイコン** → **Settings**
     2. 左メニューの **Codespaces** → **Secrets**
@@ -143,10 +146,11 @@
 4. `data` フォルダに、変換したいPDFをアップロードして入れる
     - 通常は初回セットアップ時に `data` は自動で作成されます（無ければ作成してください）
     - PDFはドラッグ＆ドロップでアップロードできます
-5. 1クリックで起動する（おすすめ）
-    - 左の **Run and Debug**（▶）を開く
-    - 上部の実行構成で **Run PDF ParaParaTrans 2** を選び、▶を押す
-    - （ターミナル起動が好みなら）メニュー **Terminal → Run Task...** → **Run PDF ParaParaTrans 2**
+5. 起動する（ターミナル）
+    ```
+    python pdf-paraparatrans.py
+    ```
+    > `python` が無い場合は `python3 pdf-paraparatrans.py` を試してください。
 6. 起動したら `http://localhost:5077/` を開く
     - 起動後に **Ports**（ポート）に 5077 が表示されたら、そこから **Open in Browser** で開けます
     - もし開けない場合は、Portsで 5077 を **Public** にする必要がある場合があります（組織設定によります）
