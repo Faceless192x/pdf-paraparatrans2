@@ -239,7 +239,7 @@ async function autoTagging() {
 
 
 async function rebuildSrcTextFromHtml() {
-    let msg = "全ページの段落について src_html から src_text を作り直し、symbolfont_dict による置換を適用します";
+    let msg = "全ページの段落について src_html から src_text を作り直し、シンボル置換（symbolfont_dict）を適用します";
     msg += "\n（辞書を更新した後に何度でも実行できます）";
     msg += "\n\nよろしいですか？";
     if (!confirm(msg)) return;
@@ -254,14 +254,14 @@ async function rebuildSrcTextFromHtml() {
         });
         const result = await response.json();
         if (result.status === "ok") {
-            alert(result.message || "原文再生成が完了しました");
+            alert(result.message || "シンボル置換が完了しました");
             await fetchBookData();
         } else {
-            alert("原文再生成エラー: " + (result.message || "unknown"));
+            alert("シンボル置換エラー: " + (result.message || "unknown"));
         }
     } catch (error) {
         console.error("rebuildSrcTextFromHtml error:", error);
-        alert("原文再生成中にエラーが発生しました");
+        alert("シンボル置換中にエラーが発生しました");
     }
 }
 

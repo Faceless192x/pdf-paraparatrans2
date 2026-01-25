@@ -35,6 +35,35 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="
     padding: 4px 6px;
 }
 
+button,
+input[type="button"],
+input[type="submit"],
+input[type="reset"] {
+    cursor: pointer;
+}
+
+button:disabled,
+input[type="button"]:disabled,
+input[type="submit"]:disabled,
+input[type="reset"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+#pdf-upload-button.is-busy {
+    cursor: progress !important;
+}
+
+.upload-status {
+    margin: 8px 0;
+    display: none;
+    white-space: pre-wrap;
+}
+
+.pdf-upload-button {
+    /* hook for upload button; spacing is handled by .app-header { gap } */
+}
+
 
 :root {
     --dark-red: #8A3A42;
@@ -215,15 +244,18 @@ header {
 .app-header {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 .app-header h1 {
-    margin: 8px;
+    margin: 0;
+    margin-right: auto;
 }
 
 .app-icon {
     height: 50px;
-    margin-right: 10px;
+    margin-right: 0;
 }
 
 .header-container {

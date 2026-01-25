@@ -9,6 +9,7 @@ import time
 from PyPDF2 import PdfReader, PdfWriter
 import uuid  # ファイル名の一意性を確保するために追加
 import tempfile
+import re
 
 # modulesディレクトリをPythonのモジュール検索パスに追加
 sys.path.append(os.path.join(os.path.dirname(__file__), 'modules'))
@@ -241,6 +242,31 @@ def get_paths(pdf_name):
     json_path = os.path.join(BASE_FOLDER, pdf_name + ".json")
     return pdf_path, json_path
 
+
+def _sanitize_pdf_basename(original_filename: str) -> str:
+    """アップロードされたファイル名から pdf_name（拡張子なし）を安全に生成する。
+
+    - パストラバーサル対策: basenameのみ利用
+    - Windowsで禁止の文字を置換
+    - 末尾の空白/ドットを除去
+    """
+    name = os.path.basename(original_filename or "").strip()
+    # 拡張子を除去（.PDF なども含む）
+    if name.lower().endswith(".pdf"):
+        name = name[:-4]
+
+    # Windowsで無効な文字: \\ / : * ? " < > |
+    name = re.sub(r"[\\/:*?\"<>|]", "_", name)
+    # 制御文字などを除去
+    name = re.sub(r"[\x00-\x1f]", "", name)
+    name = name.strip().strip(".")
+
+    # 長すぎる名前を抑制（ファイルシステム依存の問題回避）
+    if len(name) > 180:
+        name = name[:180]
+
+    return name
+
 # Flaskテンプレートでループのインデックスを取得するためのフィルタ
 @app.context_processor
 def utility_processor():
@@ -319,6 +345,83 @@ def index():
         }
     
     return render_template("index.html", pdf_dict=pdf_dict, filter_text=filter_text)
+
+
+@app.route("/api/upload_pdf", methods=["POST"])
+def upload_pdf_api():
+    """PDFを data/ にアップロードする。
+
+    同一PDFファイル名（拡張子を除いたpdf_name）が既に存在する場合はエラーとする。
+    """
+    if "file" not in request.files:
+        return jsonify({"status": "error", "message": "file が指定されていません"}), 400
+
+    # アップロード時点で data/ が無いケースに備えて作成
+    if os.path.exists(DATA_FOLDER) and not os.path.isdir(DATA_FOLDER):
+        return jsonify({"status": "error", "message": f"dataフォルダが不正です: {DATA_FOLDER}"}), 500
+    os.makedirs(DATA_FOLDER, exist_ok=True)
+    # 互換のため BASE_FOLDER にも明示（通常は DATA_FOLDER と同一）
+    if os.path.exists(BASE_FOLDER) and not os.path.isdir(BASE_FOLDER):
+        return jsonify({"status": "error", "message": f"保存先フォルダが不正です: {BASE_FOLDER}"}), 500
+    os.makedirs(BASE_FOLDER, exist_ok=True)
+
+    file = request.files["file"]
+    if not file or not getattr(file, "filename", ""):
+        return jsonify({"status": "error", "message": "ファイル名が不正です"}), 400
+
+    original_filename = file.filename
+    if not original_filename.lower().endswith(".pdf"):
+        return jsonify({"status": "error", "message": "PDFファイルのみアップロード可能です"}), 400
+
+    pdf_name = _sanitize_pdf_basename(original_filename)
+    if not pdf_name:
+        return jsonify({"status": "error", "message": "ファイル名が空です"}), 400
+
+    dest_pdf_path, dest_json_path = get_paths(pdf_name)
+    if os.path.exists(dest_pdf_path):
+        return jsonify({"status": "error", "message": f"同名のPDFが既に存在します: {pdf_name}.pdf"}), 409
+
+    last_modified_ms_raw = request.form.get("last_modified_ms", "")
+    last_modified_sec = None
+    if last_modified_ms_raw:
+        try:
+            last_modified_sec = int(last_modified_ms_raw) / 1000.0
+        except Exception:
+            last_modified_sec = None
+
+    tmp_fd, tmp_path = tempfile.mkstemp(prefix="upload_", suffix=".pdf", dir=BASE_FOLDER)
+    os.close(tmp_fd)
+    try:
+        file.save(tmp_path)
+        # 最終チェック（競合対策）
+        if os.path.exists(dest_pdf_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            return jsonify({"status": "error", "message": f"同名のPDFが既に存在します: {pdf_name}.pdf"}), 409
+
+        os.replace(tmp_path, dest_pdf_path)
+
+        # クライアント側のmtimeを可能な範囲で引き継ぐ
+        if last_modified_sec is not None:
+            try:
+                st = os.stat(dest_pdf_path)
+                os.utime(dest_pdf_path, (st.st_atime, last_modified_sec))
+            except Exception:
+                # 失敗してもアップロード自体は成功扱い
+                pass
+
+        # 既存のJSONが残っているケースは基本ないが、念のため触らない（上書きしない）
+        app.logger.info(f"PDFアップロード: {original_filename} -> {dest_pdf_path}")
+        return jsonify({"status": "ok", "pdf_name": pdf_name}), 201
+    except Exception as e:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+        return jsonify({"status": "error", "message": f"アップロードに失敗しました: {str(e)}"}), 500
 
 @app.route("/detail/<pdf_name>")
 @app.route("/detail/<pdf_name>/<int:page_number>")  # page_number をオプションに
@@ -663,7 +766,7 @@ def auto_tagging_api(pdf_name):
 
 @app.route("/api/rebuild_src_text/<pdf_name>", methods=["POST"])
 def rebuild_src_text_api(pdf_name):
-    """src_html から src_text を再生成し、symbolfont_dict による置換を適用する。"""
+    """src_html から src_text を再生成し、シンボル置換（symbolfont_dict）を適用する。"""
     pdf_path, json_path = get_paths(pdf_name)
     if not os.path.exists(json_path):
         return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
@@ -671,9 +774,9 @@ def rebuild_src_text_api(pdf_name):
     try:
         changed = rebuild_src_text_in_file(json_path, SYMBOLFONT_DICT_PATH)
     except Exception as e:
-        return jsonify({"status": "error", "message": f"src_text再生成エラー: {str(e)}"}), 500
+        return jsonify({"status": "error", "message": f"シンボル置換エラー: {str(e)}"}), 500
 
-    return jsonify({"status": "ok", "message": f"src_text再生成完了 (更新: {changed}段落)", "changed": changed}), 200
+    return jsonify({"status": "ok", "message": f"シンボル置換完了 (更新: {changed}段落)", "changed": changed}), 200
 
 # API: スタイルによるblock_tag一括更新
 @app.route("/api/update_block_tags_by_style/<pdf_name>", methods=["POST"])

@@ -8,6 +8,10 @@
   max-width: 60%; /* ツールチップの最大幅を60%に設定 */
 }
 
+.tippy-content {
+  line-height: 1.6;
+}
+
 /* Dark mode styles using prefers-color-scheme */
 @media (prefers-color-scheme: dark) {
   .tippy-box {
@@ -118,6 +122,12 @@
   flex: 1; /* Allow content to grow and fill remaining space */
   overflow-y: auto; /* Enable scrolling for the content */
   padding-left: 20px; /* Add some space between TOC and content */
+  line-height: 1.7;
+}
+
+.help-content pre,
+.help-content code {
+  line-height: 1.4;
 }
 
 /* Add any specific styles for the markdown content here if needed */
