@@ -72,11 +72,13 @@
 
 ## セットアップ 🛠
 
-> **どっちで動かす？（おすすめ）**
-> - PCに入れて使う → このまま下の「ローカル環境」へ
+> **どっちで動かす？**
+> - PCにコードを落としてPythonで実行（おすすめ） → このまま下の「ローカル環境」へ
 > - **PCに何も入れたくない** / ブラウザだけで使いたい → 下の「GitHub Codespaces」へ
+> - **WindowsでPython不要**で使いたい → 下の「EXE版（Windows）」へ
 
-### ローカル環境（おすすめ / GitHubの知識は不要）
+<details>
+<summary>ローカル環境（おすすめ / GitHubの知識は不要）</summary>
 
 > **ここでやること**
 > 1) zipをダウンロードして展開 → 2) 翻訳キーを設定 → 3) 起動
@@ -125,7 +127,10 @@
 > ### macOS の場合
 > コマンドが `python3` / `python3 -m pip` の場合があります。
 
-### GitHub Codespaces（ローカルに入れたくない人向け / ブラウザだけでOK）
+</details>
+
+<details>
+<summary>GitHub Codespaces（ローカルに入れたくない人向け / ブラウザだけでOK）</summary>
 
 > Codespaces の停止方法やバックアップ手順は、別ページにまとめました → [docs/CODESPACES.md](docs/CODESPACES.md)
 
@@ -167,6 +172,49 @@
     - もし開けない場合は、Portsで 5077 を **Public** にする必要がある場合があります（組織設定によります）
 7. Pdf-paraParaTransは Webサーバーを起動するので、**実行したまま終了しません（待ち受け状態になります）**。
     - 停止したいときは、起動したターミナルで **Ctrl + C** を押してください。
+
+</details>
+
+<details>
+<summary>EXE版（Windows / Python不要）</summary>
+
+> **ここでやること**
+> 1) exeをダウンロード → 2) 翻訳キーを設定 → 3) 起動
+
+1. 配布ページ（Releases）を開く
+    - https://github.com/runequest77/pdf-paraparatrans2/releases
+2. 最新リリースの **Assets** から `pdf-paraparatrans.exe` をダウンロード
+4. 作業用フォルダを作成し、 直下に `pdf-paraparatrans.exe` を置いて実行
+    - 初回は Windows のファイアウォール許可が出ることがあります（ローカル利用なら許可でOK）
+5. ブラウザで `http://localhost:5077/` を開く
+
+**ファイルの置き場所（EXE版の仕様）**
+- exe を置いたフォルダの中に、必要に応じて `data/` と `config/` が自動作成されます。
+    - `data/`: PDFや生成された json/html（入出力）
+    - `config/`: ユーザー設定（辞書・シンボル置換など）
+        - `config/dict.txt`
+        - `config/symbolfonts.txt`
+        - `config/symbolfont_dict.txt`
+
+**翻訳キーの設定（.env）**
+- exe と同じフォルダに `.env` を用意してください（無い場合は起動時に雛形が生成されます）。
+- 例（Google APIキー方式）
+    - `TRANSLATOR=google`
+    - `GOOGLE_API_KEY=...`
+- DeepL を使う場合
+    - `TRANSLATOR=deepl`
+    - `DEEPL_AUTH_KEY=...`
+- 詳細: [SETUP_GOOGLE_TRANSLATE.md](SETUP_GOOGLE_TRANSLATE.md) / [SETUP_DEEPL.md](SETUP_DEEPL.md)
+
+**停止方法**
+- 画面が黒い（コンソール）で起動している場合は、そのウィンドウで **Ctrl + C** を押すと停止できます。
+
+**よくあるトラブル**
+- ブラウザで開けない: `.env` の `PORT` を変える（例: `PORT=5078`）/ 既に別のアプリが 5077 を使用していないか確認
+- `data/` `config/` が作れない: exe を書き込み可能な場所（例: ドキュメント配下など）へ移動
+
+</details>
+
 
 ## 使い方
 ### 翻訳APIの準備

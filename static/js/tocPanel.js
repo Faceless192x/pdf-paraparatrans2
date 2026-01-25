@@ -225,7 +225,8 @@ document.addEventListener("click", function (event) {
 
   const scrollTo = () => {
     const el = document.getElementById(`paragraph-${id}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    // 目次クリック時は「見出しへ即移動」させる（スムーズスクロール無効）
+    if (el) el.scrollIntoView({ behavior: "auto", block: "start" });
   };
 
   if (page_number !== currentPage) {
