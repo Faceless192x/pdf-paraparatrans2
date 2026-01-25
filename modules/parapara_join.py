@@ -56,14 +56,14 @@ def join_replaced_paragraphs(book_data):
             join_target_paragraphs[tag]['src_joined'] = merged
             join_target_paragraphs[tag]['src_replaced'] = merged
 
-            if target_trans_status in ['none', 'auto']:
+            if target_trans_status in ['none']:
+                join_target_paragraphs[tag]['trans_auto'] = merged
                 join_target_paragraphs[tag]['trans_text'] = merged
-                join_target_paragraphs[tag]['trans_status'] = "none"
 
             # 違う場合はtrans_autoもクリア
             # 2個以上結合される場合どうしても変わってしまうのでクリアされるのは仕様上やむなし
-            if target_src_joined != merged:
-                join_target_paragraphs[tag]['trans_auto'] = merged
+            # if target_src_joined != merged:
+            #     join_target_paragraphs[tag]['trans_auto'] = merged
 
             # 現在の段落はクリア
             p['src_joined'] = ''
