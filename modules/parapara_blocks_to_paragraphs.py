@@ -52,6 +52,7 @@ def create_paragraph(lines):
         "src_replaced": "",
         "trans_auto": "",
         "trans_text": "",
+        "comment": "",
         "trans_status": "none",
         "block_tag": "p",
         "modified_at": "",

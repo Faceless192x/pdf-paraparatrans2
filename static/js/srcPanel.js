@@ -4,6 +4,86 @@ let currentParagraphIndex = 0;
 //ページが編集されたことを表す変数
 let isPageEdited = false;
 
+// 非編集表示用: テキスト中のURLを自動リンク化
+const URL_PATTERN = /\b((?:https?:\/\/|www\.)[^\s<]+[^\s<\)\]\}>,\.!?;:"'])/gi;
+
+function normalizeUrlForHref(urlText) {
+    const t = String(urlText || '').trim();
+    if (!t) return null;
+    if (/^https?:\/\//i.test(t)) return t;
+    if (/^www\./i.test(t)) return `http://${t}`;
+    return null;
+}
+
+function linkifyTextNode(textNode) {
+    const text = textNode.nodeValue;
+    if (!text || !URL_PATTERN.test(text)) return;
+    URL_PATTERN.lastIndex = 0;
+
+    const frag = document.createDocumentFragment();
+    let lastIndex = 0;
+    let match;
+    while ((match = URL_PATTERN.exec(text)) !== null) {
+        const urlText = match[1];
+        const start = match.index;
+        const end = start + urlText.length;
+        if (start > lastIndex) {
+            frag.appendChild(document.createTextNode(text.slice(lastIndex, start)));
+        }
+
+        const href = normalizeUrlForHref(urlText);
+        if (href) {
+            const a = document.createElement('a');
+            a.textContent = urlText;
+            a.href = href;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            frag.appendChild(a);
+        } else {
+            frag.appendChild(document.createTextNode(urlText));
+        }
+
+        lastIndex = end;
+    }
+    if (lastIndex < text.length) {
+        frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+
+    textNode.parentNode.replaceChild(frag, textNode);
+}
+
+function linkifyElement(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return;
+    if (el.isContentEditable) return;
+
+    const walker = document.createTreeWalker(
+        el,
+        NodeFilter.SHOW_TEXT,
+        {
+            acceptNode: (node) => {
+                if (!node?.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+                const parent = node.parentElement;
+                if (!parent) return NodeFilter.FILTER_REJECT;
+                if (parent.closest('a')) return NodeFilter.FILTER_REJECT;
+                if (parent.isContentEditable) return NodeFilter.FILTER_REJECT;
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        }
+    );
+
+    const nodes = [];
+    let n;
+    while ((n = walker.nextNode())) nodes.push(n);
+    nodes.forEach(linkifyTextNode);
+}
+
+function linkifyParagraphBox(divSrc) {
+    if (!divSrc) return;
+    if (divSrc.classList.contains('editing')) return;
+    divSrc.querySelectorAll('.src-text, .src-joined, .src-replaced, .trans-auto, .trans-text, .comment-text')
+        .forEach(linkifyElement);
+}
+
 function initSrcPanel() {
     $("#srcParagraphs").sortable({
     // ドラッグ用ハンドルのみ有効にするために handle オプションを指定
@@ -26,15 +106,17 @@ async function onSaveButtonClick(event, paragraph, divSrc, srcText, transText, b
     transText.contentEditable = false;
     divSrc.querySelector('.edit-ui').style.display = 'none';
     $("#srcParagraphs").sortable("enable");
-    divSrc.style.cursor = 'move';
+    divSrc.style.cursor = '';
 
     const id = paragraph.id;
     const selectedStatus = divSrc.querySelector(`input[name='status-${id}']:checked`);
+    const commentText = divSrc.querySelector('.comment-text');
 
     paragraphDict = bookData["pages"][currentPage]["paragraphs"][id];
     if (paragraphDict) {
         paragraphDict.src_text = srcText.innerHTML;
         paragraphDict.trans_text = transText.innerHTML;
+        paragraphDict.comment = commentText ? commentText.innerHTML : (paragraphDict.comment ?? "");
         paragraphDict.block_tag = blockTagSelect.value;
         paragraphDict.trans_status = selectedStatus ? selectedStatus.value : paragraphDict.trans_status;
 
@@ -63,7 +145,15 @@ async function onSaveButtonClick(event, paragraph, divSrc, srcText, transText, b
 // サーバー保存
     try {
         await saveParagraphData(paragraphDict);
+
+        // 保存成功後に「元の値」を更新（次回キャンセル時に戻す先）
+        if (srcText) srcText.dataset.original = srcText.innerHTML;
+        if (transText) transText.dataset.original = transText.innerHTML;
+        if (commentText) commentText.dataset.original = commentText.innerHTML;
         updateEditUiBackground(divSrc, paragraphDict.trans_status);
+
+        // 非編集表示に戻った後、URLをリンク化
+        linkifyParagraphBox(divSrc);
     } catch (error) {
         console.error('Error saving paragraph:', error);
         alert('データ保存中にエラーが発生しました。詳細はコンソールを確認してください。');
@@ -77,7 +167,7 @@ function onEditCancelClick(event, paragraph, divSrc, srcText, transText, blockTa
     divSrc.querySelector('.edit-ui').style.display = 'none';
     divSrc.querySelector('.edit-button').style.visibility = 'visible'; // visibilityを直接操作
     $("#srcParagraphs").sortable("enable");
-    divSrc.style.cursor = 'move';
+    divSrc.style.cursor = '';
 
     srcText.innerHTML = paragraph.src_text;
     transText.innerHTML = paragraph.trans_text;
@@ -150,6 +240,7 @@ function renderParagraphs(options = {}) {
             <div class='src-replaced'>${p.src_replaced}</div>
             <div class='trans-auto'>${p.trans_auto}</div>
             <div class='trans-text' data-original="${p.trans_text}">${p.trans_text}</div>
+            <div class='comment-text' data-original="${p.comment ?? ''}">${p.comment ?? ''}</div>
             <div class='edit-box ${statusClass}'>
                 <div class='join ${joinClass}'></div>
                 <button class='edit-button'>...</button>
@@ -191,6 +282,9 @@ function renderParagraphs(options = {}) {
             </div>
         `;
         srcContainer.appendChild(divSrc);
+
+        // 非編集表示のURLをリンク化（編集ボックス内は対象外）
+        linkifyParagraphBox(divSrc);
 
         // イベントリスナーの登録
         let editButton = divSrc.querySelector('.edit-button');
@@ -372,6 +466,7 @@ async function saveParagraphData(paragraphDict) {
                 src_text: paragraphDict.src_text,
                 trans_auto: paragraphDict.trans_auto,
                 trans_text: paragraphDict.trans_text,
+                comment: paragraphDict.comment ?? "",
                 trans_status: paragraphDict.trans_status,
                 block_tag: paragraphDict.block_tag,
                 join: paragraphDict.join === 1 ? 1 : 0
@@ -872,10 +967,17 @@ function toggleEditUI(divSrc) {
         divSrc.classList.add('editing');
         const srcText = divSrc.querySelector('.src-text');
         const transText = divSrc.querySelector('.trans-text');
+        const commentText = divSrc.querySelector('.comment-text');
+
+        // 編集時は「元の文字列」に戻す（リンク化で混入した <a> を編集させない）
+        if (srcText?.dataset?.original != null) srcText.innerHTML = srcText.dataset.original;
+        if (transText?.dataset?.original != null) transText.innerHTML = transText.dataset.original;
+        if (commentText?.dataset?.original != null) commentText.innerHTML = commentText.dataset.original;
 
         editUI.style.display = 'block';
         if (srcText) srcText.contentEditable = true;
         if (transText) transText.contentEditable = true;
+        if (commentText) commentText.contentEditable = true;
         $("#srcParagraphs").sortable("disable");
         divSrc.style.cursor = 'text';
     }
@@ -889,6 +991,7 @@ function cancelEditUI(divSrc) {
     divSrc.classList.remove('editing');
     const srcText = divSrc.querySelector('.src-text');
     const transText = divSrc.querySelector('.trans-text');
+    const commentText = divSrc.querySelector('.comment-text');
     const editButton = divSrc.querySelector('.edit-button');
     if (srcText) {
         srcText.contentEditable = false;
@@ -898,9 +1001,16 @@ function cancelEditUI(divSrc) {
         transText.contentEditable = false;
         transText.innerHTML = transText.dataset.original;
     }
+    if (commentText) {
+        commentText.contentEditable = false;
+        commentText.innerHTML = commentText.dataset.original ?? '';
+    }
+
+    // 非編集表示に戻った後、URLをリンク化
+    linkifyParagraphBox(divSrc);
     // if (editButton) editButton.style.visibility = 'visible';
     $("#srcParagraphs").sortable("enable");
-    divSrc.style.cursor = 'move';
+    divSrc.style.cursor = '';
 }
 
 /** @function focusNearestHeading */

@@ -1018,6 +1018,7 @@ def update_paragraph_api(pdf_name):
     new_src_text = data["src_text"]
     new_trans_auto = data["trans_auto"]
     new_trans_text = data["trans_text"]
+    new_comment = data.get("comment")
     new_status = data["trans_status"]
     new_block_tag = data["block_tag"]
     new_join = data.get("join")
@@ -1050,6 +1051,8 @@ def update_paragraph_api(pdf_name):
     paragraph["src_text"] = new_src_text
     paragraph["trans_auto"] = new_trans_auto
     paragraph["trans_text"] = new_trans_text
+    if new_comment is not None:
+        paragraph["comment"] = new_comment
     paragraph["trans_status"] = new_status
     paragraph["block_tag"] = new_block_tag
 
@@ -1106,6 +1109,7 @@ def update_paragraphs_api(pdf_name):
             p["modified_at"] = datetime.datetime.now().isoformat()
             p["src_text"] = upd_value.get("src_text", p.get("src_text"))
             p["trans_text"] = upd_value.get("trans_text", p.get("trans_text"))
+            p["comment"] = upd_value.get("comment", p.get("comment", ""))
             p["trans_status"] = upd_value.get("trans_status", p.get("trans_status"))
             p["order"] = upd_value.get("order", p.get("order"))
             p["block_tag"] = upd_value.get("block_tag", p.get("block_tag"))

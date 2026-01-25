@@ -166,6 +166,11 @@ function autoToggleChanged(event) {
         document.querySelectorAll('.trans-text').forEach(el => {
             el.style.display = newState ? 'block' : 'none';
         });
+    } else if (id === 'toggleCommentText') {
+        // 「コメント」列のON/OFF
+        document.querySelectorAll('.comment-text').forEach(el => {
+            el.style.display = newState ? 'block' : 'none';
+        });
     } else if (id === 'toggleTocPage') {
         // 見出し「Page」のON/OFF
         document.querySelectorAll('.toc-page').forEach(el => {

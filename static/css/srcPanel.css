@@ -84,7 +84,7 @@
     padding: 0; /* パディングをなくす */        
 }
 
-.src-html, .src-text, .src-joined, .src-replaced, .trans-auto, .trans-text {
+.src-html, .src-text, .src-joined, .src-replaced, .trans-auto, .trans-text, .comment-text {
     flex: 1 1 50%;
     min-width: 0; /* flex の既定 min-width:auto によるはみ出し防止 */
     overflow-wrap: anywhere; /* ピリオド連続などでも必要時に折り返す */
@@ -106,7 +106,7 @@
     line-height: 1.4;
     font-weight: bold;
 }
-.editing .src-text, .editing .trans-text {
+.editing .src-text, .editing .trans-text, .editing .comment-text {
     border: 1px solid #000;
 }
 .src-text {
@@ -123,6 +123,9 @@
 }
 .trans-text {
     border-left: 4px solid #2ecc71;
+}
+.comment-text {
+    border-left: 4px solid #9b59b6;
 }
 .block-tag-header {
     color: #ccc;
@@ -204,7 +207,8 @@
 .paragraph-box.block-tag-li .src-joined,
 .paragraph-box.block-tag-li .src-replaced,
 .paragraph-box.block-tag-li .trans-auto,
-.paragraph-box.block-tag-li .trans-text {
+.paragraph-box.block-tag-li .trans-text,
+.paragraph-box.block-tag-li .comment-text {
     padding-left: 16px;
     background-image:
         radial-gradient(circle at 8px 1em, var(--li-marker, currentColor) 0 4px, transparent 4px),
@@ -217,7 +221,8 @@
 .paragraph-box.block-tag-tr .src-joined,
 .paragraph-box.block-tag-tr .src-replaced,
 .paragraph-box.block-tag-tr .trans-auto,
-.paragraph-box.block-tag-tr .trans-text {
+.paragraph-box.block-tag-tr .trans-text,
+.paragraph-box.block-tag-tr .comment-text {
     padding-left: 16px;
 }
 
@@ -226,7 +231,8 @@
 .paragraph-box.block-tag-th .src-joined,
 .paragraph-box.block-tag-th .src-replaced,
 .paragraph-box.block-tag-th .trans-auto,
-.paragraph-box.block-tag-th .trans-text {
+.paragraph-box.block-tag-th .trans-text,
+.paragraph-box.block-tag-th .comment-text {
     padding-left: 16px;
 }
 
@@ -238,7 +244,8 @@
 }
 @media (prefers-color-scheme: dark) {
     .editing .src-text, 
-    .editing .trans-text {
+    .editing .trans-text,
+    .editing .comment-text {
         border: 3px solid #000; /* 編集時の枠線 */
         background: #fefbe9; /* 編集時の背景色 */
         color: #000; /* 編集時の文字色 */
@@ -249,7 +256,8 @@
 }
 @media (prefers-color-scheme: light) {
     .editing .src-text, 
-    .editing .trans-text {
+    .editing .trans-text,
+    .editing .comment-text {
         border: 3px solid #000; /* 編集時の枠線 */
         background: #1e1e1e; /* 編集時の背景色 */
         color: #e0e0e0; /* 編集時の文字色 */
@@ -281,6 +289,7 @@
 .paragraph-box.group-start .src-replaced,
 .paragraph-box.group-start .trans-auto,
 .paragraph-box.group-start .trans-text,
+.paragraph-box.group-start .comment-text,
 
 .paragraph-box.group-middle .src-html,
 .paragraph-box.group-middle .src-text,
@@ -288,13 +297,15 @@
 .paragraph-box.group-middle .src-replaced,
 .paragraph-box.group-middle .trans-auto,
 .paragraph-box.group-middle .trans-text,
+.paragraph-box.group-middle .comment-text,
 
 .paragraph-box.group-end .src-html,
 .paragraph-box.group-end .src-text,
 .paragraph-box.group-end .src-joined,
 .paragraph-box.group-end .src-replaced,
 .paragraph-box.group-end .trans-auto,
-.paragraph-box.group-end .trans-text {
+.paragraph-box.group-end .trans-text,
+.paragraph-box.group-end .comment-text {
     padding-left: 32px;     /* 左の棒分の余白 */
     position: relative;     /* ::before 用の基準 */
 }
@@ -306,18 +317,21 @@
 .paragraph-box.group-start .src-replaced::before,
 .paragraph-box.group-start .trans-auto::before,
 .paragraph-box.group-start .trans-text::before,
+.paragraph-box.group-start .comment-text::before,
 .paragraph-box.group-middle .src-html::before,
 .paragraph-box.group-middle .src-text::before,
 .paragraph-box.group-middle .src-joined::before,
 .paragraph-box.group-middle .src-replaced::before,
 .paragraph-box.group-middle .trans-auto::before,
 .paragraph-box.group-middle .trans-text::before,
+.paragraph-box.group-middle .comment-text::before,
 .paragraph-box.group-end .src-html::before,
 .paragraph-box.group-end .src-text::before,
 .paragraph-box.group-end .src-joined::before,
 .paragraph-box.group-end .src-replaced::before,
 .paragraph-box.group-end .trans-auto::before,
-.paragraph-box.group-end .trans-text::before {
+.paragraph-box.group-end .trans-text::before,
+.paragraph-box.group-end .comment-text::before {
     content: "";
     position: absolute;
     top: 0;
@@ -334,7 +348,8 @@
 .paragraph-box.group-start .src-joined::before,
 .paragraph-box.group-start .src-replaced::before,
 .paragraph-box.group-start .trans-auto::before,
-.paragraph-box.group-start .trans-text::before {
+.paragraph-box.group-start .trans-text::before,
+.paragraph-box.group-start .comment-text::before {
     border-top-left-radius: 9px;
     border-bottom-left-radius: 0;
     top: 8px;
@@ -347,7 +362,8 @@
 .paragraph-box.group-middle .src-joined::before,
 .paragraph-box.group-middle .src-replaced::before,
 .paragraph-box.group-middle .trans-auto::before,
-.paragraph-box.group-middle .trans-text::before {
+.paragraph-box.group-middle .trans-text::before,
+.paragraph-box.group-middle .comment-text::before {
     border-radius: 0;
     top: 0;
     bottom: 0;
@@ -359,7 +375,8 @@
 .paragraph-box.group-end .src-joined::before,
 .paragraph-box.group-end .src-replaced::before,
 .paragraph-box.group-end .trans-auto::before,
-.paragraph-box.group-end .trans-text::before {
+.paragraph-box.group-end .trans-text::before,
+.paragraph-box.group-end .comment-text::before {
     border-top-left-radius: 0;
     border-bottom-left-radius: 9px;
     top: 0;
