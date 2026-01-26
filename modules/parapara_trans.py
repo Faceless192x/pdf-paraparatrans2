@@ -334,6 +334,17 @@ def pagetrans(filepath, book_data, page_number, stats: Optional[TranslationStats
         if "src_joined" in paragraph and paragraph.get("src_joined") == "":
             paragraph["src_replaced"] = ""
             paragraph["trans_auto"] = ""
+            # 結合側(join=1)は画面上も空にしたい。
+            # ただし既に手で訳が入っている場合は壊さないため、原文と同一の場合のみクリアする。
+            src_text = (paragraph.get("src_text") or "").strip()
+            trans_text = (paragraph.get("trans_text") or "").strip()
+            if src_text != "" and trans_text == src_text:
+                paragraph["trans_text"] = ""
+
+            # 空段落は自動翻訳せず、ステータスだけを draft にする（未翻訳扱いのみ）
+            if (paragraph.get("trans_status") or "none") == "none":
+                paragraph["trans_status"] = "draft"
+                paragraph["modified_at"] = datetime.now().isoformat()
             if stats is not None:
                 stats.skipped_join_empty += 1
 
@@ -345,7 +356,11 @@ def pagetrans(filepath, book_data, page_number, stats: Optional[TranslationStats
             continue
 
         src_replaced = paragraph.get("src_replaced", "")
-        trans_status = paragraph.get("trans_status")
+        trans_status = paragraph.get("trans_status") or "none"
+
+        # trans_status が欠けているデータを正規化（以降の条件分岐を安定させる）
+        if paragraph.get("trans_status") != trans_status:
+            paragraph["trans_status"] = trans_status
 
         # 要望: src_replaced が
         # - 数字と記号のみ
@@ -361,7 +376,7 @@ def pagetrans(filepath, book_data, page_number, stats: Optional[TranslationStats
 
     filtered_paragraphs = []
     for p in paragraphs_dict.values():
-        st = p.get("trans_status")
+        st = p.get("trans_status") or "none"
         if st != "none":
             if stats is not None:
                 stats.skipped_already_translated += 1
