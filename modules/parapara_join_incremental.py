@@ -328,10 +328,6 @@ def apply_all(
     """
     refs = iter_paragraph_refs(book_data)
 
-    # いったん全員 src_joined を空に(変化検知あり)
-    for r in refs:
-        _set_src_joined(r.p, "")
-
     visited: set[int] = set()
 
     for i in range(len(refs)):

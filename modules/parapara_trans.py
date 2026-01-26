@@ -8,11 +8,18 @@ import html
 import json
 import re
 import logging
+import unicodedata
 from datetime import datetime
 import tempfile
+from dataclasses import dataclass, asdict
+from typing import Dict, List, Optional
 
-from api_translate import translate_text  # 翻訳関数は別ファイルで定義済み
-import stream_logger
+try:
+    # パッケージとして読み込まれる（Flaskアプリなど）ケース
+    from .api_translate import translate_text  # type: ignore
+except Exception:
+    # スクリプトとして直接実行されるケース（sys.path に modules が入っている前提）
+    from api_translate import translate_text  # type: ignore
 
 
 def _debug_pagetrans_enabled() -> bool:
@@ -25,7 +32,58 @@ def _pagetrans_debug(msg: str):
         # 既存の仕組みに載せるため print を使う（SSE/ログ出力に流れる）
         print(f"[PAGETRANS_DEBUG] {msg}")
 
-def process_group(paragraphs_group):
+
+@dataclass
+class TranslationStats:
+    pages_processed: int = 0
+    paragraphs_total_in_range: int = 0
+    paragraphs_target: int = 0
+    translated: int = 0
+    translated_fallback: int = 0
+    failed: int = 0
+    skipped_header_footer: int = 0
+    skipped_empty_src: int = 0
+    skipped_already_translated: int = 0
+    skipped_join_empty: int = 0
+    missing_from_batch: int = 0
+    groups: int = 0
+
+
+_MARKER_RE = re.compile(r"【\s*([0-9]+[＿_][0-9]+)\s*】")
+
+
+def _normalize_marker_id(raw: str) -> str:
+    return raw.strip().replace("＿", "_")
+
+
+def _extract_translations_by_marker(translated_text: str) -> Dict[str, str]:
+    matches = list(_MARKER_RE.finditer(translated_text or ""))
+    if not matches:
+        return {}
+
+    out: Dict[str, str] = {}
+    for i, m in enumerate(matches):
+        pid = _normalize_marker_id(m.group(1))
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(translated_text)
+        content = (translated_text[start:end] or "").strip()
+        out[pid] = content
+    return out
+
+
+def _apply_translation_to_paragraph(para: dict, translated_content: str) -> None:
+    # q_ と _q が前後に区切り文字（英数字以外、または行頭・行末）の場合にのみ除去する
+    translated_content = re.sub(
+        r'(?:(?<=^)|(?<=[^A-Za-z]))q_([A-Za-z]+)_q(?=$|[^A-Za-z])',
+        r'\1',
+        translated_content,
+    )
+    para['trans_auto'] = translated_content
+    para['trans_text'] = translated_content
+    para['trans_status'] = 'auto'
+    para['modified_at'] = datetime.now().isoformat()
+
+def process_group(paragraphs_group: List[dict], stats: Optional[TranslationStats] = None):
     """
     1. 指定グループの各段落の src_replaced の先頭に【id】を付与して連結し、5000文字以内となる翻訳前テキストを作成
     2. 翻訳関数 translate_text を呼び出し、翻訳結果を取得
@@ -34,51 +92,86 @@ def process_group(paragraphs_group):
        - modified_at を現在時刻に更新
     4. 翻訳結果を反映した JSON データをファイルへ保存する
     """
+    if stats is not None:
+        stats.groups += 1
+
     # 各段落のテキストを生成（src_replacedをHTMLエスケープ）
-    texts = [f"【{para['id']}】{html.escape(para['src_replaced'])}" for para in paragraphs_group]
+    # マーカー周りは翻訳で崩れやすいので、前後に改行を入れて境界を安定させる
+    texts = [
+        f"\n【{para['id']}】\n{html.escape(para.get('src_replaced', ''))}\n" for para in paragraphs_group
+    ]
     concatenated_text = "".join(texts)
-    # concatenated_textの最初の50文字をコンソールに出力
-    print("FOR DEBUG(LEFT50/1TRANS):" + concatenated_text)
-    # print("FOR DEBUG(LEFT50/1TRANS):" + concatenated_text[:50])
+    # デバッグログは長すぎるとノイズになるので先頭だけ
+    print("FOR DEBUG(LEFT200/1TRANS):" + concatenated_text[:200])
+
+    # 各段落を id をキーにした辞書にする
+    para_by_id: Dict[str, dict] = {str(para['id']): para for para in paragraphs_group}
 
     try:
         translated_text = translate_text(concatenated_text, source="en", target="ja")
     except Exception as e:
-        print(f"翻訳APIの呼び出しに失敗しました: {e}")
-        raise Exception(f"翻訳APIの呼び出しに失敗しました: {e}")
-    
-    # 翻訳結果を【0_0】のパターンで分割
-    parts = re.split(r'(?=【\d+_\d+】)', translated_text)
-    # 空白を除去
-    parts = [part.strip() for part in parts if part.strip()]
+        # グループ翻訳が落ちた場合は、段落単体へフォールバックする
+        print(f"Warning: グループ翻訳に失敗。段落単体にフォールバックします: {e}")
+        for pid, para in para_by_id.items():
+            try:
+                t = translate_text(para.get("src_replaced", ""), source="en", target="ja")
+                _apply_translation_to_paragraph(para, t)
+                if stats is not None:
+                    stats.translated += 1
+                    stats.translated_fallback += 1
+            except Exception as ee:
+                if stats is not None:
+                    stats.failed += 1
+                print(f"Warning: 段落単体翻訳にも失敗しました id={pid}: {ee}")
+        return
 
-    stream_logger.init_logging()
+    extracted = _extract_translations_by_marker(translated_text)
+    if not extracted:
+        # マーカーが崩れて全く取れない場合は、全段落を単体翻訳へ
+        print("Warning: 翻訳結果からマーカー抽出できません。段落単体にフォールバックします")
+        for pid, para in para_by_id.items():
+            try:
+                t = translate_text(para.get("src_replaced", ""), source="en", target="ja")
+                _apply_translation_to_paragraph(para, t)
+                if stats is not None:
+                    stats.translated += 1
+                    stats.translated_fallback += 1
+                    stats.missing_from_batch += 1
+            except Exception as ee:
+                if stats is not None:
+                    stats.failed += 1
+                    stats.missing_from_batch += 1
+                print(f"Warning: 段落単体翻訳にも失敗しました id={pid}: {ee}")
+        return
 
-    # 各段落を id をキーにした辞書にする
-    para_by_id = { str(para['id']): para for para in paragraphs_group }
-    
-    # 翻訳結果をパターンマッチで抽出し、対応するパラグラフにセットする
-    for part in parts:
-        print(f"FOR DEBUG:{part}")
-        m = re.match(r'【(\d+_\d+)】(.*)', part, re.DOTALL)
-        if m:
-            para_id, translated_content = m.group(1), m.group(2)
-            # q_ と _q が前後に区切り文字（英数字以外、または行頭・行末）の場合にのみ除去する
-            translated_content = re.sub(
-                r'(?:(?<=^)|(?<=[^A-Za-z]))q_([A-Za-z]+)_q(?=$|[^A-Za-z])',
-                r'\1',
-                translated_content
-            )
-            if para_id in para_by_id:
-                para = para_by_id[para_id]
-                para['trans_auto'] = translated_content
-                para['trans_text'] = translated_content
-                para['trans_status'] = 'auto'
-                para['modified_at'] = datetime.now().isoformat()
-            else:
-                print(f"Warning: 翻訳結果のid {para_id} に対応する段落が見つかりません。")
+    matched = 0
+    for pid, content in extracted.items():
+        if pid in para_by_id:
+            _apply_translation_to_paragraph(para_by_id[pid], content)
+            matched += 1
         else:
-            print("Warning: 翻訳結果のマッチ数が0。")
+            print(f"Warning: 翻訳結果のid {pid} に対応する段落が見つかりません。")
+
+    if stats is not None:
+        stats.translated += matched
+
+    missing_ids = [pid for pid in para_by_id.keys() if pid not in extracted]
+    if missing_ids:
+        if stats is not None:
+            stats.missing_from_batch += len(missing_ids)
+        print(f"Warning: マーカー欠落により未反映の段落があります。フォールバックします count={len(missing_ids)}")
+        for pid in missing_ids:
+            para = para_by_id[pid]
+            try:
+                t = translate_text(para.get("src_replaced", ""), source="en", target="ja")
+                _apply_translation_to_paragraph(para, t)
+                if stats is not None:
+                    stats.translated += 1
+                    stats.translated_fallback += 1
+            except Exception as ee:
+                if stats is not None:
+                    stats.failed += 1
+                print(f"Warning: 段落単体翻訳にも失敗しました id={pid}: {ee}")
 
 def recalc_trans_status_counts(book_data):
     """
@@ -108,22 +201,110 @@ def paraparatrans_json_file(json_path, start_page, end_page):
     # JSONファイル読み込み
     book_data = load_json(json_path)
 
+    stats = TranslationStats()
+
     # start_pageからend_pageをループしてpagetransを実行
     for page in range(start_page, end_page + 1):
-        pagetrans(json_path, book_data, page)
+        # 存在しないページはスキップ（end_page=9999などの運用を許容）
+        if str(page) not in book_data.get("pages", {}):
+            continue
+        pagetrans(json_path, book_data, page, stats=stats)
+        stats.pages_processed += 1
 
     # 翻訳ステータスの集計を更新
     recalc_trans_status_counts(book_data)
     atomicsave_json(json_path, book_data)
     
-    return book_data
+    # 翻訳終了メッセージ（SSEログにも流れる）
+    print(
+        "翻訳完了: pages={pages} target={target} translated={translated} failed={failed} fallback={fallback} skipped_empty={skipped_empty} skipped_header_footer={skipped_hf}".format(
+            pages=stats.pages_processed,
+            target=stats.paragraphs_target,
+            translated=stats.translated,
+            failed=stats.failed,
+            fallback=stats.translated_fallback,
+            skipped_empty=stats.skipped_empty_src,
+            skipped_hf=stats.skipped_header_footer,
+        )
+    )
+
+    return book_data, asdict(stats)
 
 def count_alphabet_chars(text: str) -> int:
     """アルファベットの文字数をカウント"""
     return len(re.findall(r'[a-zA-Z]', text))
 
 
-def pagetrans(filepath, book_data, page_number):
+def _is_digits_and_symbols_only(text: str) -> bool:
+    """数字・記号のみ（空白は無視）の場合に True。
+
+    - 数字: Unicode Decimal Digit
+    - 記号/句読点: Unicode category が P* または S*
+    """
+    stripped = (text or "").strip()
+    if stripped == "":
+        return False
+
+    has_content = False
+    for ch in stripped:
+        if ch.isspace():
+            continue
+        has_content = True
+        if ch.isdigit():
+            continue
+        cat = unicodedata.category(ch)
+        if cat.startswith("P") or cat.startswith("S"):
+            continue
+        return False
+    return has_content
+
+
+def _should_auto_translate_as_draft(src_replaced: str) -> bool:
+    """自動翻訳時に draft 扱いへ落とすべき段落か判定する。"""
+    s = (src_replaced or "")
+    if s.strip() == "":
+        return True
+    if _is_digits_and_symbols_only(s):
+        return True
+    alpha = count_alphabet_chars(s)
+    # 「英字2文字以下」は 1〜2 文字を対象（0は数字/記号のみ等で別判定）
+    if 1 <= alpha <= 2:
+        return True
+    return False
+
+
+def _migrate_auto_to_draft_if_low_content(paragraph: dict) -> bool:
+    """過去データ互換: 低情報量の段落が誤って auto になっている場合、draft に落とす。
+
+    安全のため、既存の訳が src_replaced のコピー（または空）に見える場合のみ対象。
+    """
+    if (paragraph.get("trans_status") or "none") != "auto":
+        return False
+
+    src_replaced = paragraph.get("src_replaced", "") or ""
+    if not _should_auto_translate_as_draft(src_replaced):
+        return False
+
+    trans_auto = paragraph.get("trans_auto", "") or ""
+    trans_text = paragraph.get("trans_text", "") or ""
+
+    # 実訳を壊さない: コピー/空 以外は触らない
+    looks_like_copy = (
+        trans_auto.strip() == src_replaced.strip()
+        and (trans_text.strip() == src_replaced.strip() or trans_text.strip() == "")
+    )
+    looks_like_empty = (trans_auto.strip() == "" and trans_text.strip() == "" and src_replaced.strip() == "")
+    if not (looks_like_copy or looks_like_empty):
+        return False
+
+    paragraph["trans_auto"] = src_replaced
+    paragraph["trans_text"] = src_replaced
+    paragraph["trans_status"] = "draft"
+    paragraph["modified_at"] = datetime.now().isoformat()
+    return True
+
+
+def pagetrans(filepath, book_data, page_number, stats: Optional[TranslationStats] = None):
     """
     各グループは5000文字以内に収まるように連結して翻訳され、各グループ処理後に必ずファイルへ保存する。
     """
@@ -131,6 +312,8 @@ def pagetrans(filepath, book_data, page_number):
 
     paragraphs_dict = book_data["pages"][str(page_number)].get("paragraphs", {}) # 辞書として取得
     print(f"FOR DEBUG:段落数: {len(paragraphs_dict)}")
+    if stats is not None:
+        stats.paragraphs_total_in_range += len(paragraphs_dict)
 
     # デバッグ時は「既存訳が壊れていないか」を検知するため、事前スナップショットを取る
     before = {}
@@ -151,6 +334,11 @@ def pagetrans(filepath, book_data, page_number):
         if "src_joined" in paragraph and paragraph.get("src_joined") == "":
             paragraph["src_replaced"] = ""
             paragraph["trans_auto"] = ""
+            if stats is not None:
+                stats.skipped_join_empty += 1
+
+        # 過去データの自動補正: 誤って auto になっている低情報量段落を draft に落とす
+        _migrate_auto_to_draft_if_low_content(paragraph)
 
     for para_id, paragraph in paragraphs_dict.items():
         if "src_joined" in paragraph and paragraph.get("src_joined") == "":
@@ -159,23 +347,34 @@ def pagetrans(filepath, book_data, page_number):
         src_replaced = paragraph.get("src_replaced", "")
         trans_status = paragraph.get("trans_status")
 
-        # 未翻訳(none)の段落のみ、src_replaced が空なら trans_auto を空にする
-        # （auto/draft/fixed の既存訳はここで壊さない）
-        if trans_status == "none" and src_replaced == "":
-            paragraph["trans_auto"] = ""
+        # 要望: src_replaced が
+        # - 数字と記号のみ
+        # - 空
+        # - 英字2文字以下
+        # の段落は、自動翻訳で draft 扱いにする（翻訳APIへ投げない）
+        # （draft/fixed の既存訳はここで壊さない）
+        if trans_status == "none" and _should_auto_translate_as_draft(src_replaced):
+            paragraph["trans_auto"] = src_replaced
+            paragraph["trans_text"] = src_replaced
+            paragraph["trans_status"] = "draft"
+            paragraph["modified_at"] = datetime.now().isoformat()
 
-        # (要望2) 英字2文字以下なら src_replaced セットでよい（none/auto に適用）
-        # statusがdraftとfixedは翻訳処理では触らない
-        if trans_status in {"none", "auto"}:
-            if src_replaced != "" and count_alphabet_chars(src_replaced) < 3:
-                paragraph["trans_auto"] = src_replaced
-                paragraph["trans_status"] = "auto"
-
-    filtered_paragraphs = [
-        p for p in paragraphs_dict.values() # 辞書の値 (パラグラフオブジェクト) をイテレート
-        if p.get("trans_status") == "none" 
-        and p.get("block_tag") not in ("header", "footer")
-    ]
+    filtered_paragraphs = []
+    for p in paragraphs_dict.values():
+        st = p.get("trans_status")
+        if st != "none":
+            if stats is not None:
+                stats.skipped_already_translated += 1
+            continue
+        if p.get("block_tag") in ("header", "footer"):
+            if stats is not None:
+                stats.skipped_header_footer += 1
+            continue
+        if (p.get("src_replaced") or "") == "":
+            if stats is not None:
+                stats.skipped_empty_src += 1
+            continue
+        filtered_paragraphs.append(p)
     # 段落ごとに翻訳するならソートは不要に思えるが、なるべく多くの段落を一度に翻訳したほうが
     # 自動翻訳が文意を理解しやすいので、ページ内での順序は保持する。
     filtered_paragraphs.sort(key=lambda p: (
@@ -184,16 +383,17 @@ def pagetrans(filepath, book_data, page_number):
     ))
 
     print(f"翻訳対象段落数: {len(filtered_paragraphs)}")
+    if stats is not None:
+        stats.paragraphs_target += len(filtered_paragraphs)
 
     current_group = []
     current_length = 0
     # 4000文字を上限にグループ化して翻訳処理を実施
     for para in filtered_paragraphs:
-        text_to_add = f"【{para['id']}】{para['src_replaced']}"
-        print(f"FOR DEBUG:{text_to_add}")
+        text_to_add = f"【{para['id']}】{para.get('src_replaced','')}"
         if current_length + len(text_to_add) > 4000:
             if current_group:
-                process_group(current_group)
+                process_group(current_group, stats=stats)
                 current_group = []
                 current_length = 0
         current_group.append(para)
@@ -201,7 +401,7 @@ def pagetrans(filepath, book_data, page_number):
     
     # 残ったグループがあれば処理
     if current_group:
-        process_group(current_group)
+        process_group(current_group, stats=stats)
 
     atomicsave_json(filepath, book_data)  # 最後にアトミックセーブ
     print(f"ページ {page_number} の翻訳が完了しました。")
@@ -227,8 +427,8 @@ def pagetrans(filepath, book_data, page_number):
             # 既存訳が存在する状態(未翻訳以外)で、join側でも短文規則でも説明できない trans_auto 変化を拾う
             if pre_status in {"auto", "draft", "fixed"}:
                 is_joined_empty = (pre_src_joined == "") or (post_src_joined == "")
-                is_short_rule = (count_alphabet_chars(pre_src_replaced) < 3 and pre_src_replaced != "")
-                if pre_trans_auto != post_trans_auto and (not is_joined_empty) and (not is_short_rule):
+                is_expected_rule = _should_auto_translate_as_draft(pre_src_replaced)
+                if pre_trans_auto != post_trans_auto and (not is_joined_empty) and (not is_expected_rule):
                     unexpected.append(
                         {
                             "id": pid,

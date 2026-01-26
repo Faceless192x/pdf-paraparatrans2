@@ -6,13 +6,24 @@ load_dotenv()
 TRANSLATOR = os.getenv("TRANSLATOR", "google").lower()
 
 if TRANSLATOR == "deepl":
-    from api_translate_deepl import translate_text as translate_text_env
+    try:
+        # パッケージ(import modules.api_translate)として読み込まれるケース
+        from .api_translate_deepl import translate_text as translate_text_env  # type: ignore
+    except Exception:
+        # スクリプト/モジュール直下(import api_translate)として読み込まれるケース
+        from api_translate_deepl import translate_text as translate_text_env  # type: ignore
     print("Using DeepL translator.")
 elif TRANSLATOR == "google_v3":
-    from api_translate_google_v3 import translate_text as translate_text_env
+    try:
+        from .api_translate_google_v3 import translate_text as translate_text_env  # type: ignore
+    except Exception:
+        from api_translate_google_v3 import translate_text as translate_text_env  # type: ignore
     print("Using Google v3 translator.")
 else:
-    from api_translate_google import translate_text as translate_text_env
+    try:
+        from .api_translate_google import translate_text as translate_text_env  # type: ignore
+    except Exception:
+        from api_translate_google import translate_text as translate_text_env  # type: ignore
     print("Using Google translator.")
 
 def translate_text(text, source="EN", target="JA"):

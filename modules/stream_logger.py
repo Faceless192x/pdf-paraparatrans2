@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 
 log_queue = queue.Queue()
 
+_initialized = False
+
 class SSELogQueueHandler(logging.Handler):
     def emit(self, record):
         msg = self.format(record)
@@ -27,6 +29,9 @@ class StreamLogger:
         self.original.flush()
 
 def init_logging(log_file_name="app.log", level=logging.INFO):
+    global _initialized
+    if _initialized:
+        return
     # .env の読み込み
     load_dotenv()
     log_dir = os.getenv("LOG_DIR", ".")
@@ -52,6 +57,8 @@ def init_logging(log_file_name="app.log", level=logging.INFO):
     sse_handler = SSELogQueueHandler()
     sse_handler.setFormatter(formatter)
     logger.addHandler(sse_handler)
+
+    _initialized = True
 
 
 import time

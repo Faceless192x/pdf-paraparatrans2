@@ -42,6 +42,11 @@ async function transPage() {
         const data = await response.json();
         if (data.status === "ok") {
             console.log('翻訳が成功しました。');
+            if (data.stats) {
+                alert(formatTranslationStatsMessage("ページ翻訳が完了しました", data.stats));
+            } else {
+                alert("ページ翻訳が完了しました");
+            }
         } else {
             console.error('エラー:', data.message);
             alert('翻訳エラー(response): ' + data.message);
@@ -172,6 +177,11 @@ async function transAllPages() {
         const data = await response.json();
         if (data.status === "ok") {
             console.log('翻訳が成功しました。');
+            if (data.stats) {
+                alert(formatTranslationStatsMessage("全ページ翻訳が完了しました", data.stats));
+            } else {
+                alert("全ページ翻訳が完了しました");
+            }
         } else {
             console.error('エラー:', data.message);
             alert('翻訳エラー(response): ' + data.message);
@@ -183,6 +193,28 @@ async function transAllPages() {
         // 成功・失敗に関わらず必ず実行
         await fetchBookData(); // fetchBookDataもasyncなのでawait
     }
+}
+
+function formatTranslationStatsMessage(title, stats) {
+    const pages = stats.pages_processed ?? 0;
+    const target = stats.paragraphs_target ?? 0;
+    const translated = stats.translated ?? 0;
+    const failed = stats.failed ?? 0;
+    const fallback = stats.translated_fallback ?? 0;
+    const skippedEmpty = stats.skipped_empty_src ?? 0;
+    const skippedHF = stats.skipped_header_footer ?? 0;
+    const missing = stats.missing_from_batch ?? 0;
+
+    let msg = `${title}\n`;
+    msg += `ページ数: ${pages}\n`;
+    msg += `対象段落: ${target}\n`;
+    msg += `翻訳成功: ${translated}\n`;
+    msg += `翻訳失敗: ${failed}\n`;
+    if (fallback > 0) msg += `フォールバック(単体翻訳): ${fallback}\n`;
+    if (missing > 0) msg += `マーカー欠落(推定): ${missing}\n`;
+    if (skippedEmpty > 0) msg += `スキップ(空): ${skippedEmpty}\n`;
+    if (skippedHF > 0) msg += `スキップ(header/footer): ${skippedHF}\n`;
+    return msg.trim();
 }
 
 async function extractParagraphs(){
