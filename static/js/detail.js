@@ -271,7 +271,7 @@ async function nextPage() { // async を追加
 }
 
 async function jumpToPage(pageNum, options = {}) { // async を追加
-    const { updateUrl = true, replaceHistory = false, forceRender = false } = options;
+    const { updateUrl = true, replaceHistory = false, forceRender = false, preserveScroll = false } = options;
 
     const targetPage = clampPage(pageNum);
 
@@ -282,6 +282,10 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
     // 同一ページ指定の場合は、通常はURL同期のみ。
     // ただしデータ更新後などは forceRender で再描画する。
     if (targetPage === currentPage) {
+        const srcPanel = document.getElementById("srcPanel");
+        const savedScrollTop = (preserveScroll && srcPanel) ? srcPanel.scrollTop : null;
+        const savedParagraphIndex = (typeof currentParagraphIndex === 'number') ? currentParagraphIndex : 0;
+
         document.getElementById("pageInput").value = currentPage;
         if (updateUrl) {
             updateUrlForPage(currentPage, { replace: replaceHistory });
@@ -292,9 +296,17 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
         setPdfViewerPage(currentPage);
 
         if (forceRender) {
-            renderParagraphs({ resetScrollTop: true });
+            renderParagraphs({ resetScrollTop: !preserveScroll });
             document.getElementById("srcPanel").focus();
-            setCurrentParagraph(0, false, { scrollIntoView: false });
+
+            if (preserveScroll) {
+                setCurrentParagraph(savedParagraphIndex, false, { scrollIntoView: false, scrollBehavior: 'auto' });
+                if (srcPanel && savedScrollTop !== null) {
+                    srcPanel.scrollTop = savedScrollTop;
+                }
+            } else {
+                setCurrentParagraph(0, false, { scrollIntoView: false });
+            }
         }
         return;
     }

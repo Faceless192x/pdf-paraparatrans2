@@ -17,7 +17,7 @@ async function fetchBookData() {
         updateTransStatusCounts(bookData.trans_status_counts); // この関数も辞書対応が必要か確認
         updateBookStyles();
         showToc();
-        await jumpToPage(currentPage, { replaceHistory: true, forceRender: true });
+        await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: true });
     } catch (error) {
         console.error("Error fetching book data:", error);
         alert("書籍データの取得中にエラーが発生しました。"); // ユーザーへの通知
@@ -341,6 +341,9 @@ async function joinParagraphs() {
         });
         const data = await response.json();
         if (data.status === "ok") {
+            if (data.trans_status_counts) {
+                updateTransStatusCounts(data.trans_status_counts);
+            }
             alert("「連結文」「置換文」列を更新しました\n再読み込みを行います");
             await fetchBookData(); // fetchBookDataもasyncなのでawait
         } else {
@@ -483,6 +486,9 @@ async function updateParagraphs(sendParagraphs, title = null) {
             console.log("パラグラフ更新が成功しました");
             if (data.trans_status_counts) {
                 updateTransStatusCounts(data.trans_status_counts);
+            }
+            if (data.reload_book_data) {
+                await fetchBookData();
             }
         } else {
             console.error("パラグラフ更新エラー:", data.message);

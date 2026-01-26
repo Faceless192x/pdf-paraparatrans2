@@ -62,8 +62,14 @@ from modules.parapara_dict_create import dict_create
 from modules.parapara_dict_trans import dict_trans
 # 対訳辞書で置換
 from modules.parapara_dict_replacer import file_replace_with_dict
-# 対訳置換後にjoinに従ってsrc_replacedを結合
-from modules.parapara_join import join_replaced_paragraphs_in_file
+
+# joinフラグに従って src_joined/src_replaced を再構築（UIトグル対応）
+from modules.parapara_join_incremental import (
+    apply_all as join_apply_all,
+    apply_join_change as join_apply_change,
+    build_index as join_build_index,
+    iter_paragraph_refs as join_iter_paragraph_refs,
+)
 
 from modules.parapara_symbolfont_rebuild import rebuild_src_text_in_file
 
@@ -873,11 +879,21 @@ def auto_join_replaced_paragraphs_api(pdf_name):
     if not os.path.exists(json_path):
         return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
     try:
-        join_replaced_paragraphs_in_file(json_path)
+        with open(json_path, "r", encoding="utf-8") as f:
+            book_data = json.load(f)
 
+        join_apply_all(book_data, sep="", normalize_head=True)
+        recalc_trans_status_counts(book_data)
+        atomicsave_json(json_path, book_data)
     except Exception as e:
         return jsonify({"status": "error", "message": f"置換文結合エラー: {str(e)}"}), 500
-    return jsonify({"status": "ok", "message": "置換文結合完了"}), 200
+    return jsonify(
+        {
+            "status": "ok",
+            "message": "置換文結合完了",
+            "trans_status_counts": book_data.get("trans_status_counts"),
+        }
+    ), 200
 
 @app.route("/api/dict_create/<pdf_name>", methods=["POST"])
 def dict_create_api(pdf_name):
@@ -1056,22 +1072,55 @@ def update_paragraph_api(pdf_name):
     paragraph["trans_status"] = new_status
     paragraph["block_tag"] = new_block_tag
 
+    join_changed = False
     if new_join is not None:
-        if int(new_join) == 1:
-            paragraph["join"] = 1
-        elif "join" in paragraph:
-            del paragraph["join"]
+        try:
+            desired_join = 1 if int(new_join) == 1 else 0
+        except Exception:
+            desired_join = 0
+        old_join = 1 if int(paragraph.get("join", 0)) == 1 else 0
+        if old_join != desired_join:
+            refs = join_iter_paragraph_refs(book_data)
+            index = join_build_index(refs)
+            join_apply_change(
+                book_data,
+                (page_number, id),
+                desired_join,
+                refs=refs,
+                index=index,
+                sep="",
+                normalize_head=True,
+            )
+            join_changed = True
+
+            # 既存データ互換: join=0 はキーごと消す運用
+            if desired_join == 0:
+                try:
+                    if "join" in paragraph:
+                        del paragraph["join"]
+                except Exception:
+                    pass
 
     paragraph["modified_at"] = datetime.datetime.now().isoformat()
 
-    if can_delta:
+    # join が変わると複数段落の trans_status が変わり得るので、カウントは再集計する
+    if join_changed:
+        recalc_trans_status_counts(book_data)
+        can_delta = False
+    elif can_delta:
         apply_trans_status_delta(book_data, old_status, new_status)
     else:
         recalc_trans_status_counts(book_data)
 
     try:
         atomicsave_json(json_path, book_data)  # アトミックセーブ
-        return jsonify({"status": "ok", "trans_status_counts": book_data.get("trans_status_counts")}), 200
+        return jsonify(
+            {
+                "status": "ok",
+                "trans_status_counts": book_data.get("trans_status_counts"),
+                "reload_book_data": bool(join_changed),
+            }
+        ), 200
     except ValueError as ve:
         return jsonify({"status": "error", "message:": "(update_paragraph_api 3)" + str(ve)}), 400
     except Exception as e:
@@ -1121,11 +1170,9 @@ def update_paragraphs_api(pdf_name):
             elif "group_id" in p:
                 del p["group_id"]  # group_idを削除
 
-            join = upd_value.get("join")
-            if join is not None and join == 1:
-                p["join"] = join
-            elif "join" in p:
-                del p["join"]  # joinを削除
+            # join は波及更新が必要なので、ここでは触らない（後段で join_apply_change する）
+
+        join_updates = []  # (page_number(str), id(str), desired_join(0/1))
 
         # 差分更新ができる場合は差分で、無理なら最後に1回だけ再集計する
         can_delta = is_trans_status_counts_usable_for_delta(book_data)
@@ -1138,6 +1185,11 @@ def update_paragraphs_api(pdf_name):
             id = str(request_paragraph.get("id"))
             # print(f"page:{page_number} id:{id}")
             paragraph_dict = book_data["pages"][page_number]["paragraphs"][id]
+
+            desired_join = 1 if request_paragraph.get("join") == 1 else 0
+            old_join = 1 if int(paragraph_dict.get("join", 0)) == 1 else 0
+            if old_join != desired_join:
+                join_updates.append((page_number, id, desired_join))
 
             old_status = paragraph_dict.get("trans_status", "none")
             if can_delta:
@@ -1152,11 +1204,46 @@ def update_paragraphs_api(pdf_name):
             if can_delta:
                 apply_trans_status_delta(book_data, old_status, new_status)
 
-        if not can_delta:
+        join_changed = False
+        if join_updates:
+            refs = join_iter_paragraph_refs(book_data)
+            index = join_build_index(refs)
+            for page_number, id, desired_join in join_updates:
+                join_apply_change(
+                    book_data,
+                    (page_number, id),
+                    desired_join,
+                    refs=refs,
+                    index=index,
+                    sep="",
+                    normalize_head=True,
+                )
+                join_changed = True
+
+                # 既存データ互換: join=0 はキーごと消す
+                if desired_join == 0:
+                    try:
+                        p = book_data["pages"][page_number]["paragraphs"][id]
+                        if "join" in p:
+                            del p["join"]
+                    except Exception:
+                        pass
+
+        # join が変わると複数段落の trans_status が変わり得るので、カウントは再集計する
+        if join_changed:
+            recalc_trans_status_counts(book_data)
+            can_delta = False
+        elif not can_delta:
             recalc_trans_status_counts(book_data)
 
         atomicsave_json(json_path, book_data)
-        return jsonify({"status": "ok", "trans_status_counts": book_data.get("trans_status_counts")}), 200
+        return jsonify(
+            {
+                "status": "ok",
+                "trans_status_counts": book_data.get("trans_status_counts"),
+                "reload_book_data": bool(join_changed),
+            }
+        ), 200
 
     except ValueError as ve:
         return jsonify({"status": "error", "message": str(ve)}), 400

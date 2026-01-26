@@ -485,6 +485,9 @@ async function saveParagraphData(paragraphDict) {
                  console.warn(`saveParagraphData: Paragraph with ID ${paragraphDict.id} not found in paragraphs during update.`);
             }
             updateTransStatusCounts(data.trans_status_counts); // サーバーからの最新カウントを使用
+            if (data.reload_book_data) {
+                await fetchBookData();
+            }
         } else {
             console.error('Error:', data.message);
             alert('データ保存中にエラーが発生しました: ' + data.message);
@@ -912,7 +915,7 @@ function toggleGroupSelectedParagraphs() {
 /** @function toggleJoinForSelected
  * 選択されたパラグラフに対して join クラスをトグルする
  */
-function toggleJoinForSelected() {
+async function toggleJoinForSelected() {
     
     const selectedParagraphs = getSelectedParagraphsInOrder(); // 選択されたパラグラフを取得
     if (selectedParagraphs.length === 0) {
@@ -920,9 +923,20 @@ function toggleJoinForSelected() {
         return;
     }
 
+    if (typeof updateParagraphs !== 'function') {
+        console.warn('updateParagraphs が見つかりません（fetch.js の読み込みを確認してください）');
+        return;
+    }
+
+    const sendParagraphs = [];
+
     selectedParagraphs.forEach(divP => {
         const id = divP.id.replace('paragraph-', '');
         const p = bookData["pages"][currentPage]["paragraphs"][id];
+        if (!p || p.page_number == null) {
+            console.warn(`toggleJoinForSelected: paragraph not found or page_number missing: ${currentPage} ${id}`);
+            return;
+        }
         const joinElement = divP.querySelector('.join');
         if (!joinElement) {
             console.warn(`パラグラフ ${divP.id} に join 要素が見つかりませんでした。`);
@@ -930,10 +944,37 @@ function toggleJoinForSelected() {
         }
 
         const isVisible = joinElement.classList.toggle('visible');
-        p.join = isVisible ? 1 : 0; // データモデルを更新
+        if (isVisible) {
+            p.join = 1;
+        } else {
+            if (p && ('join' in p)) delete p.join;
+        }
+
+        const joinCheckbox = divP.querySelector('.join-checkbox');
+        if (joinCheckbox) joinCheckbox.checked = isVisible;
+
+        sendParagraphs.push({
+            id: id,
+            page_number: p.page_number,
+            join: isVisible ? 1 : 0
+        });
     });
 
+    if (sendParagraphs.length === 0) return;
+
     isPageEdited = true; // ページが編集されたことを示すフラグを立てる
+    try {
+        // join 変更はサーバ側で src_joined を再計算し、必要に応じて再読込が走る。
+        // このとき、未保存の order/group 変更があると巻き戻るので、ページ全体を保存してから反映する。
+        if (typeof saveCurrentPageOrder === 'function') {
+            await saveCurrentPageOrder();
+        } else {
+            await updateParagraphs(sendParagraphs);
+        }
+    } catch (e) {
+        console.error('toggleJoinForSelected: updateParagraphs failed', e);
+        alert('join保存中にエラーが発生しました（詳細はコンソールを確認してください）');
+    }
 }
 
 function toggleEditUICurrent() {
