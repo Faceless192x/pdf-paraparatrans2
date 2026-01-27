@@ -42,6 +42,15 @@
 - 翻訳ミスの原因になる `シンボルフォント`（例: Wingdings）の文字を `config/symbolfont_dict.txt` で任意の文字列に置換できる
 - （上級者向け）Google 翻訳 API v3 で Glossary を使った翻訳も可能
 
+## 共同作業向け: 文書構造ファイル（著作権配慮）
+
+複数人で「段落順・見出しタグ・group_id・join などの構造調整」だけを共有したい場合、**原文/訳文を含まない** `文書構造ファイル` を出力/取り込みできます。
+
+- 画面上部の **「構造出力」**: `data/structure/<PDF名>.structure.json` を生成し、ダウンロードします
+- **「構造取込」**: 構造ファイルを選択して取り込みます（取り込み前に `data/backup/` に元JSONを複写します）
+- 取り込み時に更新しない項目: `src_html`, `src_text`, `src_joined`, `src_replaced`, `trans_auto`, `trans_text`
+
+
 ## 必要環境
 
 - Windows / macOS / Linux のPC

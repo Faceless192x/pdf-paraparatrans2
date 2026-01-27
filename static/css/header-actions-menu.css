@@ -1,0 +1,27 @@
+/* detail.html header action menu (出力/構造) */
+
+.header-actions-menu {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.header-actions-menu__toggle {
+    white-space: nowrap;
+}
+
+.header-actions-menu__panel {
+    display: none;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.header-actions-menu.is-open .header-actions-menu__panel {
+    display: inline-flex;
+}
+
+/* menu内ボタンが横に伸びすぎないように */
+.header-actions-menu__panel button {
+    white-space: nowrap;
+}

@@ -10,6 +10,8 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/srcPanel.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/help-tooltip.css') }}">
 
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/header-actions-menu.css') }}">
+
     <link rel="stylesheet" href="{{ url_for('static', filename='css/auto-toggle.css') }}">
     <script src="{{ url_for('static', filename='js/auto-toggle.js') }}"></script>    
     <link rel="stylesheet" href="{{ url_for('static', filename='css/hotkey-mapper.css') }}">
@@ -42,11 +44,28 @@
               <button onclick="dictReplaceAll()" class="btn-step btn-step-dict" data-help-id="すべてのページを対訳置換">3.全対訳置換</button>
               <button onclick="transAllPages()" class="btn-step btn-step-transall" data-help-id="すべてのページを翻訳">4.全翻訳</button>
               <button id="alignTransBySrcJoinedButton" class="btn-step btn-step-transall" data-help-id="同一連結文の訳揃え">(訳揃え)</button>
-              <button onclick="exportHtml()" class="btn-step btn-step-export" data-help-id="HTMLのエクスポート">5.対訳HTML出力</button>
-              <button onclick="dictCreate()" data-help-id="辞書の作成">(辞書抽出)</button>
-              <button onclick="saveStructure()" hidden data-help-id="構造の保存">(構成ファイル出力)</button>
               <button onclick="fetchBookData()" hidden data-help-id="ブックデータのリロード">リロード</button>
               <button id="renderButton" hidden data-help-id="HTMLのレンダリング">レンダリング</button>
+            </span>
+
+            <span class="inline-block-margin">
+              <div class="header-actions-menu" id="headerActionsMenu">
+                <button
+                  type="button"
+                  id="headerActionsMenuToggle"
+                  class="header-actions-menu__toggle btn-step btn-step-export"
+                  aria-haspopup="true"
+                  aria-expanded="false"
+                  data-help-id="出力メニューを開く"
+                >出力 ▾</button>
+                <div class="header-actions-menu__panel" id="headerActionsMenuPanel" role="menu" aria-label="出力">
+                  <button type="button" role="menuitem" class="btn-step btn-step-export" onclick="exportHtml(); HeaderActionsMenu.close();" data-help-id="HTMLのエクスポート">5.対訳HTML出力</button>
+                  <button type="button" role="menuitem" class="btn-step btn-step-export" onclick="exportDocStructure(); HeaderActionsMenu.close();" data-help-id="構造ファイルを出力">構造出力</button>
+                  <button type="button" role="menuitem" class="btn-step btn-step-export" onclick="openDocStructurePicker(); HeaderActionsMenu.close();" data-help-id="構造ファイルを取り込み">構造取込</button>
+                  <button type="button" role="menuitem" onclick="dictCreate(); HeaderActionsMenu.close();" data-help-id="辞書の作成">(辞書抽出)</button>
+                </div>
+              </div>
+              <input id="docStructureFileInput" type="file" accept=".json" style="display:none" onchange="importDocStructureFile(this.files)">
             </span>
           </div>
           <div class="controls">
@@ -126,6 +145,7 @@
   <script src="{{ url_for('static', filename='js/srcPanel.js') }}"></script>    
   <script src="{{ url_for('static', filename='js/detail.js') }}"></script>    
   <script src="{{ url_for('static', filename='js/fetch.js') }}"></script>    
+  <script src="{{ url_for('static', filename='js/header-actions-menu.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/hotkey-mapper.js') }}" defer></script>    
   <script src="{{ url_for('static', filename='js/keyDown.js') }}" defer></script>    
   <script src="{{ url_for('static', filename='js/help.js') }}"></script>

@@ -93,6 +93,13 @@ from modules.settings_sync import (
     save_settings,
     sync_one_pdf_settings_from_json,
 )
+from modules.parapara_structure import (
+    ensure_backup_copy as structure_ensure_backup_copy,
+    load_json_from_upload as structure_load_json_from_upload,
+    merge_structure_into_book as structure_merge_into_book,
+    strip_structure as structure_strip,
+)
+
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 # /api/book_toc 用の簡易キャッシュ（JSONのmtimeが変わらない限り再計算しない）
@@ -677,37 +684,6 @@ def translate_api():
         app.logger.error(f"Translation error: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# # API:構造ファイル保存
-# @app.route("/api/save_structure/<pdf_name>", methods=["POST"])
-# def save_structure_api(pdf_name):
-#     pdf_path, json_path = get_paths(pdf_name)
-#     if not os.path.exists(json_path):
-#         return jsonify({"status": "error", "message": "JSONが存在しません"}), 400
-#     paragraphs_json = request.form.get("paragraphs_json")
-#     title = request.form.get("title")
-#     if not paragraphs_json:
-#         return jsonify({"status": "error", "message": "paragraphs がありません"}), 400
-#     with open(json_path, "r", encoding="utf-8") as f:
-#         book_data = json.load(f)
-#     try:
-#         new_paragraphs_dict = json.loads(paragraphs_json)
-#         if not isinstance(new_paragraphs_dict, dict):
-#             return jsonify({"status": "error", "message": "送信された paragraphs は辞書形式ではありません"}), 400
-#         # TODO: 必要であれば、辞書のキーが文字列のIDであるか、値がパラグラフオブジェクトの形式かなどの詳細なバリデーションを追加
-#         book_data["paragraphs"] = new_paragraphs_dict
-#     except json.JSONDecodeError:
-#         return jsonify({"status": "error", "message": "paragraphs_json の形式が不正です"}), 400
-
-#     if title is not None:
-#         book_data["title"] = title
-
-#     # 翻訳ステータスカウントを再計算
-#     recalc_trans_status_counts(book_data)
-
-#     with open(json_path, "w", encoding="utf-8") as f:
-#         json.dump(book_data, f, ensure_ascii=False, indent=2)
-#     return jsonify({"status": "ok"}), 200
-
 # パラグラフの翻訳を保存するAPI
 @app.route("/api/export_html/<pdf_name>", methods=["POST"])
 def export_html_api(pdf_name):
@@ -718,7 +694,141 @@ def export_html_api(pdf_name):
         json2html(json_path)
     except Exception as e:
         return jsonify({"status": "error", "message": f"HTML生成エラー: {str(e)}"}), 500
-    return jsonify({"status": "ok"}), 200
+    out_path = os.path.splitext(json_path)[0] + ".html"
+    rel = os.path.relpath(out_path, APP_DIR)
+    return jsonify({"status": "ok", "path": rel}), 200
+
+
+@app.route("/api/download_html/<pdf_name>")
+def download_html_api(pdf_name):
+    """対訳HTMLをダウンロードする（無ければ生成して返す）。"""
+    _, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONが存在しません"}), 404
+
+    out_path = os.path.splitext(json_path)[0] + ".html"
+    if not os.path.exists(out_path):
+        try:
+            json2html(json_path)
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"HTML生成エラー: {str(e)}"}), 500
+
+    try:
+        return send_file(out_path, as_attachment=True, download_name=os.path.basename(out_path))
+    except TypeError:
+        # Flask の古い版互換 (download_name 未対応)
+        return send_file(out_path, as_attachment=True)
+
+
+def _structure_folder() -> str:
+    folder = os.path.join(DATA_FOLDER, "structure")
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
+def _structure_path(pdf_name: str) -> str:
+    # pdf_name は拡張子なしの前提（既存コードに合わせる）
+    return os.path.join(_structure_folder(), f"{pdf_name}.structure.json")
+
+
+@app.route("/api/export_structure/<pdf_name>", methods=["POST"])
+def export_structure_api(pdf_name):
+    """著作権配慮用の '文書構造ファイル' を出力する。
+
+    - src_html/src_text/src_joined/src_replaced/trans_auto/trans_text を除去
+    - data/structure/<pdf_name>.structure.json に保存
+    """
+    _, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONが存在しません"}), 400
+
+    try:
+        book_data = load_json(json_path)
+        structure_data = structure_strip(book_data)
+        out_path = _structure_path(pdf_name)
+        atomicsave_json(out_path, structure_data)
+        rel = os.path.relpath(out_path, APP_DIR)
+        return jsonify({"status": "ok", "path": rel}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"構造ファイル出力エラー: {str(e)}"}), 500
+
+
+@app.route("/api/download_structure/<pdf_name>")
+def download_structure_api(pdf_name):
+    """既存の文書構造ファイルをダウンロードする（無ければ生成して返す）。"""
+    _, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONが存在しません"}), 404
+
+    out_path = _structure_path(pdf_name)
+    if not os.path.exists(out_path):
+        try:
+            book_data = load_json(json_path)
+            structure_data = structure_strip(book_data)
+            atomicsave_json(out_path, structure_data)
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"構造ファイル生成エラー: {str(e)}"}), 500
+
+    try:
+        return send_file(out_path, as_attachment=True, download_name=os.path.basename(out_path))
+    except TypeError:
+        # Flask の古い版互換 (download_name 未対応)
+        return send_file(out_path, as_attachment=True)
+
+
+@app.route("/api/import_structure/<pdf_name>", methods=["POST"])
+def import_structure_api(pdf_name):
+    """文書構造ファイルを取り込み、既存JSONの構造情報のみ更新する。
+
+    - 更新前に data/backup に元JSONを複写
+    - src_html/src_text/src_joined/src_replaced/trans_auto/trans_text は更新しない
+    - join が変化した場合は src_joined/src_replaced を再構築する
+    """
+    _, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONが存在しません"}), 400
+
+    imported = None
+
+    upfile = request.files.get("file")
+    if upfile and getattr(upfile, "filename", ""):
+        try:
+            imported = structure_load_json_from_upload(upfile)
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"アップロードJSONの読み取りに失敗: {str(e)}"}), 400
+    else:
+        # JSONボディでも受け取れるようにする
+        imported = request.get_json(silent=True)
+
+    if not isinstance(imported, dict):
+        return jsonify({"status": "error", "message": "取り込みデータが不正です（JSON object ではありません）"}), 400
+
+    try:
+        book_data = load_json(json_path)
+
+        backup_path = structure_ensure_backup_copy(json_path, backup_dir=os.path.join(DATA_FOLDER, "backup"))
+
+        book_data, stats, join_changed = structure_merge_into_book(book_data, imported)
+
+        # join が変わった場合は派生項目を再構築（src_joined/src_replaced/trans_status が変化し得る）
+        if join_changed:
+            join_apply_all(book_data, sep="", normalize_head=True)
+
+        # trans_status などが変わる可能性があるので再集計
+        recalc_trans_status_counts(book_data)
+
+        atomicsave_json(json_path, book_data)
+        return jsonify(
+            {
+                "status": "ok",
+                "backup": os.path.relpath(backup_path, APP_DIR),
+                "stats": stats,
+                "join_changed": bool(join_changed),
+                "trans_status_counts": book_data.get("trans_status_counts"),
+            }
+        ), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"構造ファイル取り込みエラー: {str(e)}"}), 500
 
 
 # # API:ファイルへの辞書全置換

@@ -714,13 +714,85 @@ async function exportHtml() {
         });
         const data = await response.json();
         if (data.status === "ok") {
-            alert("対訳HTMLが正常に出力されました。");
+            // 生成後、ダウンロードも実行
+            window.location.href = `/api/download_html/${encodeURIComponent(pdfName)}`;
+            alert(`対訳HTMLを出力しました: ${data.path ?? ''}`);
         } else {
             alert("エラー: " + data.message);
         }
     } catch (error) {
         console.error("Error exporting HTML:", error);
         alert("対訳HTML出力中にエラーが発生しました");
+    }
+}
+
+
+async function exportDocStructure() {
+    // 未保存の順序・group_id などが構造に含まれるため、先に保存
+    await saveCurrentPageOrder();
+    try {
+        const response = await fetch(`/api/export_structure/${encodeURIComponent(pdfName)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: ''
+        });
+        const data = await response.json();
+        if (data.status === "ok") {
+            // 生成後、ダウンロードも実行
+            window.location.href = `/api/download_structure/${encodeURIComponent(pdfName)}`;
+            alert(`構造ファイルを出力しました: ${data.path}`);
+        } else {
+            alert("エラー: " + data.message);
+        }
+    } catch (error) {
+        console.error("Error exporting doc structure:", error);
+        alert("構造ファイル出力中にエラーが発生しました");
+    }
+}
+
+
+function openDocStructurePicker() {
+    const input = document.getElementById('docStructureFileInput');
+    if (!input) {
+        alert('ファイル選択UIが見つかりません');
+        return;
+    }
+    // 同じファイルを連続で選択しても change が発火するようにクリア
+    input.value = '';
+    input.click();
+}
+
+
+async function importDocStructureFile(fileList) {
+    try {
+        if (!fileList || fileList.length === 0) return;
+        const file = fileList[0];
+        if (!file) return;
+
+        const form = new FormData();
+        form.append('file', file);
+
+        const response = await fetch(`/api/import_structure/${encodeURIComponent(pdfName)}`, {
+            method: 'POST',
+            body: form
+        });
+        const data = await response.json();
+        if (data.status === 'ok') {
+            const msg = [
+                '構造ファイルを取り込みました。',
+                data.backup ? `バックアップ: ${data.backup}` : null,
+                data.join_changed ? 'join変更が検出され、連結文を再構築しました。' : null,
+            ].filter(Boolean).join('\n');
+            alert(msg);
+            await fetchBookData();
+        } else {
+            alert('エラー: ' + data.message);
+        }
+    } catch (error) {
+        console.error('Error importing doc structure:', error);
+        alert('構造ファイル取り込み中にエラーが発生しました');
     }
 }
 
