@@ -282,6 +282,9 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
     // 同一ページ指定の場合は、通常はURL同期のみ。
     // ただしデータ更新後などは forceRender で再描画する。
     if (targetPage === currentPage) {
+        if (typeof ensurePageFresh === 'function') {
+            await ensurePageFresh(targetPage);
+        }
         const srcPanel = document.getElementById("srcPanel");
         const savedScrollTop = (preserveScroll && srcPanel) ? srcPanel.scrollTop : null;
         const savedParagraphIndex = (typeof currentParagraphIndex === 'number') ? currentParagraphIndex : 0;
@@ -318,6 +321,10 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
     // 保存後にページを移動する
     currentPage = targetPage;
     document.getElementById("pageInput").value = currentPage;
+
+    if (typeof ensurePageFresh === 'function') {
+        await ensurePageFresh(currentPage);
+    }
 
     if (updateUrl) {
         updateUrlForPage(currentPage, { replace: replaceHistory });

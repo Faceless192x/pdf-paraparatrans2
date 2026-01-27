@@ -1,21 +1,37 @@
 async function fetchBookData() {
     try {
-        let response = await fetch(`/api/book_data/${encodeURIComponent(pdfName)}`);
-        if (response.status === 206) {
-            confirm("まだパラグラフ抽出がされていません。"); // ユーザーへの通知
+        const metaRes = await fetch(`/api/book_meta/${encodeURIComponent(pdfName)}`);
+        if (metaRes.status === 206) {
+            confirm("まだパラグラフ抽出がされていません。");
             return;
         }
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        if (!metaRes.ok) {
+            throw new Error(`HTTP error! status: ${metaRes.status}`);
         }
-        bookData = await response.json();
+
+        const metaPayload = await metaRes.json();
+        const meta = metaPayload?.meta ?? metaPayload;
+
+        // bookData をメタ情報で初期化（pages はページ単位で遅延ロード）
+        bookData = {
+            ...(meta || {}),
+            pages: {},
+            toc: [],
+        };
 
         document.getElementById("titleInput").value = bookData.title;
         document.getElementById("pageCount").innerText = bookData.page_count;
         document.getElementById("pageInput").max = bookData.page_count;
 
-        updateTransStatusCounts(bookData.trans_status_counts); // この関数も辞書対応が必要か確認
+        updateTransStatusCounts(bookData.trans_status_counts);
         updateBookStyles();
+
+        // 目次と表示ページを並列に取得
+        await Promise.all([
+            fetchAndApplyToc(),
+            fetchAndApplyPage(currentPage),
+        ]);
+
         showToc();
         await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: true });
     } catch (error) {
@@ -24,11 +40,144 @@ async function fetchBookData() {
     }
 }
 
+async function fetchAndApplyToc() {
+    try {
+        const response = await fetch(`/api/book_toc/${encodeURIComponent(pdfName)}`);
+        if (!response.ok) {
+            return false;
+        }
+        const data = await response.json();
+        if (data.status !== 'ok') {
+            return false;
+        }
+        if (!Array.isArray(data.toc)) {
+            return false;
+        }
+        bookData.toc = data.toc;
+        bookData.__toc_stale = false;
+        return true;
+    } catch (e) {
+        console.warn('fetchAndApplyToc failed:', e);
+        return false;
+    }
+}
+
+function applyBookDelta(delta) {
+    if (!delta || typeof delta !== 'object') return false;
+
+    let changed = false;
+
+    if (delta.pages && typeof delta.pages === 'object') {
+        if (!bookData.pages || typeof bookData.pages !== 'object') {
+            bookData.pages = {};
+        }
+        if (bookData.__stale_token && !bookData.__page_fresh_token) {
+            bookData.__page_fresh_token = {};
+        }
+        for (const [pageKey, pageObj] of Object.entries(delta.pages)) {
+            bookData.pages[pageKey] = pageObj;
+            if (bookData.__stale_token && bookData.__page_fresh_token) {
+                bookData.__page_fresh_token[String(pageKey)] = bookData.__stale_token;
+            }
+            changed = true;
+
+            // TOC の部分更新（該当ページに見出しがあれば反映）
+            if (Array.isArray(bookData.toc) && pageObj && pageObj.paragraphs) {
+                for (const p of Object.values(pageObj.paragraphs)) {
+                    if (!p) continue;
+                    const blockTag = p.block_tag;
+                    const joinFlag = Number(p?.join ?? 0);
+                    if (!/^h[1-6]$/.test(blockTag) || joinFlag === 1) continue;
+
+                    const rowId = `${p.page_number}_${p.id}`;
+                    const existing = bookData.toc.find((t) => t && t.rowId === rowId);
+                    if (existing) {
+                        existing.src_joined = p.src_joined;
+                        existing.trans_text = p.trans_text;
+                        existing.block_tag = p.block_tag;
+                        existing.order = p.order || 0;
+                        existing.column_order = p.column_order || 0;
+                    }
+                }
+            }
+        }
+    }
+
+    if (delta.trans_status_counts && typeof delta.trans_status_counts === 'object') {
+        bookData.trans_status_counts = delta.trans_status_counts;
+        updateTransStatusCounts(bookData.trans_status_counts);
+        changed = true;
+    }
+
+    return changed;
+}
+
+function markAllPagesStale() {
+    // 全体更新系操作の後、他ページの表示が古くなるのを防ぐため
+    // ページ遷移時に /api/book_page で最新を取る
+    bookData.__stale_token = Date.now();
+    bookData.__page_fresh_token = bookData.__page_fresh_token || {};
+    bookData.__toc_stale = true;
+}
+
+async function fetchAndApplyPage(pageNum) {
+    try {
+        const response = await fetch(`/api/book_page/${encodeURIComponent(pdfName)}/${encodeURIComponent(pageNum)}`);
+        if (!response.ok) {
+            return false;
+        }
+        const data = await response.json();
+        if (data.status !== 'ok') {
+            return false;
+        }
+
+        if (!bookData.pages || typeof bookData.pages !== 'object') {
+            bookData.pages = {};
+        }
+        bookData.pages[String(data.page_key)] = data.page;
+
+        if (data.trans_status_counts) {
+            bookData.trans_status_counts = data.trans_status_counts;
+            updateTransStatusCounts(bookData.trans_status_counts);
+        }
+
+        // stale 管理
+        if (bookData.__stale_token) {
+            bookData.__page_fresh_token = bookData.__page_fresh_token || {};
+            bookData.__page_fresh_token[String(data.page_key)] = bookData.__stale_token;
+        }
+
+        return true;
+    } catch (e) {
+        console.warn('fetchAndApplyPage failed:', e);
+        return false;
+    }
+}
+
+async function ensurePageFresh(pageNum) {
+    const pageKey = String(pageNum);
+
+    // 未ロードなら常に取得
+    if (!bookData?.pages || !bookData.pages[pageKey]) {
+        return await fetchAndApplyPage(pageNum);
+    }
+
+    const staleToken = bookData.__stale_token;
+    if (!staleToken) return true;
+
+    const freshMap = bookData.__page_fresh_token || {};
+    if (freshMap[pageKey] === staleToken) return true;
+
+    return await fetchAndApplyPage(pageNum);
+}
+
 /** @function transPage */
 async function transPage() {
     await saveCurrentPageOrder(); // 順序を保存してから翻訳 (saveOrderもasyncにする必要あり)
     if (!confirm("現在のページを翻訳します。よろしいですか？")) return;
     showLog();
+
+    let applied = false;
 
     try {
         const response = await fetch(`/api/paraparatrans/${encodeURIComponent(pdfName)}`, {
@@ -42,6 +191,7 @@ async function transPage() {
         const data = await response.json();
         if (data.status === "ok") {
             console.log('翻訳が成功しました。');
+            applied = applyBookDelta(data.delta || data.data);
             if (data.stats) {
                 alert(formatTranslationStatsMessage("ページ翻訳が完了しました", data.stats));
             } else {
@@ -56,8 +206,12 @@ async function transPage() {
         console.error('Error:', error);
         alert('翻訳中にエラー(catch)');
     } finally {
-        // 成功・失敗に関わらず必ず実行
-        await fetchBookData(); // fetchBookDataもasyncなのでawait
+        // 成功時は差分適用で全体再取得を回避。適用できなかった場合のみ従来通り全体再取得する。
+        if (applied) {
+            await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: true });
+        } else {
+            await fetchBookData();
+        }
     }
 }
 
@@ -66,6 +220,8 @@ async function dictReplacePage() {
     await saveCurrentPageOrder(); // 順序を保存してから置換
     if (!confirm("現在のページを対訳辞書で置換します。よろしいですか？")) return;
     showLog();
+
+    let applied = false;
 
     try {
         const response = await fetch(`/api/dict_replace_pages/${encodeURIComponent(pdfName)}`, {
@@ -79,6 +235,7 @@ async function dictReplacePage() {
         const data = await response.json();
         if (data.status === "ok") {
             console.log('ページ対訳置換が成功しました。');
+            applied = applyBookDelta(data.delta);
         } else {
             console.error('エラー:', data.message);
             alert('ページ対訳置換エラー(response): ' + data.message);
@@ -88,8 +245,11 @@ async function dictReplacePage() {
         console.error('Error:', error);
         alert('ページ対訳置換中にエラー(catch)');
     } finally {
-        // 成功・失敗に関わらず必ず実行
-        await fetchBookData();
+        if (applied) {
+            await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: true });
+        } else {
+            await fetchBookData();
+        }
     }
 }
 
@@ -99,6 +259,8 @@ async function alignTransBySrcJoined() {
     const msg = "同一src_joinedの訳を文書全体で揃えます。\nよろしいですか？";
     if (!confirm(msg)) return;
     showLog();
+
+    let applied = false;
 
     try {
         const response = await fetch(`/api/align_trans_by_src_joined/${encodeURIComponent(pdfName)}`, {
@@ -111,9 +273,10 @@ async function alignTransBySrcJoined() {
         const data = await response.json();
         if (data.status === "ok") {
             console.log(`訳揃えが成功しました。updated=${data.changed}`);
-            if (data.trans_status_counts) {
-                updateTransStatusCounts(data.trans_status_counts);
-            }
+            applied = applyBookDelta(data.delta);
+            // 文書全体が対象なので目次も更新しておく
+            await fetchAndApplyToc();
+            showToc();
         } else {
             console.error('エラー:', data.message);
             alert('訳揃えエラー(response): ' + data.message);
@@ -123,7 +286,11 @@ async function alignTransBySrcJoined() {
         console.error('Error:', error);
         alert('訳揃え中にエラー(catch)');
     } finally {
-        await fetchBookData();
+        if (applied) {
+            await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: true });
+        } else {
+            await fetchBookData();
+        }
     }
 }
 
@@ -134,6 +301,8 @@ async function dictReplaceAll() {
     msg += "\n\nよろしいですか？";
     if (!confirm(msg)) return;
     showLog();
+
+    let applied = false;
 
     try {
         const response = await fetch(`/api/dict_replace_pages/${encodeURIComponent(pdfName)}`, {
@@ -146,7 +315,7 @@ async function dictReplaceAll() {
         });
         const data = await response.json();
         if (data.status === "ok") {
-            await fetchBookData(); // fetchBookDataもasyncなのでawait
+            applied = applyBookDelta(data.delta);
             alert("全対訳置換が成功しました");
         } else {
             console.error("対訳置換エラー:", data.message);
@@ -155,6 +324,12 @@ async function dictReplaceAll() {
     } catch (error) {
         console.error("dictReplaceAllエラー:", error);
         alert("dictReplaceAll エラー: " + error);
+    } finally {
+        if (applied) {
+            await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: true });
+        } else {
+            await fetchBookData();
+        }
     }
 }
 
@@ -164,6 +339,8 @@ async function transAllPages() {
     const totalPages = bookData.page_count;
     if (!confirm(`全 ${totalPages} ページを翻訳します。よろしいですか？`)) return;
     showLog();
+
+    let applied = false;
 
     try {
         const response = await fetch(`/api/paraparatrans/${encodeURIComponent(pdfName)}`, {
@@ -177,6 +354,9 @@ async function transAllPages() {
         const data = await response.json();
         if (data.status === "ok") {
             console.log('翻訳が成功しました。');
+            applied = applyBookDelta(data.delta || data.data);
+            await fetchAndApplyToc();
+            showToc();
             if (data.stats) {
                 alert(formatTranslationStatsMessage("全ページ翻訳が完了しました", data.stats));
             } else {
@@ -190,8 +370,11 @@ async function transAllPages() {
         console.error('Error:', error);
         alert('翻訳中にエラー(catch)');
     } finally {
-        // 成功・失敗に関わらず必ず実行
-        await fetchBookData(); // fetchBookDataもasyncなのでawait
+        if (applied) {
+            await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: true });
+        } else {
+            await fetchBookData();
+        }
     }
 }
 
@@ -250,16 +433,26 @@ async function autoTagging() {
     if (!confirm(msg)) return;
 
     try {
+        const body = '&current_page=' + encodeURIComponent(currentPage);
         const response = await fetch(`/api/auto_tagging/${encodeURIComponent(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
-            }
+            },
+            body
         });
         const result = await response.json();
         if (result.status === "ok") {
             alert("自動タグ付けが成功しました");
-            await fetchBookData(); // fetchBookDataもasyncなのでawait
+            markAllPagesStale();
+            const applied = applyBookDelta(result.delta);
+            await fetchAndApplyToc();
+            showToc();
+            if (applied) {
+                await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: true });
+            } else {
+                await fetchBookData();
+            }
         } else {
             alert("自動タグ付けエラー: " + result.message);
         }
@@ -278,16 +471,26 @@ async function rebuildSrcTextFromHtml() {
 
     await saveCurrentPageOrder();
     try {
+        const body = '&current_page=' + encodeURIComponent(currentPage);
         const response = await fetch(`/api/rebuild_src_text/${encodeURIComponent(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
-            }
+            },
+            body
         });
         const result = await response.json();
         if (result.status === "ok") {
             alert(result.message || "シンボル置換が完了しました");
-            await fetchBookData();
+            markAllPagesStale();
+            const applied = applyBookDelta(result.delta);
+            await fetchAndApplyToc();
+            showToc();
+            if (applied) {
+                await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: true });
+            } else {
+                await fetchBookData();
+            }
         } else {
             alert("シンボル置換エラー: " + (result.message || "unknown"));
         }
@@ -306,7 +509,8 @@ async function taggingByStyle(targetStyle, targetTag) {
             },
             body: JSON.stringify({
                 target_style: targetStyle,
-                target_tag: targetTag
+                target_tag: targetTag,
+                current_page: currentPage
             })
         });
 
@@ -314,7 +518,15 @@ async function taggingByStyle(targetStyle, targetTag) {
 
         if (result.status === "ok") {
             alert("スタイルの一括更新が完了しました。");
-            await fetchBookData(); // fetchBookDataもasyncなのでawait
+            markAllPagesStale();
+            const applied = applyBookDelta(result.delta);
+            await fetchAndApplyToc();
+            showToc();
+            if (applied) {
+                await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: true });
+            } else {
+                await fetchBookData();
+            }
         } else {
             alert(`スタイルの一括更新に失敗しました: ${result.message}`);
         }
@@ -336,7 +548,8 @@ async function taggingByStyleY(targetStyle, y0, y1, action) {
                 target_style: targetStyle,
                 y0: y0,
                 y1: y1,
-                action: action
+                action: action,
+                current_page: currentPage
             })
         });
 
@@ -344,7 +557,15 @@ async function taggingByStyleY(targetStyle, y0, y1, action) {
 
         if (result.status === "ok") {
             alert(result.message || "スタイル+Y範囲の一括更新が完了しました。");
-            await fetchBookData();
+            markAllPagesStale();
+            const applied = applyBookDelta(result.delta);
+            await fetchAndApplyToc();
+            showToc();
+            if (applied) {
+                await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: true });
+            } else {
+                await fetchBookData();
+            }
         } else {
             alert(`スタイル+Y範囲の一括更新に失敗しました: ${result.message}`);
         }
@@ -369,15 +590,21 @@ async function joinParagraphs() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
-            }
+            },
+            body: '&current_page=' + encodeURIComponent(currentPage)
         });
         const data = await response.json();
         if (data.status === "ok") {
-            if (data.trans_status_counts) {
-                updateTransStatusCounts(data.trans_status_counts);
+            const applied = applyBookDelta(data.delta);
+            alert("「連結文」「置換文」列を更新しました");
+            markAllPagesStale();
+            await fetchAndApplyToc();
+            showToc();
+            if (applied) {
+                await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: true });
+            } else {
+                await fetchBookData();
             }
-            alert("「連結文」「置換文」列を更新しました\n再読み込みを行います");
-            await fetchBookData(); // fetchBookDataもasyncなのでawait
         } else {
             alert("連結文結合エラー: " + data.message);
         }

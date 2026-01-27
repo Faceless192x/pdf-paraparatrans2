@@ -22,7 +22,7 @@ import os
 import json
 import tempfile
 import argparse
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple, Any, Set
 
 
 _STATUS_RANK = {"none": 0, "auto": 1, "draft": 2, "fixed": 3}
@@ -99,6 +99,63 @@ def align_translations_by_src_joined(book_data: dict) -> Tuple[dict, int]:
                 changed += 1
 
     return book_data, changed
+
+
+def align_translations_by_src_joined_collect_pages(book_data: dict) -> Tuple[dict, int, Set[str]]:
+    """book_data を in-place 更新し、(book_data, 変更件数, 変更があったページキー集合) を返す。"""
+
+    best_by_src: Dict[str, Tuple[int, str, str]] = {}
+    pages_changed: Set[str] = set()
+
+    pages = book_data.get("pages", {}) or {}
+
+    for page_key in pages:
+        page = pages.get(page_key, {}) or {}
+        paragraphs = (page.get("paragraphs", {}) or {}).values()
+        for p in paragraphs:
+            src = p.get("src_joined")
+            if not src:
+                continue
+
+            status = p.get("trans_status", "none")
+            r = _rank(status)
+            trans_text = p.get("trans_text", "")
+            trans_auto = p.get("trans_auto", "")
+
+            if src not in best_by_src:
+                best_by_src[src] = (r, trans_text, trans_auto)
+                continue
+
+            best_r, _, _ = best_by_src[src]
+            if r > best_r:
+                best_by_src[src] = (r, trans_text, trans_auto)
+
+    changed = 0
+    for page_key in pages:
+        page = pages.get(page_key, {}) or {}
+        paragraphs = (page.get("paragraphs", {}) or {}).values()
+        for p in paragraphs:
+            src = p.get("src_joined")
+            if not src:
+                continue
+            best = best_by_src.get(src)
+            if not best:
+                continue
+
+            best_r, best_text, _best_auto = best
+            best_status = next((k for k, v in _STATUS_RANK.items() if v == best_r), "none")
+
+            before = (p.get("trans_status"), p.get("trans_text"), p.get("trans_auto"))
+            p["trans_status"] = best_status
+            p["trans_text"] = best_text
+            p["trans_auto"] = best_text
+            after = (p.get("trans_status"), p.get("trans_text"), p.get("trans_auto"))
+
+            if before != after:
+                changed += 1
+                pages_changed.add(str(page_key))
+
+    return book_data, changed, pages_changed
 
 
 def align_translations_by_src_joined_in_file(json_file: str) -> dict:

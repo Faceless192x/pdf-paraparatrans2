@@ -3,6 +3,11 @@ function initTocPanel() {
 }
 
 function headlineParagraphs() {
+  // 事前計算済みの目次（サーバ生成）を優先
+  if (Array.isArray(bookData?.toc)) {
+    return bookData.toc;
+  }
+
   // bookData.pages{}をループして、各ページの段落を取得
   // その中から、block_tagがh1〜h6のものを抽出して、数値化したページ番号、order順で配列に格納する
   const headlines = [];

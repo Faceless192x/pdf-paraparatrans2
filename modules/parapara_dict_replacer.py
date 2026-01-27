@@ -118,6 +118,8 @@ def file_replace_with_dict(json_path: str, dict_file: str, start_page: int, end_
 
     print(f"処理が完了しました: {json_path}")
 
+    return book_data
+
 # json を読み込んでobjectを戻す
 def load_json(json_path: str):
     if not os.path.isfile(json_path):

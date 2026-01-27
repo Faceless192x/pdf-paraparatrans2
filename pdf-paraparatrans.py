@@ -4,8 +4,10 @@ import json
 import datetime
 import io
 import sys
+import threading
 import shutil
 import time
+# /api/book_toc 用の簡易キャッシュ（JSONのmtimeが変わらない限り再計算しない）
 from PyPDF2 import PdfReader, PdfWriter
 import uuid  # ファイル名の一意性を確保するために追加
 import tempfile
@@ -82,7 +84,10 @@ from modules.parapara_tagging_by_style import tag_paragraphs_by_style # 追加
 from modules.parapara_tagging_by_style_y import tag_paragraphs_by_style_y_in_file
 # 対訳HTMLの出力
 from modules.parapara_json2html import json2html
-from modules.parapara_align_trans_by_src_joined import align_translations_by_src_joined
+from modules.parapara_align_trans_by_src_joined import (
+    align_translations_by_src_joined,
+    align_translations_by_src_joined_collect_pages,
+)
 from modules.settings_sync import (
     lazy_sync_settings_from_json_files,
     save_settings,
@@ -90,6 +95,9 @@ from modules.settings_sync import (
 )
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
+# /api/book_toc 用の簡易キャッシュ（JSONのmtimeが変わらない限り再計算しない）
+_BOOK_TOC_CACHE = {}
+_BOOK_TOC_CACHE_LOCK = threading.Lock()
 # mjsがtext/plain解釈されPDFビューアーが読み込めないケースへの対策。
 # 一度キャッシュされると壊れたままになるので、F12→ハードキャッシュクリアを推奨。
 import mimetypes
@@ -480,6 +488,139 @@ def get_book_data(pdf_name):
         book_data = json.load(f)
     return jsonify(book_data)
 
+
+# API: book_data のメタ情報のみ取得（初期ロード高速化用）
+@app.route("/api/book_meta/<pdf_name>")
+def get_book_meta(pdf_name):
+    _, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "ok", "message": "JSONが存在しません"}), 206
+
+    with open(json_path, "r", encoding="utf-8") as f:
+        book_data = json.load(f)
+
+    meta = {
+        "version": book_data.get("version"),
+        "src_filename": book_data.get("src_filename"),
+        "title": book_data.get("title"),
+        "page_count": book_data.get("page_count"),
+        "styles": book_data.get("styles") or {},
+        "trans_status_counts": book_data.get("trans_status_counts") or {},
+    }
+    return jsonify({"status": "ok", "meta": meta})
+
+
+# API: 目次（見出し）情報のみ取得（初期ロード高速化用）
+@app.route("/api/book_toc/<pdf_name>")
+def get_book_toc(pdf_name):
+    _, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONが存在しません"}), 404
+
+    try:
+        mtime = os.path.getmtime(json_path)
+    except OSError:
+        mtime = None
+
+    if mtime is not None:
+        with _BOOK_TOC_CACHE_LOCK:
+            cached = _BOOK_TOC_CACHE.get(pdf_name)
+            if cached and cached.get("mtime") == mtime and isinstance(cached.get("toc"), list):
+                return jsonify({"status": "ok", "toc": cached["toc"], "cached": True})
+
+    with open(json_path, "r", encoding="utf-8") as f:
+        book_data = json.load(f)
+
+    headlines = []
+    pages = book_data.get("pages", {}) or {}
+    for page_key, page in pages.items():
+        paragraphs = (page or {}).get("paragraphs", {}) or {}
+        for _pid, p in paragraphs.items():
+            block_tag = (p or {}).get("block_tag")
+            join_flag = int((p or {}).get("join", 0) or 0)
+            if join_flag == 1:
+                continue
+            if not isinstance(block_tag, str):
+                continue
+            if not re.match(r"^h[1-6]$", block_tag):
+                continue
+
+            page_number = (p or {}).get("page_number")
+            para_id = (p or {}).get("id")
+            try:
+                y0 = (p or {}).get("bbox")[1]
+            except Exception:
+                y0 = 0
+
+            headlines.append(
+                {
+                    "rowId": f"{page_number}_{para_id}",
+                    "page_number": page_number,
+                    "id": para_id,
+                    "order": (p or {}).get("order", 0) or 0,
+                    "column_order": (p or {}).get("column_order", 0) or 0,
+                    "y0": y0,
+                    "block_tag": block_tag,
+                    "src_joined": (p or {}).get("src_joined"),
+                    "trans_text": (p or {}).get("trans_text"),
+                    "join": join_flag,
+                }
+            )
+
+    def _toc_sort_key(item: dict):
+        try:
+            pn = int(item.get("page_number") or 0)
+        except Exception:
+            pn = 0
+        try:
+            order = int(item.get("order") or 0)
+        except Exception:
+            order = 0
+        try:
+            col = int(item.get("column_order") or 0)
+        except Exception:
+            col = 0
+        try:
+            y0 = float(item.get("y0") or 0)
+        except Exception:
+            y0 = 0
+        return (pn, order, col, y0)
+
+    headlines.sort(key=_toc_sort_key)
+
+    if mtime is not None:
+        with _BOOK_TOC_CACHE_LOCK:
+            _BOOK_TOC_CACHE[pdf_name] = {"mtime": mtime, "toc": headlines}
+
+    return jsonify({"status": "ok", "toc": headlines, "cached": False})
+
+
+# API: 指定ページだけ取得（差分更新用）
+@app.route("/api/book_page/<pdf_name>/<int:page_number>")
+def get_book_page(pdf_name, page_number: int):
+    _, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONが存在しません"}), 404
+
+    with open(json_path, "r", encoding="utf-8") as f:
+        book_data = json.load(f)
+
+    page_key = str(page_number)
+    page = (book_data.get("pages", {}) or {}).get(page_key)
+    if page is None:
+        return jsonify({"status": "error", "message": f"ページが存在しません: {page_number}"}), 404
+
+    return jsonify(
+        {
+            "status": "ok",
+            "page_key": page_key,
+            "page": page,
+            "trans_status_counts": book_data.get("trans_status_counts"),
+            "page_count": book_data.get("page_count"),
+            "title": book_data.get("title"),
+        }
+    )
+
 # API:PDFからbook_dataファイル生成
 @app.route("/api/extract_paragraphs/<pdf_name>", methods=["POST"])
 def create_book_data_api(pdf_name):
@@ -608,10 +749,22 @@ def dict_replace_page_api(pdf_name):
     if not os.path.exists(json_path):
         return jsonify({"status": "error", "message": "対象のJSONファイルが存在しません"}), 404
     try:
-        file_replace_with_dict(json_path, DICT_PATH, start_page, end_page)
+        book_data = file_replace_with_dict(json_path, DICT_PATH, start_page, end_page)
+
+        pages_delta = {}
+        pages = (book_data or {}).get("pages", {}) or {}
+        for page in range(start_page, end_page + 1):
+            key = str(page)
+            if key in pages:
+                pages_delta[key] = pages[key]
+
+        delta = {
+            "pages": pages_delta,
+            "trans_status_counts": (book_data or {}).get("trans_status_counts"),
+        }
     except Exception as e:
         return jsonify({"status": "error", "message": f"辞書適用中のエラー: {str(e)}"}), 500
-    return jsonify({"status": "ok"}), 200
+    return jsonify({"status": "ok", "delta": delta}), 200
 
 @app.route("/api/paraparatrans/<pdf_name>", methods=["POST"])
 def paraparatrans_api(pdf_name):
@@ -627,6 +780,19 @@ def paraparatrans_api(pdf_name):
     try:
         updated_data, stats = paraparatrans_json_file(json_path, start_page, end_page)
 
+        # 差分返却: 更新対象ページのみ返す（クライアント側で bookData にマージして全体再取得を避ける）
+        pages_delta = {}
+        pages = updated_data.get("pages", {})
+        for page in range(start_page, end_page + 1):
+            key = str(page)
+            if key in pages:
+                pages_delta[key] = pages[key]
+
+        delta = {
+            "pages": pages_delta,
+            "trans_status_counts": updated_data.get("trans_status_counts"),
+        }
+
         # settingsの該当PDF分だけ同期（翻訳数表示の追従）
         settings_path = os.path.join(DATA_FOLDER, "paraparatrans.settings.json")
         sync_one_pdf_settings_from_json(
@@ -635,7 +801,8 @@ def paraparatrans_api(pdf_name):
             pdf_name=pdf_name,
             indent=4,
         )
-        return jsonify({"status": "ok", "data": updated_data, "stats": stats}), 200
+        # 互換のため data も残す（旧クライアントは全体更新前提だったが、現状 data は未使用）
+        return jsonify({"status": "ok", "delta": delta, "data": delta, "stats": stats}), 200
     except Exception as e:
         app.logger.error(f"翻訳処理中にエラーが発生しました: {str(e)}")
         return jsonify({"status": "error", "message": f"翻訳処理中にエラーが発生しました: {str(e)}"}), 500
@@ -652,15 +819,27 @@ def align_trans_by_src_joined_api(pdf_name):
         with open(json_path, "r", encoding="utf-8") as f:
             book_data = json.load(f)
 
-        _, changed = align_translations_by_src_joined(book_data)
+        _, changed, pages_changed = align_translations_by_src_joined_collect_pages(book_data)
         recalc_trans_status_counts(book_data)
         atomicsave_json(json_path, book_data)
+
+        pages_delta = {}
+        pages = book_data.get("pages", {}) or {}
+        for key in pages_changed:
+            if key in pages:
+                pages_delta[key] = pages[key]
+
+        delta = {
+            "pages": pages_delta,
+            "trans_status_counts": book_data.get("trans_status_counts"),
+        }
 
         return jsonify(
             {
                 "status": "ok",
                 "changed": changed,
                 "trans_status_counts": book_data.get("trans_status_counts"),
+                "delta": delta,
             }
         ), 200
     except Exception as e:
@@ -797,12 +976,25 @@ def auto_tagging_api(pdf_name):
     if not os.path.exists(json_path):
         return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
     try:
+        current_page = request.form.get("current_page", type=int)
         structure_tagging(json_path, SIMBLE_DICT_PATH)
         join_flags_in_file(json_path, SIMBLE_DICT_PATH)
 
+        delta = None
+        if current_page is not None:
+            with open(json_path, "r", encoding="utf-8") as f:
+                book_data = json.load(f)
+            page_key = str(current_page)
+            page_obj = (book_data.get("pages", {}) or {}).get(page_key)
+            if page_obj is not None:
+                delta = {
+                    "pages": {page_key: page_obj},
+                    "trans_status_counts": book_data.get("trans_status_counts"),
+                }
+
     except Exception as e:
         return jsonify({"status": "error", "message": f"自動タグ付けエラー: {str(e)}"}), 500
-    return jsonify({"status": "ok", "message": "自動タグ付け完了"}), 200
+    return jsonify({"status": "ok", "message": "自動タグ付け完了", "delta": delta}), 200
 
 
 @app.route("/api/rebuild_src_text/<pdf_name>", methods=["POST"])
@@ -813,11 +1005,24 @@ def rebuild_src_text_api(pdf_name):
         return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
 
     try:
+        current_page = request.form.get("current_page", type=int)
         changed = rebuild_src_text_in_file(json_path, SYMBOLFONT_DICT_PATH)
     except Exception as e:
         return jsonify({"status": "error", "message": f"シンボル置換エラー: {str(e)}"}), 500
 
-    return jsonify({"status": "ok", "message": f"シンボル置換完了 (更新: {changed}段落)", "changed": changed}), 200
+    delta = None
+    if current_page is not None:
+        with open(json_path, "r", encoding="utf-8") as f:
+            book_data = json.load(f)
+        page_key = str(current_page)
+        page_obj = (book_data.get("pages", {}) or {}).get(page_key)
+        if page_obj is not None:
+            delta = {
+                "pages": {page_key: page_obj},
+                "trans_status_counts": book_data.get("trans_status_counts"),
+            }
+
+    return jsonify({"status": "ok", "message": f"シンボル置換完了 (更新: {changed}段落)", "changed": changed, "delta": delta}), 200
 
 # API: スタイルによるblock_tag一括更新
 @app.route("/api/update_block_tags_by_style/<pdf_name>", methods=["POST"])
@@ -825,6 +1030,7 @@ def update_block_tags_by_style_api(pdf_name):
     data = request.get_json()
     target_style = data.get("target_style")
     target_tag = data.get("target_tag")
+    current_page = data.get("current_page")
 
     if not target_style or not target_tag:
         return jsonify({"status": "error", "message": "target_style と target_tag は必須です"}), 400
@@ -837,8 +1043,20 @@ def update_block_tags_by_style_api(pdf_name):
         # parapara_tagging_by_style.py の関数を呼び出す
         tag_paragraphs_by_style(json_path, target_style, target_tag)
 
+        delta = None
+        if current_page is not None:
+            with open(json_path, "r", encoding="utf-8") as f:
+                book_data = json.load(f)
+            page_key = str(int(current_page))
+            page_obj = (book_data.get("pages", {}) or {}).get(page_key)
+            if page_obj is not None:
+                delta = {
+                    "pages": {page_key: page_obj},
+                    "trans_status_counts": book_data.get("trans_status_counts"),
+                }
+
         # 成功レスポンスを返す
-        return jsonify({"status": "ok", "message": "スタイルによるblock_tag一括更新が完了しました"}), 200
+        return jsonify({"status": "ok", "message": "スタイルによるblock_tag一括更新が完了しました", "delta": delta}), 200
 
     except Exception as e:
         app.logger.error(f"スタイルによるblock_tag一括更新エラー: {str(e)}")
@@ -853,6 +1071,7 @@ def update_block_tags_by_style_y_api(pdf_name):
     y0 = data.get("y0")
     y1 = data.get("y1")
     action = data.get("action")
+    current_page = data.get("current_page")
 
     if not target_style:
         return jsonify({"status": "error", "message": "target_style は必須です"}), 400
@@ -867,7 +1086,20 @@ def update_block_tags_by_style_y_api(pdf_name):
 
     try:
         changed = tag_paragraphs_by_style_y_in_file(json_path, target_style, float(y0), float(y1), action)
-        return jsonify({"status": "ok", "message": f"更新しました (変更: {changed}段落)", "changed": changed}), 200
+
+        delta = None
+        if current_page is not None:
+            with open(json_path, "r", encoding="utf-8") as f:
+                book_data = json.load(f)
+            page_key = str(int(current_page))
+            page_obj = (book_data.get("pages", {}) or {}).get(page_key)
+            if page_obj is not None:
+                delta = {
+                    "pages": {page_key: page_obj},
+                    "trans_status_counts": book_data.get("trans_status_counts"),
+                }
+
+        return jsonify({"status": "ok", "message": f"更新しました (変更: {changed}段落)", "changed": changed, "delta": delta}), 200
     except Exception as e:
         app.logger.error(f"スタイル+Y範囲によるblock_tag一括更新エラー: {str(e)}")
         return jsonify({"status": "error", "message": f"スタイル+Y範囲によるblock_tag一括更新エラー: {str(e)}"}), 500
@@ -879,12 +1111,23 @@ def auto_join_replaced_paragraphs_api(pdf_name):
     if not os.path.exists(json_path):
         return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
     try:
+        current_page = request.form.get("current_page", type=int)
         with open(json_path, "r", encoding="utf-8") as f:
             book_data = json.load(f)
 
         join_apply_all(book_data, sep="", normalize_head=True)
         recalc_trans_status_counts(book_data)
         atomicsave_json(json_path, book_data)
+
+        delta = None
+        if current_page is not None:
+            page_key = str(current_page)
+            page_obj = (book_data.get("pages", {}) or {}).get(page_key)
+            if page_obj is not None:
+                delta = {
+                    "pages": {page_key: page_obj},
+                    "trans_status_counts": book_data.get("trans_status_counts"),
+                }
     except Exception as e:
         return jsonify({"status": "error", "message": f"置換文結合エラー: {str(e)}"}), 500
     return jsonify(
@@ -892,6 +1135,7 @@ def auto_join_replaced_paragraphs_api(pdf_name):
             "status": "ok",
             "message": "置換文結合完了",
             "trans_status_counts": book_data.get("trans_status_counts"),
+            "delta": delta,
         }
     ), 200
 
