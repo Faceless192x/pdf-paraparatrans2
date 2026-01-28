@@ -391,55 +391,135 @@ function initResizers() {
     const pdfPanel = document.getElementById('pdfPanel');
     const overlay = document.getElementById('overlay');
 
-    let startX, startWidthToc;
-    resizer1.addEventListener('mousedown', function(e) {
-        startX = e.clientX;
-        startWidthToc = tocPanel.getBoundingClientRect().width;
-        document.addEventListener('mousemove', resizeToc);
-        document.addEventListener('mouseup', stopResizeToc);
+    // Pointer Events + setPointerCapture でドラッグの取りこぼしを防ぐ
+    function setupResizerPointerDrag(resizerEl, {
+        onStart,
+        onMove,
+        onEnd,
+    }) {
+        if (!resizerEl) return;
+
+        let isDragging = false;
+        let activePointerId = null;
+        let cleanupWindowListeners = null;
+
+        const endDrag = (reason = 'end') => {
+            if (!isDragging) return;
+            isDragging = false;
+
+            document.body.classList.remove('is-resizing');
+            if (overlay) overlay.style.display = 'none';
+
+            try {
+                if (activePointerId != null) {
+                    resizerEl.releasePointerCapture(activePointerId);
+                }
+            } catch (_) {
+                // ignore
+            }
+
+            activePointerId = null;
+            resizerEl.removeEventListener('pointermove', handlePointerMove);
+            resizerEl.removeEventListener('pointerup', handlePointerUp);
+            resizerEl.removeEventListener('pointercancel', handlePointerCancel);
+            resizerEl.removeEventListener('lostpointercapture', handleLostPointerCapture);
+            if (cleanupWindowListeners) {
+                cleanupWindowListeners();
+                cleanupWindowListeners = null;
+            }
+            if (onEnd) onEnd(reason);
+        };
+
+        const handlePointerMove = (e) => {
+            if (!isDragging) return;
+            if (activePointerId != null && e.pointerId !== activePointerId) return;
+            e.preventDefault();
+            if (onMove) onMove(e);
+        };
+        const handlePointerUp = (e) => {
+            if (activePointerId != null && e.pointerId !== activePointerId) return;
+            e.preventDefault();
+            endDrag('pointerup');
+        };
+        const handlePointerCancel = () => endDrag('pointercancel');
+        const handleLostPointerCapture = () => endDrag('lostpointercapture');
+
+        resizerEl.addEventListener('pointerdown', (e) => {
+            // 左ボタン/主ポインタのみ（右クリックやマルチタッチを除外）
+            if (e.button !== 0 || e.isPrimary === false) return;
+            e.preventDefault();
+
+            isDragging = true;
+            activePointerId = e.pointerId;
+            document.body.classList.add('is-resizing');
+            if (overlay) overlay.style.display = 'block';
+
+            if (onStart) onStart(e);
+            try {
+                resizerEl.setPointerCapture(activePointerId);
+            } catch (_) {
+                // ignore
+            }
+
+            resizerEl.addEventListener('pointermove', handlePointerMove);
+            resizerEl.addEventListener('pointerup', handlePointerUp);
+            resizerEl.addEventListener('pointercancel', handlePointerCancel);
+            resizerEl.addEventListener('lostpointercapture', handleLostPointerCapture);
+
+            // Alt+Tab 等でupが来ないケースの保険
+            const onBlur = () => endDrag('blur');
+            const onVisibilityChange = () => {
+                if (document.visibilityState !== 'visible') endDrag('visibilitychange');
+            };
+            window.addEventListener('blur', onBlur);
+            document.addEventListener('visibilitychange', onVisibilityChange);
+            cleanupWindowListeners = () => {
+                window.removeEventListener('blur', onBlur);
+                document.removeEventListener('visibilitychange', onVisibilityChange);
+            };
+        });
+    }
+
+    let startX1 = 0;
+    let startWidthToc = 0;
+    const minTocWidth = 200;
+    setupResizerPointerDrag(resizer1, {
+        onStart: (e) => {
+            startX1 = e.clientX;
+            startWidthToc = tocPanel.getBoundingClientRect().width;
+        },
+        onMove: (e) => {
+            const dx = e.clientX - startX1;
+            const newWidth = Math.max(minTocWidth, startWidthToc + dx);
+            tocPanel.style.width = newWidth + 'px';
+        },
     });
-
-    function resizeToc(e) {
-        const dx = e.clientX - startX;
-        tocPanel.style.width = (startWidthToc + dx) + 'px';
-    }
-
-    function stopResizeToc() {
-        document.removeEventListener('mousemove', resizeToc);
-        document.removeEventListener('mouseup', stopResizeToc);
-    }
 
     // PDFパネルとsrcPanelの間のリサイズ
     const resizer2 = document.getElementById('resizer2');
-    let startX2, startWidthPdf;
+    let startX2 = 0;
+    let startWidthPdf = 0;
     const minPdfWidth = 200; // 最小幅を200pxに設定（必要に応じて調整）
 
-    resizer2.addEventListener('mousedown', function(e) {
-        e.preventDefault(); // ドラッグ中の不要な選択などを防止
-        startX2 = e.clientX;
-        startWidthPdf = pdfPanel.getBoundingClientRect().width;
-        overlay.style.display = 'block'; // オーバーレイを表示
-        document.addEventListener('mousemove', resizePdf);
-        document.addEventListener('mouseup', stopResizePdf);
+    setupResizerPointerDrag(resizer2, {
+        onStart: (e) => {
+            startX2 = e.clientX;
+            startWidthPdf = pdfPanel.getBoundingClientRect().width;
+        },
+        onMove: (e) => {
+            const dx = e.clientX - startX2;
+            // 左方向のドラッグで幅が縮む
+            let newWidth = startWidthPdf + dx;
+            if (newWidth < minPdfWidth) {
+                newWidth = minPdfWidth;
+            }
+            pdfPanel.style.width = newWidth + 'px';
+        },
+        onEnd: () => {
+            // リサイズ完了後に「page-width」を再適用
+            setTimeout(fitToWidth, 100);
+        },
     });
-
-    function resizePdf(e) {
-        const dx = e.clientX - startX2;
-        // 左方向のドラッグで幅が縮む
-        let newWidth = startWidthPdf + dx;
-        if (newWidth < minPdfWidth) {
-            newWidth = minPdfWidth;
-        }
-        pdfPanel.style.width = newWidth + 'px';
-    }
-
-    function stopResizePdf() {
-        overlay.style.display = 'none';
-        document.removeEventListener('mousemove', resizePdf);
-        document.removeEventListener('mouseup', stopResizePdf);
-        // リサイズ完了後に「page-width」を再適用
-        setTimeout(fitToWidth, 100);
-    }
 }
 
 async function saveForce() {

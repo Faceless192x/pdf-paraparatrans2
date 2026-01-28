@@ -180,8 +180,6 @@ table.tocTable td {
 }
 
 #tocPanel {
-    resize: horizontal;
-    overflow: auto;
     min-width: 200px;
     max-width: 50%;
 }
@@ -195,6 +193,16 @@ table.tocTable td {
     cursor: col-resize;
     position: relative;
     flex: 0 0 auto;
+    touch-action: none;
+    user-select: none;
+}
+
+body.is-resizing {
+    user-select: none;
+}
+
+body.is-resizing * {
+    cursor: col-resize;
 }
 
 header {
