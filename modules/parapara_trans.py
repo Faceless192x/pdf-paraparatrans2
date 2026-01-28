@@ -14,6 +14,12 @@ import tempfile
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional
 
+# 対訳辞書置換用
+from modules.parapara_dict_replacer import load_dictionary, replace_with_dict
+import sys
+
+DICT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "dict.txt")
+
 try:
     # パッケージとして読み込まれる（Flaskアプリなど）ケース
     from .api_translate import translate_text  # type: ignore
@@ -95,16 +101,24 @@ def process_group(paragraphs_group: List[dict], stats: Optional[TranslationStats
     if stats is not None:
         stats.groups += 1
 
+
+    # --- 追加: 単体パラグラフ翻訳前にも対訳辞書置換を適用 ---
+    try:
+        dict_cs, dict_ci = load_dictionary(DICT_PATH)
+    except Exception as e:
+        print(f"[WARN] 対訳辞書の読み込みに失敗: {e}")
+        dict_cs, dict_ci = {}, {}
+    for para in paragraphs_group:
+        src_joined = para.get("src_joined", "")
+        para["src_replaced"] = replace_with_dict(src_joined, dict_cs, dict_ci)
+
     # 各段落のテキストを生成（src_replacedをHTMLエスケープ）
-    # マーカー周りは翻訳で崩れやすいので、前後に改行を入れて境界を安定させる
     texts = [
         f"\n【{para['id']}】\n{html.escape(para.get('src_replaced', ''))}\n" for para in paragraphs_group
     ]
     concatenated_text = "".join(texts)
-    # デバッグログは長すぎるとノイズになるので先頭だけ
     print("FOR DEBUG(LEFT200/1TRANS):" + concatenated_text[:200])
 
-    # 各段落を id をキーにした辞書にする
     para_by_id: Dict[str, dict] = {str(para['id']): para for para in paragraphs_group}
 
     try:
@@ -328,27 +342,29 @@ def pagetrans(filepath, book_data, page_number, stats: Optional[TranslationStats
             }
         _pagetrans_debug(f"start page={page_number} paragraphs={len(before)}")
 
-    # src_joined が明示的に空の段落（joinで結合された側など）は翻訳対象外。
-    # 期待値: src_replacedは空、trans_autoも空、trans_textは触らない。
+
+    # --- 追加: ページ翻訳前に全段落へ対訳辞書置換を適用 ---
+    try:
+        dict_cs, dict_ci = load_dictionary(DICT_PATH)
+    except Exception as e:
+        print(f"[WARN] 対訳辞書の読み込みに失敗: {e}")
+        dict_cs, dict_ci = {}, {}
     for paragraph in paragraphs_dict.values():
         if "src_joined" in paragraph and paragraph.get("src_joined") == "":
             paragraph["src_replaced"] = ""
             paragraph["trans_auto"] = ""
-            # 結合側(join=1)は画面上も空にしたい。
-            # ただし既に手で訳が入っている場合は壊さないため、原文と同一の場合のみクリアする。
             src_text = (paragraph.get("src_text") or "").strip()
             trans_text = (paragraph.get("trans_text") or "").strip()
             if src_text != "" and trans_text == src_text:
                 paragraph["trans_text"] = ""
-
-            # 空段落は自動翻訳せず、ステータスだけを draft にする（未翻訳扱いのみ）
             if (paragraph.get("trans_status") or "none") == "none":
                 paragraph["trans_status"] = "draft"
                 paragraph["modified_at"] = datetime.now().isoformat()
             if stats is not None:
                 stats.skipped_join_empty += 1
-
-        # 過去データの自動補正: 誤って auto になっている低情報量段落を draft に落とす
+        else:
+            src_joined = paragraph.get("src_joined", "")
+            paragraph["src_replaced"] = replace_with_dict(src_joined, dict_cs, dict_ci)
         _migrate_auto_to_draft_if_low_content(paragraph)
 
     for para_id, paragraph in paragraphs_dict.items():
