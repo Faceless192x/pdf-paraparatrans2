@@ -45,7 +45,8 @@ const DictPopup = {
                 <select id="status"></select>
             </div>
             <div class="button-container">
-                <button id="dict-ok">OK</button>
+                <button id="dict-ok">登録のみ</button>
+                <button id="dict-replace-all">登録して全置換</button>
                 <button id="dict-cancel">キャンセル</button>
             </div>
         `;
@@ -57,6 +58,7 @@ const DictPopup = {
         this.translatedWordInput = document.getElementById('translated-word');
         this.statusSelect = document.getElementById('status');
         this.okButton = document.getElementById('dict-ok');
+        this.replaceAllButton = document.getElementById('dict-replace-all');
         this.cancelButton = document.getElementById('dict-cancel');
 
         // 状態コンボボックスにオプションを追加
@@ -69,6 +71,7 @@ const DictPopup = {
 
         // イベントリスナーを設定
         this.okButton.addEventListener('click', this.handleOkClick.bind(this));
+        this.replaceAllButton.addEventListener('click', this.handleReplaceAllClick.bind(this));
         this.cancelButton.addEventListener('click', this.hide.bind(this));
     },
 
@@ -172,6 +175,26 @@ const DictPopup = {
             console.error('辞書更新API呼び出しエラー:', error);
             alert('辞書更新API呼び出し中にエラーが発生しました。');
         }
+    },
+
+    /**
+     * 「登録して全置換」ボタンクリック時のハンドラ
+     */
+    handleReplaceAllClick: async function() {
+        // まず辞書登録
+        await this.handleOkClick();
+        // 辞書登録が成功した場合のみ全置換処理を呼ぶ（ここではカスタムイベントを発火する例）
+        // 実際の全置換処理はアプリ側でこのイベントを受けて実装してください
+        const event = new CustomEvent('dict-replace-all', {
+            detail: {
+                originalWord: this.originalWordInput.value,
+                translatedWord: this.translatedWordInput.value,
+                status: parseInt(this.statusSelect.value, 10)
+            }
+        });
+        window.dispatchEvent(event);
+        // ポップアップは閉じる
+        this.hide();
     }
 };
 

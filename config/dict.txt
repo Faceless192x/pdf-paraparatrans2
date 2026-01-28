@@ -1,4 +1,3 @@
-#英語	#日本語	#状態	#出現回数
 Temple of the Reaching Storm	昇嵐の寺院	0	0
 Empire of the Wyrms Friends	ワームの友邦帝国	0	0
 Lunar Field School of Magic	ルナー野戦魔術学校	0	0
@@ -7470,3 +7469,7 @@ Uz	ウズ	0	0
 Wl	Wl	9	0
 Yg	Yg	9	0
 Yi	Yi	9	0
+Touch, Instant, Stackable	接触、瞬間、複合可	0	0
+Self, Temporal	自身、瞬間	1	0
+Ranged, Temporal, Stackable	範囲、瞬間、複合可	1	0
+Ranged, Temporal, Nonstackable	範囲、瞬間、複合不可	1	0

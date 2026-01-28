@@ -157,6 +157,15 @@ window.onload = async function() { // async を追加
 };
 
 document.addEventListener('DOMContentLoaded', function() {
+
+        // 「登録して全置換」ボタンのカスタムイベントを受けて全置換処理を実行
+        window.addEventListener('dict-replace-all', async function(e) {
+            if (typeof dictReplaceAll === 'function') {
+                await dictReplaceAll();
+            } else {
+                alert('全置換関数(dictReplaceAll)が見つかりません。');
+            }
+        });
     console.log("DOMContentLoaded");
     // 再描画ボタン（現在は非表示）
     document.getElementById('renderButton').addEventListener('click', renderParagraphs);
