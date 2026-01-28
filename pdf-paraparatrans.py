@@ -100,6 +100,8 @@ from modules.parapara_structure import (
     strip_structure as structure_strip,
 )
 
+from modules.parapara_search import search_paragraphs_in_book
+
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 # /api/book_toc 用の簡易キャッシュ（JSONのmtimeが変わらない限り再計算しない）
@@ -627,6 +629,29 @@ def get_book_page(pdf_name, page_number: int):
             "title": book_data.get("title"),
         }
     )
+
+
+# API: 全文検索（src_joined/trans_text/trans_auto）
+@app.route("/api/search/<pdf_name>")
+def search_api(pdf_name: str):
+    _, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONが存在しません"}), 404
+
+    query = (request.args.get("q") or "").strip()
+    try:
+        limit = int(request.args.get("limit") or 200)
+    except Exception:
+        limit = 200
+    limit = max(1, min(limit, 2000))
+
+    try:
+        results = search_paragraphs_in_book(json_path, query, limit=limit)
+    except Exception as e:
+        app.logger.exception("search failed")
+        return jsonify({"status": "error", "message": f"検索エラー: {str(e)}"}), 500
+
+    return jsonify({"status": "ok", "query": query, "count": len(results), "results": results})
 
 # API:PDFからbook_dataファイル生成
 @app.route("/api/extract_paragraphs/<pdf_name>", methods=["POST"])

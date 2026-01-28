@@ -1,0 +1,87 @@
+/* TOC search panel (bottom of toc panel) */
+
+#tocPanel {
+  display: flex;
+  flex-direction: column;
+}
+
+.toc-scroll-wrapper {
+  flex: 1 1 auto;
+  min-height: 0; /* allow flex child to shrink */
+}
+
+#tocSearchPanel {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--table-border-strong);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.toc-search-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+#tocSearchInput {
+  flex: 1;
+  min-width: 0;
+}
+
+#tocSearchClearButton {
+  width: 28px;
+}
+
+#tocSearchStatus {
+  font-size: 12px;
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#tocSearchResults {
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--table-border);
+}
+
+.search-result {
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--table-border);
+  cursor: pointer;
+}
+
+.search-result:last-child {
+  border-bottom: none;
+}
+
+.search-result:hover {
+  background: rgba(127, 127, 127, 0.12);
+}
+
+.search-result .search-page {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  opacity: 0.8;
+  width: 40px;
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+.search-result .search-snippet {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-highlight {
+  background: #ffeb3b;
+  color: #000;
+  padding: 0 1px;
+  border-radius: 2px;
+}

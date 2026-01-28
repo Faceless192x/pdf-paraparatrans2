@@ -7,6 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='paraparatrans.svg') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tocPanel.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/searchPanel.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/srcPanel.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/help-tooltip.css') }}">
 
@@ -126,6 +127,15 @@
               </tbody>
             </table>
           </div>
+          <div id="tocSearchPanel">
+            <div class="toc-search-row">
+              <input id="tocSearchInput" type="text" placeholder="全文検索 (src_joined / trans_text / trans_auto)">
+              <button id="tocSearchButton" type="button">検索</button>
+              <button id="tocSearchClearButton" type="button" title="クリア">×</button>
+            </div>
+            <div id="tocSearchStatus"></div>
+            <div id="tocSearchResults"></div>
+          </div>
         </div>
         <div id="resizer1" class="resizer"></div>
 
@@ -145,6 +155,7 @@
   <script src="{{ url_for('static', filename='js/srcPanel.js') }}"></script>    
   <script src="{{ url_for('static', filename='js/detail.js') }}"></script>    
   <script src="{{ url_for('static', filename='js/fetch.js') }}"></script>    
+  <script src="{{ url_for('static', filename='js/searchPanel.js') }}"></script>
   <script src="{{ url_for('static', filename='js/header-actions-menu.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/hotkey-mapper.js') }}" defer></script>    
   <script src="{{ url_for('static', filename='js/keyDown.js') }}" defer></script>    
