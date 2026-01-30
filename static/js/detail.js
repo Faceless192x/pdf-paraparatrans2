@@ -3,90 +3,6 @@ pdfName = document.body.dataset.pdfName;
 bookData = {};
 currentPage = 1;
 
-// PDF.js ビューア内のページ移動と、ParaParaTrans 側のページ移動を同期するための状態
-let pdfViewerLastAppSetPage = null;
-let pdfViewerLastAppSetAt = 0;
-let pdfViewerSyncAttachInProgress = false;
-let pdfViewerSyncIsJumping = false;
-let pdfViewerSyncPendingPage = null;
-
-function attachPdfViewerPageSync() {
-    const iframe = document.getElementById('pdfIframe');
-    if (!iframe) return;
-
-    // viewer が差し替わった（再ロードされた）場合に備えて、紐づけキーで判定
-    const viewerKey = iframe.dataset.viewerBaseUrl || iframe.src || '';
-    if (iframe.dataset.pageSyncAttached === '1' && iframe.dataset.pageSyncFor === viewerKey) {
-        return;
-    }
-    if (pdfViewerSyncAttachInProgress) return;
-    pdfViewerSyncAttachInProgress = true;
-
-    const tryAttach = () => {
-        const viewerWin = iframe.contentWindow;
-        const app = viewerWin?.PDFViewerApplication;
-
-        if (!app || !app.eventBus) {
-            setTimeout(tryAttach, 200);
-            return;
-        }
-
-        // 旧ハンドラが残っていれば剥がす（同一 viewer でも再アタッチの可能性があるため）
-        try {
-            if (iframe._pageChangingHandler && typeof app.eventBus.off === 'function') {
-                app.eventBus.off('pagechanging', iframe._pageChangingHandler);
-            }
-        } catch (_) {
-            // ignore
-        }
-
-        const handler = async (evt) => {
-            const raw = evt?.pageNumber ?? evt?.page;
-            const pageNum = parseInt(raw, 10);
-            if (!Number.isFinite(pageNum) || pageNum < 1) return;
-
-            // アプリ側が直前に設定したページ変更は無視（ループ防止）
-            const dt = Date.now() - (pdfViewerLastAppSetAt || 0);
-            if (pdfViewerLastAppSetPage === pageNum && dt >= 0 && dt < 800) {
-                return;
-            }
-
-            const targetPage = clampPage(pageNum);
-            if (targetPage === currentPage) return;
-
-            // 連打（高速スクロール等）時は最後の1回だけ反映
-            if (pdfViewerSyncIsJumping) {
-                pdfViewerSyncPendingPage = targetPage;
-                return;
-            }
-            pdfViewerSyncIsJumping = true;
-            try {
-                await jumpToPage(targetPage, { updateUrl: true, preserveScroll: true });
-            } finally {
-                pdfViewerSyncIsJumping = false;
-                if (pdfViewerSyncPendingPage && pdfViewerSyncPendingPage !== currentPage) {
-                    const p = pdfViewerSyncPendingPage;
-                    pdfViewerSyncPendingPage = null;
-                    // 次のtickで反映（呼び出しスタックを浅くする）
-                    setTimeout(() => {
-                        jumpToPage(p, { updateUrl: true, preserveScroll: true });
-                    }, 0);
-                } else {
-                    pdfViewerSyncPendingPage = null;
-                }
-            }
-        };
-
-        app.eventBus.on('pagechanging', handler);
-        iframe._pageChangingHandler = handler;
-        iframe.dataset.pageSyncAttached = '1';
-        iframe.dataset.pageSyncFor = viewerKey;
-        pdfViewerSyncAttachInProgress = false;
-    };
-
-    tryAttach();
-}
-
 function getPageFromUrl() {
     try {
         const url = new URL(window.location.href);
@@ -157,15 +73,6 @@ window.onload = async function() { // async を追加
 };
 
 document.addEventListener('DOMContentLoaded', function() {
-
-        // 「登録して全置換」ボタンのカスタムイベントを受けて全置換処理を実行
-        window.addEventListener('dict-replace-all', async function(e) {
-            if (typeof dictReplaceAll === 'function') {
-                await dictReplaceAll();
-            } else {
-                alert('全置換関数(dictReplaceAll)が見つかりません。');
-            }
-        });
     console.log("DOMContentLoaded");
     // 再描画ボタン（現在は非表示）
     document.getElementById('renderButton').addEventListener('click', renderParagraphs);
@@ -207,15 +114,14 @@ function autoToggleChanged(event) {
     console.log(`トグルスイッチ ${id} が ${newState ? 'ON' : 'OFF'} に変更されました。`);
 
     if (id === 'toggleTocPanel') {
-        // 目次パネルのON/OFF
-        let panel = document.getElementById("tocPanel");
+        // 目次パネル本体のON/OFF（トグルボタン自体は常に表示）
+        let tocPanel = document.getElementById("tocPanel");
         let resizer = document.getElementById("resizer1");
         if (newState){
-            panel.classList.remove("hidden");
+            tocPanel.classList.remove("hidden");
             resizer.classList.remove("hidden");
-            // showToc();
         } else {
-            panel.classList.add("hidden");
+            tocPanel.classList.add("hidden");
             resizer.classList.add("hidden");
         }
     } else if (id==='togglePdfPanel') {
@@ -451,9 +357,6 @@ function ensurePdfViewerLoaded(initialPage = 1) {
         iframe.dataset.viewerBaseUrl = viewerBaseUrl;
         iframe.src = `${viewerBaseUrl}#page=${initialPage}`;
     }
-
-    // PDF.js 側のページ移動（サムネイル/ページリスト等）で ParaParaTrans 側も追従する
-    attachPdfViewerPageSync();
 }
 
 function setPdfViewerPage(pageNum) {
@@ -468,9 +371,6 @@ function setPdfViewerPage(pageNum) {
 
     const app = viewerWin.PDFViewerApplication;
     const apply = () => {
-        // アプリ側起因のページ変更としてマーク（イベントループ抑制）
-        pdfViewerLastAppSetPage = pageNum;
-        pdfViewerLastAppSetAt = Date.now();
         app.pdfViewer.currentPageNumber = pageNum;
         // 既存挙動に合わせて「幅に合わせる」を維持
         app.pdfViewer.currentScaleValue = 'page-width';

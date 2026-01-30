@@ -38,6 +38,12 @@
     box-sizing: border-box; /* paddingとborderを幅に含める */
 }
 
+/* 原語・訳語テキストボックスの幅を2倍に */
+#dict-popup input[type="text"]#original-word,
+#dict-popup input[type="text"]#translated-word {
+    width: 400px;
+}
+
 #dict-popup input[type="text"]#original-word {
     background-color: #eee; /* 原語入力欄は読み取り専用なので背景色を変える */
 }
@@ -57,11 +63,18 @@
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
     }
 
+
     #dict-popup input[type="text"],
     #dict-popup select {
         background-color: #555;
         border-color: #777;
         color: #eee;
+    }
+
+    /* 原語・訳語テキストボックスの幅を2倍に（ダークモード） */
+    #dict-popup input[type="text"]#original-word,
+    #dict-popup input[type="text"]#translated-word {
+        width: 400px;
     }
 
     #dict-popup input[type="text"]#original-word {

@@ -176,13 +176,14 @@ table.tocTable td {
 }
 
 .hidden {
-    display: none;
+    display: none !important;
 }
 
-#tocPanel {
-    min-width: 200px;
-    max-width: 50%;
+#tocPanel.hidden {
+    display: none !important;
 }
+
+
 
 .flex-panel {
     flex: 1;
@@ -219,6 +220,8 @@ header {
     flex: 0 0 auto;
     overflow: hidden;
     height: 100%;
+    min-width: 200px;
+    max-width: 50%;
 }
 #pdfPanel {
     width: 500px;         /* 初期幅 */

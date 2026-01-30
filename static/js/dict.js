@@ -46,6 +46,7 @@ const DictPopup = {
             </div>
             <div class="button-container">
                 <button id="dict-ok">登録のみ</button>
+                <button id="dict-replace-page">登録してページ置換</button>
                 <button id="dict-replace-all">登録して全置換</button>
                 <button id="dict-cancel">キャンセル</button>
             </div>
@@ -58,6 +59,7 @@ const DictPopup = {
         this.translatedWordInput = document.getElementById('translated-word');
         this.statusSelect = document.getElementById('status');
         this.okButton = document.getElementById('dict-ok');
+        this.replacePageButton = document.getElementById('dict-replace-page');
         this.replaceAllButton = document.getElementById('dict-replace-all');
         this.cancelButton = document.getElementById('dict-cancel');
 
@@ -71,6 +73,7 @@ const DictPopup = {
 
         // イベントリスナーを設定
         this.okButton.addEventListener('click', this.handleOkClick.bind(this));
+        this.replacePageButton.addEventListener('click', this.handleReplacePageClick.bind(this));
         this.replaceAllButton.addEventListener('click', this.handleReplaceAllClick.bind(this));
         this.cancelButton.addEventListener('click', this.hide.bind(this));
     },
@@ -195,7 +198,24 @@ const DictPopup = {
         window.dispatchEvent(event);
         // ポップアップは閉じる
         this.hide();
+    },
+
+    /**
+     * 「登録してページ置換」ボタンクリック時のハンドラ
+     */
+    handleReplacePageClick: async function() {
+        await this.handleOkClick();
+        const event = new CustomEvent('dict-replace-page', {
+            detail: {
+                originalWord: this.originalWordInput.value,
+                translatedWord: this.translatedWordInput.value,
+                status: parseInt(this.statusSelect.value, 10)
+            }
+        });
+        window.dispatchEvent(event);
+        this.hide();
     }
+
 };
 
 // ページロード時にポップアップを初期化
