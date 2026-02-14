@@ -56,7 +56,7 @@ def _normalize_all(text: Any) -> set[str]:
 
 def _find_hit_field(paragraph: dict, terms: list[str]) -> tuple[str, str]:
     # どのフィールドでヒットしたか、スニペット用に返す
-    for key in ("src_joined", "trans_text", "trans_auto"):
+    for key in ("src_joined", "src_text", "trans_text", "trans_auto"):
         v = paragraph.get(key)
         if not v:
             continue
@@ -68,7 +68,7 @@ def _find_hit_field(paragraph: dict, terms: list[str]) -> tuple[str, str]:
 
 def search_paragraphs_in_book(json_path: str, query: str, *, limit: int = 200) -> list[dict]:
     """Search paragraphs in a book JSON.
-    Targets: src_joined, trans_text, trans_auto.
+        Targets: src_joined, src_text, trans_text, trans_auto.
     Returns list of dict:
       {page_number:int, id:str, snippet:str}
     """
@@ -76,7 +76,7 @@ def search_paragraphs_in_book(json_path: str, query: str, *, limit: int = 200) -
     if not q:
         return []
     # split by whitespace, AND semantics
-    terms = [t for t in re.split(r"\s+", q) if t]
+    terms = [_normalize(t) for t in re.split(r"\s+", q) if t]
     if not terms:
         return []
     limit = int(limit) if isinstance(limit, int) or str(limit).isdigit() else 200

@@ -393,6 +393,9 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
             } else {
                 setCurrentParagraph(0, false, { scrollIntoView: false });
             }
+            if (window.TocSearchPanel && typeof window.TocSearchPanel.applyHighlightsForCurrentPage === 'function') {
+                window.TocSearchPanel.applyHighlightsForCurrentPage();
+            }
         }
         return;
     }
@@ -421,6 +424,9 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
     renderParagraphs({ resetScrollTop: true });
     document.getElementById("srcPanel").focus();
     setCurrentParagraph(0, false, { scrollIntoView: false });
+    if (window.TocSearchPanel && typeof window.TocSearchPanel.applyHighlightsForCurrentPage === 'function') {
+        window.TocSearchPanel.applyHighlightsForCurrentPage();
+    }
 }
 
 function ensurePdfViewerLoaded(initialPage = 1) {
@@ -581,6 +587,47 @@ function initResizers() {
             const dx = e.clientX - startX1;
             const newWidth = Math.max(minTocWidth, startWidthToc + dx);
             tocPanel.style.width = newWidth + 'px';
+        },
+    });
+
+    // 目次リストと検索パネルの間のリサイズ
+    const resizerTocSearch = document.getElementById('resizerTocSearch');
+    const tocHeader = document.getElementById('tocPanelHeader');
+    const tocScrollWrapper = document.querySelector('.toc-scroll-wrapper');
+    const tocSearchPanel = document.getElementById('tocSearchPanel');
+    let startY = 0;
+    let startSearchHeight = 0;
+    const minSearchHeight = 120;
+    const minTocHeight = 120;
+
+    setupResizerPointerDrag(resizerTocSearch, {
+        onStart: (e) => {
+            if (!tocSearchPanel) return;
+            startY = e.clientY;
+            startSearchHeight = tocSearchPanel.getBoundingClientRect().height;
+            document.body.classList.add('is-row-resizing');
+            if (tocScrollWrapper) tocScrollWrapper.style.flex = '0 0 auto';
+            tocSearchPanel.style.flex = '0 0 auto';
+        },
+        onMove: (e) => {
+            if (!tocPanel || !tocScrollWrapper || !tocSearchPanel || !resizerTocSearch) return;
+            const dy = e.clientY - startY;
+            const tocPanelHeight = tocPanel.getBoundingClientRect().height;
+            const headerHeight = tocHeader ? tocHeader.getBoundingClientRect().height : 0;
+            const resizerHeight = resizerTocSearch.getBoundingClientRect().height;
+            const available = Math.max(0, tocPanelHeight - headerHeight - resizerHeight);
+            const maxSearchHeight = Math.max(minSearchHeight, available - minTocHeight);
+
+            let newSearchHeight = startSearchHeight - dy;
+            if (newSearchHeight < minSearchHeight) newSearchHeight = minSearchHeight;
+            if (newSearchHeight > maxSearchHeight) newSearchHeight = maxSearchHeight;
+
+            const tocHeight = Math.max(minTocHeight, available - newSearchHeight);
+            tocSearchPanel.style.height = newSearchHeight + 'px';
+            tocScrollWrapper.style.height = tocHeight + 'px';
+        },
+        onEnd: () => {
+            document.body.classList.remove('is-row-resizing');
         },
     });
 

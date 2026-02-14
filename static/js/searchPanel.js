@@ -17,6 +17,40 @@
     return new RegExp(`(${pattern})`, "gi");
   }
 
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function highlightSnippet(text, query) {
+    const regex = buildQueryRegex(query);
+    if (!regex) return escapeHtml(text);
+
+    const raw = String(text ?? "");
+    let last = 0;
+    let out = "";
+    let m;
+    regex.lastIndex = 0;
+    while ((m = regex.exec(raw)) !== null) {
+      const start = m.index;
+      const matched = m[0];
+      const end = start + matched.length;
+      if (start > last) {
+        out += escapeHtml(raw.slice(last, start));
+      }
+      out += `<span class="search-highlight">${escapeHtml(matched)}</span>`;
+      last = end;
+    }
+    if (last < raw.length) {
+      out += escapeHtml(raw.slice(last));
+    }
+    return out;
+  }
+
   const SearchHighlight = {
     clear(root) {
       const scope = root || document;
@@ -41,7 +75,7 @@
       if (!regex) return;
 
       const targets = paragraphEl.querySelectorAll(
-        ".src-joined, .trans-auto, .trans-text"
+        ".src-text, .src-joined, .trans-auto, .trans-text"
       );
       targets.forEach((el) => this._highlightElement(el, regex));
     },
@@ -114,6 +148,7 @@
 
   const TocSearchPanel = {
     lastQuery: "",
+    lastResults: [],
 
     init() {
       const input = $("tocSearchInput");
@@ -127,11 +162,18 @@
       clearButton.addEventListener("click", () => {
         input.value = "";
         this.lastQuery = "";
+        this.lastResults = [];
         this.setStatus("");
         this.renderResults([]);
         // clear highlight on current page
         const pageRoot = document.getElementById("srcParagraphs");
         if (pageRoot) SearchHighlight.clear(pageRoot);
+        if (typeof clearHighlights === "function") {
+          clearHighlights();
+        }
+        if (typeof pdfClearFindHighlight === "function") {
+          pdfClearFindHighlight();
+        }
       });
 
       input.addEventListener("keydown", (e) => {
@@ -189,9 +231,48 @@
         const results = Array.isArray(data.results) ? data.results : [];
         this.setStatus(`${results.length} 件`);
         this.renderResults(results);
+        this.lastResults = results;
+        this.applyHighlightsForCurrentPage();
       } catch (e) {
         this.setStatus(`検索に失敗しました: ${e}`);
         this.renderResults([]);
+      }
+    },
+
+    applyHighlightsForCurrentPage() {
+      const query = this.lastQuery;
+      const pageRoot = document.getElementById("srcParagraphs");
+      if (pageRoot) SearchHighlight.clear(pageRoot);
+
+      if (!query) {
+        if (typeof pdfClearFindHighlight === "function") {
+          pdfClearFindHighlight();
+        }
+        if (typeof clearHighlights === "function") {
+          clearHighlights();
+        }
+        return;
+      }
+
+      const pageNum = typeof currentPage !== "undefined" ? currentPage : null;
+      if (!pageNum) return;
+
+      const hits = (this.lastResults || []).filter(
+        (r) => Number(r.page_number) === Number(pageNum)
+      );
+
+      hits.forEach((r) => {
+        const el = document.getElementById(`paragraph-${r.id}`);
+        if (el) SearchHighlight.applyToParagraph(el, query);
+      });
+
+      if (typeof clearHighlights === "function") {
+        clearHighlights();
+      }
+
+      if (typeof pdfFindHighlight === "function") {
+        const applied = pdfFindHighlight(query, { highlightAll: true });
+        if (applied) return;
       }
     },
 
@@ -212,7 +293,7 @@
 
         const snippet = document.createElement("div");
         snippet.className = "search-snippet";
-        snippet.textContent = String(r.snippet ?? "");
+        snippet.innerHTML = highlightSnippet(String(r.snippet ?? ""), this.lastQuery);
 
         row.appendChild(page);
         row.appendChild(snippet);
@@ -244,6 +325,27 @@
 
       el.scrollIntoView({ behavior: "auto", block: "start" });
       SearchHighlight.applyToParagraph(el, query);
+
+      if (typeof setCurrentParagraph === "function") {
+        const paragraphs = typeof getAllParagraphs === "function" ? getAllParagraphs() : [];
+        const idx = paragraphs.findIndex((p) => p.id === `paragraph-${paragraphId}`);
+        if (idx >= 0) {
+          setCurrentParagraph(idx, false, { scrollIntoView: false });
+          this.applyHighlightsForCurrentPage();
+          return;
+        }
+      }
+
+      const paragraphDict =
+        typeof bookData !== "undefined"
+          ? bookData?.pages?.[currentPage]?.paragraphs?.[paragraphId]
+          : null;
+      if (paragraphDict?.bbox && typeof highlightRectsOnPage === "function") {
+        highlightRectsOnPage(currentPage, [paragraphDict.bbox]);
+      } else if (typeof clearHighlights === "function") {
+        clearHighlights();
+      }
+      this.applyHighlightsForCurrentPage();
     },
   };
 

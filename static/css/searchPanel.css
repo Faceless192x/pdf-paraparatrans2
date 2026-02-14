@@ -17,6 +17,11 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-height: 120px;
+}
+
+#resizerTocSearch {
+  background: var(--table-border);
 }
 
 .toc-search-row {

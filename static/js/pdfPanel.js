@@ -16,6 +16,66 @@ function clearHighlights() {
     }
 }
 
+function getPdfViewerApp() {
+    const iframe = document.getElementById("pdfIframe");
+    if (!iframe || !iframe.contentWindow) return null;
+    return iframe.contentWindow.PDFViewerApplication || null;
+}
+
+function pdfFindHighlight(query, options = {}) {
+    const q = String(query || "").trim();
+    if (!q) return false;
+
+    const app = getPdfViewerApp();
+    if (!app) return false;
+
+    const payload = {
+        query: q,
+        highlightAll: true,
+        caseSensitive: false,
+        phraseSearch: false,
+        entireWord: false,
+        findPrevious: false,
+        ...options,
+    };
+
+    if (app.findController && typeof app.findController.executeCommand === "function") {
+        app.findController.executeCommand("find", payload);
+        return true;
+    }
+
+    if (app.eventBus && typeof app.eventBus.dispatch === "function") {
+        app.eventBus.dispatch("find", payload);
+        return true;
+    }
+    return true;
+}
+
+function pdfClearFindHighlight() {
+    const app = getPdfViewerApp();
+    if (!app) return false;
+
+    const payload = {
+        query: "",
+        highlightAll: false,
+        caseSensitive: false,
+        phraseSearch: false,
+        entireWord: false,
+        findPrevious: false,
+    };
+
+    if (app.findController && typeof app.findController.executeCommand === "function") {
+        app.findController.executeCommand("find", payload);
+        return true;
+    }
+
+    if (app.eventBus && typeof app.eventBus.dispatch === "function") {
+        app.eventBus.dispatch("find", payload);
+        return true;
+    }
+    return false;
+}
+
 function highlightRectsOnPage(pageNumber, rects) {
     const iframe = document.getElementById("pdfIframe");
     // PDF Viewer Application と pdfViewer の存在を確認
