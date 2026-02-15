@@ -109,7 +109,53 @@ def _assert(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
-def _run_ui_checks(base_url: str, pdf_name: str, headless: bool) -> None:
+def _run_hotkey_checks(page) -> None:
+    page.locator("#auto-toggle-input-toggleHotkeyInput").click()
+    hud = page.locator("#hotkey-input-display")
+    hud.wait_for(state="visible", timeout=5000)
+
+    box_before = hud.bounding_box()
+    _assert(box_before is not None, "hotkey HUD bounding box is missing")
+
+    drag_from_x = box_before["x"] + (box_before["width"] / 2)
+    drag_from_y = box_before["y"] + 8
+    page.mouse.move(drag_from_x, drag_from_y)
+    page.mouse.down()
+    page.mouse.move(drag_from_x + 60, drag_from_y + 40)
+    page.mouse.up()
+
+    box_after = hud.bounding_box()
+    _assert(box_after is not None, "hotkey HUD bounding box is missing after drag")
+    _assert(
+        abs(box_after["x"] - box_before["x"]) > 5 or abs(box_after["y"] - box_before["y"]) > 5,
+        "hotkey HUD should move after drag",
+    )
+
+    page.locator("#srcPanel").click()
+
+    page.keyboard.press("ArrowUp")
+    page.locator("#hotkey-input-display .hotkey-input-value").wait_for(timeout=3000)
+    key_text = page.locator("#hotkey-input-display .hotkey-input-value").inner_text()
+    desc_text = page.locator("#hotkey-input-display .hotkey-input-desc").inner_text()
+    _assert(key_text == "ArrowUp", f"hotkey HUD key mismatch: {key_text}")
+    _assert("パラグラフを移動(上)" in desc_text, "hotkey HUD description missing")
+
+    page.keyboard.press("ArrowDown")
+    history_rows = page.locator("#hotkey-input-display .hotkey-input-history-row")
+    history_rows.first.wait_for(timeout=3000)
+    _assert(history_rows.count() >= 2, "hotkey HUD should show history rows")
+
+    page.wait_for_function(
+        "() => {"
+        "  const el = document.querySelector('#hotkey-input-display .hotkey-input-history');"
+        "  if (!el) return false;"
+        "  return el.scrollTop + el.clientHeight >= el.scrollHeight;"
+        "}",
+        timeout=3000,
+    )
+
+
+def _run_ui_checks(base_url: str, pdf_name: str, headless: bool, hotkey_only: bool) -> None:
     encoded = urllib.parse.quote(pdf_name, safe="/")
     detail_path = f"/detail/{encoded}"
     folder = ""
@@ -138,6 +184,11 @@ def _run_ui_checks(base_url: str, pdf_name: str, headless: bool) -> None:
 
         page.wait_for_url(f"**{detail_path}**", timeout=15000)
         page.locator("#srcParagraphs .paragraph-box").first.wait_for(timeout=15000)
+
+        if hotkey_only:
+            _run_hotkey_checks(page)
+            browser.close()
+            return
 
         panel = page.locator("#pdfPanel")
         panel.wait_for(timeout=10000)
@@ -195,6 +246,11 @@ def main() -> int:
         default=5079,
         help="Port to use when starting the server.",
     )
+    parser.add_argument(
+        "--hotkey-only",
+        action="store_true",
+        help="Run only the hotkey HUD checks.",
+    )
 
     args = parser.parse_args()
     if not args.base_url:
@@ -210,7 +266,12 @@ def main() -> int:
             _wait_for_http(args.base_url)
 
         _ensure_extracted(args.base_url, args.pdf_name)
-        _run_ui_checks(args.base_url, args.pdf_name, headless=args.headless)
+        _run_ui_checks(
+            args.base_url,
+            args.pdf_name,
+            headless=args.headless,
+            hotkey_only=args.hotkey_only,
+        )
     except BaseException as exc:
         error = exc
         print("UI smoke test failed:")

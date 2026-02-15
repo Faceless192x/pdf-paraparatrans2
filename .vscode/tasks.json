@@ -1,74 +1,101 @@
 {
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "Ensure data folder",
-      "type": "shell",
-      "command": "python",
-      "args": [
-        "-c",
-        "import os; os.makedirs(\"data\", exist_ok=True)"
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Install dependencies",
-      "type": "shell",
-      "command": "python",
-      "args": [
-        "-m",
-        "pip",
-        "install",
-        "-r",
-        "${workspaceFolder}/requirements.txt"
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Init workspace (data + deps)",
-      "dependsOn": [
-        "Ensure data folder",
-        "Install dependencies"
-      ],
-      "dependsOrder": "sequence",
-      "problemMatcher": []
-    },
-    {
-      "label": "Test extract (sandbox PDF)",
-      "type": "shell",
-      "command": "python",
-      "args": [
-        "tools/run_extract_test.py",
-        "--pdf",
-        "data/sandbox/trpg_sample.pdf",
-        "--force"
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "UI smoke test (Playwright)",
-      "type": "shell",
-      "command": "python",
-      "args": [
-        "tools/ui_smoke_test.py",
-        "--start-server",
-        "--headless",
-        "--port",
-        "5079"
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    }
-  ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Ensure data folder",
+			"type": "shell",
+			"command": "python",
+			"args": [
+				"-c",
+				"import os; os.makedirs(\"data\", exist_ok=True)"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Install dependencies",
+			"type": "shell",
+			"command": "python",
+			"args": [
+				"-m",
+				"pip",
+				"install",
+				"-r",
+				"${workspaceFolder}/requirements.txt"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Init workspace (data + deps)",
+			"dependsOn": [
+				"Ensure data folder",
+				"Install dependencies"
+			],
+			"dependsOrder": "sequence",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test extract (sandbox PDF)",
+			"type": "shell",
+			"command": "python",
+			"args": [
+				"tools/run_extract_test.py",
+				"--pdf",
+				"data/sandbox/trpg_sample.pdf",
+				"--force"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "UI smoke test (Playwright)",
+			"type": "shell",
+			"command": "python",
+			"args": [
+				"tools/ui_smoke_test.py",
+				"--start-server",
+				"--headless",
+				"--port",
+				"5079"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "UI smoke test (Playwright, venv)",
+			"type": "shell",
+			"command": "C:/Data/Source/pdf-paraparatrans2/.venv/Scripts/python.exe",
+			"args": [
+				"tools/ui_smoke_test.py",
+				"--start-server",
+				"--headless",
+				"--port",
+				"5079"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "UI smoke test (Playwright, log)",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-Command",
+				"C:/Data/Source/pdf-paraparatrans2/.venv/Scripts/python.exe tools/ui_smoke_test.py --start-server --headless --port 5079 2>&1 | Tee-Object -FilePath logs/ui_smoke_test.log"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		}
+	]
 }

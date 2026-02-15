@@ -12,6 +12,12 @@
 const HotkeyMapper = (() => {
   const hotkeyMap = new Map();
   const captureHotkeys = new Set();
+  const HOTKEY_INPUT_TOGGLE_ID = "toggleHotkeyInput";
+  let lastPressedKey = "";
+  const hotkeyInputHistory = [];
+  const HOTKEY_INPUT_HISTORY_LIMIT = 50;
+  let hotkeyInputHistoryCounter = 0;
+  const pressedKeyCodes = new Set();
 
   const VALID_ACTIONS = new Set([
     "click", "dblclick", "mousedown", "mouseup", "keydown", "keyup", "focus", "blur",
@@ -346,10 +352,15 @@ function normalizeHotkey(hotkey) {
     return tag === "input" || tag === "textarea" || tag === "select" || el?.isContentEditable;
   }
 
+  function isModifierKey(key) {
+    return key === "Control" || key === "Alt" || key === "Shift" || key === "Meta";
+  }
+
   function handleKeydown(event, capturePhase) {
     if (event.repeat || event.isComposing) return;
     const key = getPressedKeyString(event);
     console.log("key1:", key, capturePhase);
+    if (!capturePhase) updateHotkeyInputDisplay(key, { appendHistory: false });
     const isCapture = captureHotkeys.has(key);
     if (capturePhase !== isCapture) return;
     console.log("key2:", key, capturePhase);
@@ -358,6 +369,11 @@ function normalizeHotkey(hotkey) {
     console.log("key3:", key, capturePhase);
     if (isTypingContext() && !entry.allowInInput) return;
     console.log("key4:", key, capturePhase);
+    if (!isModifierKey(event.key)) {
+      if (pressedKeyCodes.has(event.code)) return;
+      pressedKeyCodes.add(event.code);
+    }
+    updateHotkeyInputDisplay(key, { appendHistory: true });
     event.preventDefault();
     console.log("HotkeyMapper: 発火", key);
     entry.handler(event);
@@ -365,6 +381,125 @@ function normalizeHotkey(hotkey) {
 
   document.addEventListener("keydown", (e) => handleKeydown(e, false), false);
   document.addEventListener("keydown", (e) => handleKeydown(e, true), true);
+  document.addEventListener("keyup", (event) => {
+    if (!isModifierKey(event.key)) {
+      pressedKeyCodes.delete(event.code);
+    }
+  });
+
+  function ensureHotkeyInputDisplay() {
+    let container = document.getElementById("hotkey-input-display");
+    if (container) return container;
+
+    container = document.createElement("div");
+    container.id = "hotkey-input-display";
+    container.innerHTML = `
+      <div class="hotkey-input-header">
+        <span class="hotkey-input-title">HotKey</span>
+        <span class="hotkey-input-hint">Drag / Resize</span>
+      </div>
+      <div class="hotkey-input-body">
+        <div class="hotkey-input-current">
+          <span class="hotkey-input-label">Key</span>
+          <span class="hotkey-input-value">-</span>
+          <span class="hotkey-input-desc">-</span>
+        </div>
+        <div class="hotkey-input-history"></div>
+      </div>
+    `;
+
+    document.body.appendChild(container);
+    initHotkeyInputDrag(container);
+    return container;
+  }
+
+  function setHotkeyInputDisplayVisible(visible) {
+    const container = ensureHotkeyInputDisplay();
+    container.style.display = visible ? "flex" : "none";
+    if (visible && lastPressedKey) {
+      updateHotkeyInputDisplay(lastPressedKey);
+    }
+  }
+
+  function updateHotkeyInputDisplay(key, options = {}) {
+    const appendHistory = options.appendHistory === true;
+    lastPressedKey = key || "";
+    const container = ensureHotkeyInputDisplay();
+    if (container.style.display === "none") return;
+
+    const entry = key ? hotkeyMap.get(key) : null;
+    const valueEl = container.querySelector(".hotkey-input-value");
+    const descEl = container.querySelector(".hotkey-input-desc");
+    const historyEl = container.querySelector(".hotkey-input-history");
+    const descText = entry?.description || "-";
+    if (valueEl) valueEl.textContent = key || "-";
+    if (descEl) descEl.textContent = descText;
+
+    if (historyEl && key && appendHistory) {
+      hotkeyInputHistoryCounter += 1;
+      hotkeyInputHistory.push({
+        key,
+        desc: descText,
+        count: hotkeyInputHistoryCounter
+      });
+
+      const row = document.createElement("div");
+      row.className = "hotkey-input-history-row";
+      row.innerHTML =
+        `<span class="hotkey-input-history-count">${hotkeyInputHistoryCounter}.</span>`
+        + `<span class="hotkey-input-history-key">${key}</span>`
+        + `<span class="hotkey-input-history-desc">${descText}</span>`;
+      historyEl.appendChild(row);
+      historyEl.scrollTop = historyEl.scrollHeight;
+
+      if (hotkeyInputHistory.length > HOTKEY_INPUT_HISTORY_LIMIT) {
+        hotkeyInputHistory.shift();
+        const firstRow = historyEl.querySelector(".hotkey-input-history-row");
+        if (firstRow) firstRow.remove();
+      }
+    }
+
+    container.classList.remove("hotkey-input-flash");
+    void container.offsetWidth;
+    container.classList.add("hotkey-input-flash");
+  }
+
+  function initHotkeyInputDrag(container) {
+    if (!container || container.dataset.dragInit === "1") return;
+    container.dataset.dragInit = "1";
+
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+
+    container.addEventListener("mousedown", (e) => {
+      const header = e.target.closest(".hotkey-input-header");
+      if (!header) return;
+      isDragging = true;
+      startX = e.clientX - container.offsetLeft;
+      startY = e.clientY - container.offsetTop;
+      e.preventDefault();
+    });
+
+    document.addEventListener("mousemove", (e) => {
+      if (!isDragging) return;
+      container.style.left = `${e.clientX - startX}px`;
+      container.style.top = `${e.clientY - startY}px`;
+      container.style.right = "auto";
+      container.style.bottom = "auto";
+      e.preventDefault();
+    });
+
+    document.addEventListener("mouseup", () => {
+      if (!isDragging) return;
+      isDragging = false;
+    });
+  }
+
+  document.addEventListener("auto-toggle-change", (event) => {
+    if (event.detail?.id !== HOTKEY_INPUT_TOGGLE_ID) return;
+    setHotkeyInputDisplayVisible(!!event.detail.newState);
+  });
 
   function selectRelativeRadioInGroup(selector, direction) {
     const el = document.querySelector(selector);
