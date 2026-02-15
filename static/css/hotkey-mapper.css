@@ -126,9 +126,14 @@
     font-weight: 600;
   }
 
-  #hotkey-input-display .hotkey-input-hint {
-    font-size: 10px;
-    opacity: 0.6;
+  #hotkey-input-display .hotkey-input-close {
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-size: 16px;
+    line-height: 16px;
+    cursor: pointer;
+    padding: 0;
   }
 
   #hotkey-input-display .hotkey-input-body {

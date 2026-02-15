@@ -90,6 +90,12 @@ HotkeyMapper.map("F2", () => toggleEditUICurrent(), { description: "編集切り
 HotkeyMapper.map("Escape", resetSelection, { description: "選択解除" });
 HotkeyMapper.map("Ctrl+S", saveCurrentPageOrder, { description: "構造保存" });
 HotkeyMapper.map("Ctrl+Alt+/", transPage, { description: "ページ翻訳", useCapture: true });
+HotkeyMapper.map("Ctrl+Shift+K", () => {
+    const checkbox = document.getElementById("auto-toggle-input-toggleHotkeyInput");
+    if (!checkbox) return;
+    checkbox.checked = !checkbox.checked;
+    checkbox.dispatchEvent(new Event("change"));
+}, { description: "KeyHUD 表示切替", useCapture: true, allowInInput: true });
 HotkeyMapper.map("PageUp", rollUp, { description: "スクロールアップ" });
 HotkeyMapper.map("PageDown", rollDown, { description: "スクロールダウン" });
 HotkeyMapper.map("RollUp", rollUp, { description: "スクロールアップ" });

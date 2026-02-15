@@ -396,7 +396,7 @@ function normalizeHotkey(hotkey) {
     container.innerHTML = `
       <div class="hotkey-input-header">
         <span class="hotkey-input-title">HotKey</span>
-        <span class="hotkey-input-hint">Drag / Resize</span>
+        <button type="button" class="hotkey-input-close" aria-label="閉じる">×</button>
       </div>
       <div class="hotkey-input-body">
         <div class="hotkey-input-current">
@@ -410,6 +410,15 @@ function normalizeHotkey(hotkey) {
 
     document.body.appendChild(container);
     initHotkeyInputDrag(container);
+    container.querySelector(".hotkey-input-close")?.addEventListener("click", () => {
+      const checkbox = document.getElementById("auto-toggle-input-toggleHotkeyInput");
+      if (checkbox) {
+        checkbox.checked = false;
+        checkbox.dispatchEvent(new Event("change"));
+      } else {
+        container.style.display = "none";
+      }
+    });
     return container;
   }
 

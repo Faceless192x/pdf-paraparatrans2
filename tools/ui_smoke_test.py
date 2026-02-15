@@ -110,8 +110,14 @@ def _assert(condition: bool, message: str) -> None:
 
 
 def _run_hotkey_checks(page) -> None:
-    page.locator("#auto-toggle-input-toggleHotkeyInput").click()
+    page.keyboard.press("Control+Shift+K")
     hud = page.locator("#hotkey-input-display")
+    hud.wait_for(state="visible", timeout=5000)
+
+    page.locator("#hotkey-input-display .hotkey-input-close").click()
+    hud.wait_for(state="hidden", timeout=3000)
+
+    page.keyboard.press("Control+Shift+K")
     hud.wait_for(state="visible", timeout=5000)
 
     box_before = hud.bounding_box()
