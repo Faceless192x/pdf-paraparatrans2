@@ -21,6 +21,22 @@
         </div>
     </div>
     <div id="pdf-upload-status" class="upload-status"></div>
+    <div id="pdf-move-status" class="upload-status"></div>
+    <div id="pdf-move-dialog" class="move-dialog" style="display:none">
+      <div class="move-dialog-content">
+        <div class="move-dialog-title">移動先フォルダを選択</div>
+        <select id="pdf-move-target">
+          <option value="">/ (ルート)</option>
+          {% for dir in all_dirs %}
+            <option value="{{ dir }}">{{ dir }}</option>
+          {% endfor %}
+        </select>
+        <div class="move-dialog-actions">
+          <button type="button" onclick="confirmMove()">移動</button>
+          <button type="button" onclick="closeMoveDialog()">キャンセル</button>
+        </div>
+      </div>
+    </div>
     <form method="GET">
       {% if current_dir %}
         <input type="hidden" name="dir" value="{{ current_dir|e }}">
@@ -70,7 +86,7 @@
     </div>
     <table class="book-list">
         <thead>
-            <tr><th>Id</th><th>タイトル</th><th>ファイル名</th><th>none</th><th>auto</th><th>draft</th><th>fixed</th><th>更新日</th></tr>
+            <tr><th>Id</th><th>タイトル</th><th>ファイル名</th><th>none</th><th>auto</th><th>draft</th><th>fixed</th><th>更新日</th><th>操作</th></tr>
         </thead>
         <tbody>
         {% for idx, (pdf_name, item) in enumerate(pdf_dict.items()) %}
@@ -83,6 +99,7 @@
               <td>{{ item.get('trans_status_counts', {}).get('draft', 0) }}</td>
               <td>{{ item.get('trans_status_counts', {}).get('fixed', 0) }}</td>
               <td>{{ item['updated'] }}</td>
+              <td><button type="button" onclick='openMoveDialog({{ pdf_name|tojson }})'>移動</button></td>
             </tr>
         {% endfor %}
         </tbody>
@@ -103,8 +120,12 @@
       const uploadInput = document.getElementById('pdf-upload-input');
       const uploadButton = document.getElementById('pdf-upload-button');
       const statusEl = document.getElementById('pdf-upload-status');
+      const moveStatusEl = document.getElementById('pdf-move-status');
+      const moveDialogEl = document.getElementById('pdf-move-dialog');
+      const moveTargetEl = document.getElementById('pdf-move-target');
       const uploadButtonLabel = uploadButton.textContent;
       const currentDir = "{{ current_dir|e }}";
+      let pendingMovePdfName = '';
 
       function setUploadStatus(message, isError = true) {
         if (!message) {
@@ -115,6 +136,17 @@
         statusEl.style.display = 'block';
         statusEl.style.color = isError ? '#b00020' : '#0a7a0a';
         statusEl.textContent = message;
+      }
+
+      function setMoveStatus(message, isError = true) {
+        if (!message) {
+          moveStatusEl.style.display = 'none';
+          moveStatusEl.textContent = '';
+          return;
+        }
+        moveStatusEl.style.display = 'block';
+        moveStatusEl.style.color = isError ? '#b00020' : '#0a7a0a';
+        moveStatusEl.textContent = message;
       }
 
       async function uploadSelectedFile() {
@@ -173,6 +205,49 @@
         await uploadSelectedFile();
       });
 
+      function openMoveDialog(pdfName) {
+        pendingMovePdfName = pdfName;
+        setMoveStatus('');
+        if (moveTargetEl) {
+          moveTargetEl.value = currentDir || '';
+        }
+        if (moveDialogEl) {
+          moveDialogEl.style.display = 'flex';
+        }
+      }
+
+      function closeMoveDialog() {
+        if (moveDialogEl) {
+          moveDialogEl.style.display = 'none';
+        }
+      }
+
+      async function confirmMove() {
+        if (!pendingMovePdfName) {
+          closeMoveDialog();
+          return;
+        }
+        const dest = moveTargetEl ? moveTargetEl.value : '';
+        try {
+          const res = await fetch('/api/pdf/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pdf_name: pendingMovePdfName, dest_dir: (dest || '').trim() })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setMoveStatus(data.message || `移動に失敗しました (${res.status})`);
+            return;
+          }
+          setMoveStatus('移動しました。一覧を更新しています…', false);
+          window.location.reload();
+        } catch (e) {
+          setMoveStatus(`移動に失敗しました: ${e}`);
+        } finally {
+          closeMoveDialog();
+          pendingMovePdfName = '';
+        }
+      }
       const folderStatusEl = document.getElementById('folder-action-status');
 
       function setFolderStatus(message, isError = true) {
@@ -249,6 +324,33 @@
         window.location.reload();
       }
     </script>
+    <style>
+      .move-dialog {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 50;
+      }
+      .move-dialog-content {
+        background: #ffffff;
+        border: 1px solid #ccc;
+        padding: 16px;
+        min-width: 280px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+      }
+      .move-dialog-title {
+        margin-bottom: 8px;
+        font-weight: 600;
+      }
+      .move-dialog-actions {
+        margin-top: 12px;
+        display: flex;
+        gap: 8px;
+      }
+    </style>
     <script src="{{ url_for('static', filename='js/help.js') }}"></script>
 </body>
 </html>

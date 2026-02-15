@@ -433,6 +433,18 @@ def get_pdf_files(rel_dir: str = ""):
     return file_dict
 
 
+def get_all_dirs() -> list:
+    dirs = []
+    for root, subdirs, _files in os.walk(BASE_FOLDER):
+        subdirs[:] = [d for d in subdirs if not _should_skip_dir(d)]
+        rel = os.path.relpath(root, BASE_FOLDER)
+        if rel == ".":
+            continue
+        dirs.append(rel.replace(os.sep, "/"))
+    dirs.sort(key=lambda x: x.lower())
+    return dirs
+
+
 def _build_breadcrumbs(current_dir: str):
     crumbs = [{"name": "data", "path": ""}]
     if not current_dir:
@@ -517,6 +529,7 @@ def index():
         parent_dir=parent_dir,
         subdirs=subdirs,
         breadcrumbs=_build_breadcrumbs(current_dir),
+        all_dirs=get_all_dirs(),
     )
 
 
@@ -618,6 +631,97 @@ def delete_folder_api():
 
     parent_dir = "/".join(parts[:-1]) if len(parts) > 1 else ""
     return jsonify({"status": "ok", "parent_dir": parent_dir}), 200
+
+
+@app.route("/api/pdf/move", methods=["POST"])
+def move_pdf_api():
+    payload = request.get_json(silent=True) or {}
+    pdf_name = (payload.get("pdf_name") or "").strip()
+    dest_dir_param = (payload.get("dest_dir") or "").strip()
+
+    normalized_pdf_name = _normalize_pdf_name(pdf_name)
+    if not normalized_pdf_name:
+        return jsonify({"status": "error", "message": "pdf_nameが不正です"}), 400
+
+    try:
+        normalized_dest_dir = _normalize_rel_dir(dest_dir_param)
+    except ValueError:
+        return jsonify({"status": "error", "message": "dest_dirが不正です"}), 400
+
+    src_pdf_path, src_json_path = get_paths(normalized_pdf_name)
+    if not os.path.exists(src_pdf_path):
+        return jsonify({"status": "error", "message": "PDFが存在しません"}), 404
+
+    src_dir = os.path.dirname(normalized_pdf_name).replace("\\", "/")
+    if normalized_dest_dir == src_dir:
+        return jsonify({"status": "ok", "pdf_name": normalized_pdf_name, "moved": False}), 200
+
+    dest_parts = normalized_dest_dir.split("/") if normalized_dest_dir else []
+    if dest_parts and any(_should_skip_dir(part) for part in dest_parts):
+        return jsonify({"status": "error", "message": "移動先フォルダが不正です"}), 400
+
+    dest_dir_path = _safe_join_data(*dest_parts) if dest_parts else BASE_FOLDER
+    if not os.path.isdir(dest_dir_path):
+        return jsonify({"status": "error", "message": "移動先フォルダが存在しません"}), 404
+
+    base_name = os.path.basename(normalized_pdf_name)
+    new_pdf_name = f"{normalized_dest_dir}/{base_name}" if normalized_dest_dir else base_name
+    dest_pdf_path, dest_json_path = get_paths(new_pdf_name)
+
+    if os.path.exists(dest_pdf_path):
+        return jsonify({"status": "error", "message": "移動先に同名PDFが存在します"}), 409
+    if os.path.exists(dest_json_path):
+        return jsonify({"status": "error", "message": "移動先に同名JSONが存在します"}), 409
+
+    try:
+        os.replace(src_pdf_path, dest_pdf_path)
+        if os.path.exists(src_json_path):
+            os.replace(src_json_path, dest_json_path)
+
+        if os.path.exists(dest_json_path):
+            try:
+                book_data = load_json(dest_json_path)
+                if isinstance(book_data, dict):
+                    book_data["src_filename"] = new_pdf_name
+                    atomicsave_json(dest_json_path, book_data)
+            except Exception as e:
+                app.logger.warning(f"JSONのsrc_filename更新に失敗しました: {str(e)}")
+
+        settings_path = os.path.join(DATA_FOLDER, "paraparatrans.settings.json")
+        if os.path.exists(settings_path):
+            try:
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                if not isinstance(settings, dict):
+                    settings = {"files": {}}
+                files = settings.get("files")
+                if not isinstance(files, dict):
+                    files = {}
+                    settings["files"] = files
+
+                moved_entry = files.pop(normalized_pdf_name, None)
+                if isinstance(moved_entry, dict):
+                    moved_entry["src_filename"] = new_pdf_name
+                    files[new_pdf_name] = moved_entry
+
+                save_settings(settings_path, settings, indent=4)
+            except Exception as e:
+                app.logger.warning(f"settingsの更新に失敗しました: {str(e)}")
+
+        if os.path.exists(dest_json_path):
+            try:
+                sync_one_pdf_settings_from_json(
+                    settings_path=settings_path,
+                    base_folder=BASE_FOLDER,
+                    pdf_name=new_pdf_name,
+                    indent=4,
+                )
+            except Exception as e:
+                app.logger.warning(f"settingsの同期に失敗しました: {str(e)}")
+
+        return jsonify({"status": "ok", "pdf_name": new_pdf_name, "moved": True}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"移動に失敗しました: {str(e)}"}), 500
 
 
 @app.route("/api/upload_pdf", methods=["POST"])
