@@ -1,5 +1,7 @@
 # データ
 /data/
+!/data/sandbox/
+!/data/sandbox/**
 
 # ログ
 /logs/

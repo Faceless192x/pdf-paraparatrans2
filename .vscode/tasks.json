@@ -38,6 +38,37 @@
       ],
       "dependsOrder": "sequence",
       "problemMatcher": []
+    },
+    {
+      "label": "Test extract (sandbox PDF)",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "tools/run_extract_test.py",
+        "--pdf",
+        "data/sandbox/trpg_sample.pdf",
+        "--force"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "UI smoke test (Playwright)",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "tools/ui_smoke_test.py",
+        "--start-server",
+        "--headless",
+        "--port",
+        "5079"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
     }
   ]
 }
