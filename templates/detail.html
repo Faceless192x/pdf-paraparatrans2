@@ -31,7 +31,7 @@
         <div class="left header-left">
           <div class="basic-info">
             <span class="inline-block-margin">
-              <button type="button" data-href="{{ url_for('index') }}" onclick="window.location.href=this.dataset.href" data-help-id="一覧画面に戻る">戻る</button>
+              <button type="button" data-href="{{ url_for('index', dir=index_dir) }}" onclick="window.location.href=this.dataset.href" data-help-id="一覧画面に戻る">戻る</button>
               Title: <input type="text" id="titleInput" value="{{ book_data.title|e }}" class="title-input">
               <button id="saveOrderButton" data-help-id="表題と構造を保存">保存</button>
               FileName: {{ pdf_name }} / Update: {{ updated_date }}
@@ -151,6 +151,7 @@
             <div id="srcParagraphs"></div>
         </div>
     </div>
+  <script src="{{ url_for('static', filename='js/pdf-name.js') }}"></script>
   <script src="{{ url_for('static', filename='js/dict.js') }}"></script>
   <script src="{{ url_for('static', filename='js/tocPanel.js') }}"></script>    
   <script src="{{ url_for('static', filename='js/pdfPanel.js') }}"></script>    

@@ -1,6 +1,6 @@
 async function fetchBookData() {
     try {
-        const metaRes = await fetch(`/api/book_meta/${encodeURIComponent(pdfName)}`);
+        const metaRes = await fetch(`/api/book_meta/${encodePdfNamePath(pdfName)}`);
         if (metaRes.status === 206) {
             confirm("まだパラグラフ抽出がされていません。");
             return;
@@ -42,7 +42,7 @@ async function fetchBookData() {
 
 async function fetchAndApplyToc() {
     try {
-        const response = await fetch(`/api/book_toc/${encodeURIComponent(pdfName)}`);
+        const response = await fetch(`/api/book_toc/${encodePdfNamePath(pdfName)}`);
         if (!response.ok) {
             return false;
         }
@@ -122,7 +122,7 @@ function markAllPagesStale() {
 
 async function fetchAndApplyPage(pageNum) {
     try {
-        const response = await fetch(`/api/book_page/${encodeURIComponent(pdfName)}/${encodeURIComponent(pageNum)}`);
+        const response = await fetch(`/api/book_page/${encodePdfNamePath(pdfName)}/${encodeURIComponent(pageNum)}`);
         if (!response.ok) {
             return false;
         }
@@ -180,7 +180,7 @@ async function transPage() {
     let applied = false;
 
     try {
-        const response = await fetch(`/api/paraparatrans/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/paraparatrans/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -224,7 +224,7 @@ async function dictReplacePage() {
     let applied = false;
 
     try {
-        const response = await fetch(`/api/dict_replace_pages/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/dict_replace_pages/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -263,7 +263,7 @@ async function alignTransBySrcJoined() {
     let applied = false;
 
     try {
-        const response = await fetch(`/api/align_trans_by_src_joined/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/align_trans_by_src_joined/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -305,7 +305,7 @@ async function dictReplaceAll() {
     let applied = false;
 
     try {
-        const response = await fetch(`/api/dict_replace_pages/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/dict_replace_pages/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -343,7 +343,7 @@ async function transAllPages() {
     let applied = false;
 
     try {
-        const response = await fetch(`/api/paraparatrans/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/paraparatrans/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -406,7 +406,7 @@ async function extractParagraphs(){
 
     let form = new FormData();
     try {
-        const response = await fetch(`/api/extract_paragraphs/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/extract_paragraphs/${encodePdfNamePath(pdfName)}`, {
             method: "POST",
             body: form
         });
@@ -434,7 +434,7 @@ async function autoTagging() {
 
     try {
         const body = '&current_page=' + encodeURIComponent(currentPage);
-        const response = await fetch(`/api/auto_tagging/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/auto_tagging/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -472,7 +472,7 @@ async function rebuildSrcTextFromHtml() {
     await saveCurrentPageOrder();
     try {
         const body = '&current_page=' + encodeURIComponent(currentPage);
-        const response = await fetch(`/api/rebuild_src_text/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/rebuild_src_text/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -502,7 +502,7 @@ async function rebuildSrcTextFromHtml() {
 
 async function taggingByStyle(targetStyle, targetTag) {
     try {
-        const response = await fetch(`/api/update_block_tags_by_style/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/update_block_tags_by_style/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -539,7 +539,7 @@ async function taggingByStyle(targetStyle, targetTag) {
 
 async function taggingByStyleY(targetStyle, y0, y1, action) {
     try {
-        const response = await fetch(`/api/update_block_tags_by_style_y/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/update_block_tags_by_style_y/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -586,7 +586,7 @@ async function joinParagraphs() {
 
     await saveCurrentPageOrder(); // 順序を保存してから翻訳 (saveOrderもasyncにする必要あり)
     try {
-        const response = await fetch(`/api/join_replaced_paragraphs/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/join_replaced_paragraphs/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -616,7 +616,7 @@ async function joinParagraphs() {
 
 async function dictCreate() {
     try {
-        const response = await fetch(`/api/dict_create/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/dict_create/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -636,7 +636,7 @@ async function dictCreate() {
 
 async function dictTrans() {
     try {
-        const response = await fetch(`/api/dict_trans/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/dict_trans/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -705,7 +705,7 @@ async function saveCurrentPageOrder() {
 async function exportHtml() {
     await saveCurrentPageOrder(); // saveOrderもasyncにする必要あり
     try {
-        const response = await fetch(`/api/export_html/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/export_html/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -715,7 +715,7 @@ async function exportHtml() {
         const data = await response.json();
         if (data.status === "ok") {
             // 生成後、ダウンロードも実行
-            window.location.href = `/api/download_html/${encodeURIComponent(pdfName)}`;
+            window.location.href = `/api/download_html/${encodePdfNamePath(pdfName)}`;
             alert(`対訳HTMLを出力しました: ${data.path ?? ''}`);
         } else {
             alert("エラー: " + data.message);
@@ -731,7 +731,7 @@ async function exportDocStructure() {
     // 未保存の順序・group_id などが構造に含まれるため、先に保存
     await saveCurrentPageOrder();
     try {
-        const response = await fetch(`/api/export_structure/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/export_structure/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -741,7 +741,7 @@ async function exportDocStructure() {
         const data = await response.json();
         if (data.status === "ok") {
             // 生成後、ダウンロードも実行
-            window.location.href = `/api/download_structure/${encodeURIComponent(pdfName)}`;
+            window.location.href = `/api/download_structure/${encodePdfNamePath(pdfName)}`;
             alert(`構造ファイルを出力しました: ${data.path}`);
         } else {
             alert("エラー: " + data.message);
@@ -774,7 +774,7 @@ async function importDocStructureFile(fileList) {
         const form = new FormData();
         form.append('file', file);
 
-        const response = await fetch(`/api/import_structure/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/import_structure/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             body: form
         });
@@ -804,7 +804,7 @@ async function updateParagraphs(sendParagraphs, title = null) {
     };
 
     try {
-        const response = await fetch(`/api/update_paragraphs/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/update_paragraphs/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -877,7 +877,7 @@ async function updateBookInfo() {
             page_count: bookData.page_count, // ページ数を追加
             trans_status_counts: bookData.trans_status_counts // 翻訳ステータスカウントを追加
         };        
-        const response = await fetch(`/api/update_book_info/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/update_book_info/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'

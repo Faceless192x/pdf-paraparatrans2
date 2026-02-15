@@ -433,7 +433,7 @@ function ensurePdfViewerLoaded(initialPage = 1) {
     const iframe = document.getElementById('pdfIframe');
     if (!iframe) return;
 
-    const pdfFileUrl = `/pdf_view/${encodeURIComponent(pdfName)}`;
+    const pdfFileUrl = `/pdf_view/${encodePdfNamePath(pdfName)}`;
     // PDF.js側の挙動をURLで固定
     // - disableautofetch=true: 先読みを抑制して初回の負荷を下げる
     // - enablescripting=false: PDF内スクリプトを無効化

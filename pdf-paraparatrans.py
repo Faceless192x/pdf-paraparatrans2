@@ -267,9 +267,82 @@ def get_resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
+
+_IGNORED_DIR_NAMES = {
+    "backup",
+    "structure",
+    "doc_structure",
+    "__pycache__",
+    "old",
+}
+
+
+def _should_skip_dir(name: str) -> bool:
+    if not name:
+        return True
+    if name.startswith("."):
+        return True
+    return name in _IGNORED_DIR_NAMES
+
+
+def _normalize_rel_dir(dir_path: str) -> str:
+    if not isinstance(dir_path, str):
+        raise ValueError("dir must be a string")
+    normalized = dir_path.replace("\\", "/").strip("/")
+    if not normalized:
+        return ""
+    parts = [p for p in normalized.split("/") if p]
+    if any(p in (".", "..") for p in parts):
+        raise ValueError("invalid dir path")
+    return "/".join(parts)
+
+
+def _normalize_pdf_name(pdf_name: str) -> str:
+    if not isinstance(pdf_name, str):
+        return ""
+    normalized = pdf_name.replace("\\", "/").strip("/")
+    if not normalized:
+        return ""
+    parts = [p for p in normalized.split("/") if p]
+    if any(p in (".", "..") for p in parts):
+        return ""
+    return "/".join(parts)
+
+
+def _sanitize_folder_name(name: str) -> str:
+    if not isinstance(name, str):
+        return ""
+    cleaned = name.strip()
+    if not cleaned:
+        return ""
+    if "/" in cleaned or "\\" in cleaned:
+        return ""
+
+    cleaned = re.sub(r"[\\/:*?\"<>|]", "_", cleaned)
+    cleaned = re.sub(r"[\x00-\x1f]", "", cleaned)
+    cleaned = cleaned.strip().strip(".")
+
+    if len(cleaned) > 120:
+        cleaned = cleaned[:120]
+
+    return cleaned
+
+
+def _safe_join_data(*parts: str) -> str:
+    base = os.path.abspath(BASE_FOLDER)
+    path = os.path.abspath(os.path.join(base, *parts))
+    if os.path.commonpath([base, path]) != base:
+        raise ValueError("path escapes data folder")
+    return path
+
 def get_paths(pdf_name):
-    pdf_path = os.path.join(BASE_FOLDER, pdf_name + ".pdf")
-    json_path = os.path.join(BASE_FOLDER, pdf_name + ".json")
+    normalized = _normalize_pdf_name(pdf_name)
+    if not normalized:
+        normalized = "_invalid"
+    parts = normalized.split("/")
+    base_path = _safe_join_data(*parts)
+    pdf_path = base_path + ".pdf"
+    json_path = base_path + ".json"
     return pdf_path, json_path
 
 
@@ -304,34 +377,86 @@ def utility_processor():
         return enumerate(iterable)
     return dict(enumerate=enumerate_filter)
 
-def get_pdf_files():
+def get_directory_listing(rel_dir: str):
     file_dict = {}
-    if not os.path.isdir(BASE_FOLDER):
-        return file_dict
-    for fname in os.listdir(BASE_FOLDER):
-        if fname.lower().endswith(".pdf"):
-            pdf_name = os.path.splitext(fname)[0]
-            pdf_path, json_path = get_paths(pdf_name)
-            title = os.path.splitext(fname)[0]
-            updated_date = ""
-            if os.path.exists(json_path):
-                updated_date = datetime.datetime.fromtimestamp(os.path.getmtime(json_path)).strftime("%Y/%m/%d")
-            else:
-                json_path = ""
-                updated_date = datetime.datetime.fromtimestamp(os.path.getmtime(pdf_path)).strftime("%Y/%m/%d")
-            file_dict[pdf_name] = {
-                "json_path": json_path,
-                "pdf_name": pdf_name,
-                "title": title,
-                "updated": updated_date
-            }
-    # 更新日の降順でソート
+    subdirs = []
+    try:
+        normalized_dir = _normalize_rel_dir(rel_dir)
+    except ValueError:
+        return subdirs, file_dict
+
+    if normalized_dir:
+        parts = normalized_dir.split("/")
+        dir_path = _safe_join_data(*parts)
+    else:
+        dir_path = BASE_FOLDER
+
+    if not os.path.isdir(dir_path):
+        return subdirs, file_dict
+
+    for entry in os.listdir(dir_path):
+        full_path = os.path.join(dir_path, entry)
+        if os.path.isdir(full_path):
+            if _should_skip_dir(entry):
+                continue
+            rel_path = f"{normalized_dir}/{entry}" if normalized_dir else entry
+            subdirs.append({"name": entry, "rel_path": rel_path})
+            continue
+
+        if not entry.lower().endswith(".pdf"):
+            continue
+
+        pdf_name = os.path.splitext(entry)[0]
+        pdf_key = f"{normalized_dir}/{pdf_name}" if normalized_dir else pdf_name
+        pdf_path = full_path
+        json_path = os.path.join(dir_path, pdf_name + ".json")
+        updated_date = ""
+        if os.path.exists(json_path):
+            updated_date = datetime.datetime.fromtimestamp(os.path.getmtime(json_path)).strftime("%Y/%m/%d")
+        else:
+            json_path = ""
+            updated_date = datetime.datetime.fromtimestamp(os.path.getmtime(pdf_path)).strftime("%Y/%m/%d")
+        file_dict[pdf_key] = {
+            "json_path": json_path,
+            "pdf_name": pdf_key,
+            "title": pdf_name,
+            "updated": updated_date,
+        }
+
+    subdirs.sort(key=lambda x: x["name"].lower())
     file_dict = dict(sorted(file_dict.items(), key=lambda x: x[1]["updated"], reverse=True))
+    return subdirs, file_dict
+
+
+def get_pdf_files(rel_dir: str = ""):
+    _, file_dict = get_directory_listing(rel_dir)
     return file_dict
+
+
+def _build_breadcrumbs(current_dir: str):
+    crumbs = [{"name": "data", "path": ""}]
+    if not current_dir:
+        return crumbs
+    parts = current_dir.split("/")
+    acc = []
+    for part in parts:
+        acc.append(part)
+        crumbs.append({"name": part, "path": "/".join(acc)})
+    return crumbs
 
 @app.route("/", methods=["GET", "POST"])
 def index():
     settings_path = os.path.join(DATA_FOLDER, "paraparatrans.settings.json")
+
+    dir_param = request.args.get("dir", "").strip()
+    try:
+        current_dir = _normalize_rel_dir(dir_param)
+    except ValueError:
+        return jsonify({"status": "error", "message": "dirが不正です"}), 400
+
+    parent_dir = ""
+    if current_dir:
+        parent_dir = "/".join(current_dir.split("/")[:-1])
     
     # POSTリクエストの場合はリストをリフレッシュ
     if request.method == "POST":
@@ -360,7 +485,7 @@ def index():
 
     # ファイルリストを取得
     files = settings.get("files", {})
-    pdf_dict = get_pdf_files()
+    subdirs, pdf_dict = get_directory_listing(current_dir)
     for pdf_name, file_data in files.items():
         if pdf_name not in pdf_dict:
             continue
@@ -384,7 +509,115 @@ def index():
             if filter_text in value["title"].lower() or filter_text in value["pdf_name"].lower()
         }
     
-    return render_template("index.html", pdf_dict=pdf_dict, filter_text=filter_text)
+    return render_template(
+        "index.html",
+        pdf_dict=pdf_dict,
+        filter_text=filter_text,
+        current_dir=current_dir,
+        parent_dir=parent_dir,
+        subdirs=subdirs,
+        breadcrumbs=_build_breadcrumbs(current_dir),
+    )
+
+
+@app.route("/api/folder/create", methods=["POST"])
+def create_folder_api():
+    payload = request.get_json(silent=True) or {}
+    dir_param = (payload.get("dir") or "").strip()
+    name = payload.get("name")
+
+    try:
+        current_dir = _normalize_rel_dir(dir_param)
+    except ValueError:
+        return jsonify({"status": "error", "message": "dirが不正です"}), 400
+
+    cleaned_name = _sanitize_folder_name(name)
+    if not cleaned_name:
+        return jsonify({"status": "error", "message": "フォルダ名が不正です"}), 400
+    if cleaned_name in _IGNORED_DIR_NAMES:
+        return jsonify({"status": "error", "message": "予約済みのフォルダ名は使えません"}), 400
+
+    parts = current_dir.split("/") if current_dir else []
+    target_dir = _safe_join_data(*parts, cleaned_name)
+    if os.path.exists(target_dir):
+        return jsonify({"status": "error", "message": "同名のフォルダが既に存在します"}), 409
+
+    try:
+        os.makedirs(target_dir, exist_ok=False)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"フォルダ作成に失敗しました: {str(e)}"}), 500
+
+    rel_path = "/".join(parts + [cleaned_name]) if parts else cleaned_name
+    return jsonify({"status": "ok", "path": rel_path}), 201
+
+
+@app.route("/api/folder/rename", methods=["POST"])
+def rename_folder_api():
+    payload = request.get_json(silent=True) or {}
+    dir_param = (payload.get("dir") or "").strip()
+    new_name = payload.get("new_name")
+
+    try:
+        current_dir = _normalize_rel_dir(dir_param)
+    except ValueError:
+        return jsonify({"status": "error", "message": "dirが不正です"}), 400
+
+    if not current_dir:
+        return jsonify({"status": "error", "message": "ルートフォルダは変更できません"}), 400
+
+    cleaned_name = _sanitize_folder_name(new_name)
+    if not cleaned_name:
+        return jsonify({"status": "error", "message": "フォルダ名が不正です"}), 400
+    if cleaned_name in _IGNORED_DIR_NAMES:
+        return jsonify({"status": "error", "message": "予約済みのフォルダ名は使えません"}), 400
+
+    parts = current_dir.split("/")
+    parent_parts = parts[:-1]
+    src_dir = _safe_join_data(*parts)
+    dst_dir = _safe_join_data(*parent_parts, cleaned_name)
+
+    if not os.path.isdir(src_dir):
+        return jsonify({"status": "error", "message": "対象フォルダが存在しません"}), 404
+    if os.path.exists(dst_dir):
+        return jsonify({"status": "error", "message": "同名のフォルダが既に存在します"}), 409
+
+    try:
+        os.rename(src_dir, dst_dir)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"フォルダ名の変更に失敗しました: {str(e)}"}), 500
+
+    new_path = "/".join(parent_parts + [cleaned_name]) if parent_parts else cleaned_name
+    return jsonify({"status": "ok", "path": new_path}), 200
+
+
+@app.route("/api/folder/delete", methods=["POST"])
+def delete_folder_api():
+    payload = request.get_json(silent=True) or {}
+    dir_param = (payload.get("dir") or "").strip()
+
+    try:
+        current_dir = _normalize_rel_dir(dir_param)
+    except ValueError:
+        return jsonify({"status": "error", "message": "dirが不正です"}), 400
+
+    if not current_dir:
+        return jsonify({"status": "error", "message": "ルートフォルダは削除できません"}), 400
+
+    parts = current_dir.split("/")
+    target_dir = _safe_join_data(*parts)
+
+    if not os.path.isdir(target_dir):
+        return jsonify({"status": "error", "message": "対象フォルダが存在しません"}), 404
+
+    try:
+        if os.listdir(target_dir):
+            return jsonify({"status": "error", "message": "空のフォルダのみ削除できます"}), 409
+        os.rmdir(target_dir)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"フォルダ削除に失敗しました: {str(e)}"}), 500
+
+    parent_dir = "/".join(parts[:-1]) if len(parts) > 1 else ""
+    return jsonify({"status": "ok", "parent_dir": parent_dir}), 200
 
 
 @app.route("/api/upload_pdf", methods=["POST"])
@@ -463,9 +696,16 @@ def upload_pdf_api():
             pass
         return jsonify({"status": "error", "message": f"アップロードに失敗しました: {str(e)}"}), 500
 
-@app.route("/detail/<pdf_name>")
-@app.route("/detail/<pdf_name>/<int:page_number>")  # page_number をオプションに
+@app.route("/detail/<path:pdf_name>")
+@app.route("/detail/<path:pdf_name>/<int:page_number>")  # page_number をオプションに
 def detail(pdf_name, page_number=1):
+    normalized_pdf_name = _normalize_pdf_name(pdf_name)
+    if not normalized_pdf_name:
+        return "pdf_name が不正です", 400
+
+    pdf_name = normalized_pdf_name
+    current_dir = os.path.dirname(pdf_name).replace("\\", "/")
+    index_dir = current_dir if current_dir else None
     pdf_path, json_path = get_paths(pdf_name)
 
     if os.path.exists(json_path):
@@ -484,11 +724,18 @@ def detail(pdf_name, page_number=1):
     if os.path.exists(json_path):
         updated_date = datetime.datetime.fromtimestamp(os.path.getmtime(json_path)).strftime("%Y/%m/%d")
 
-    return render_template("detail.html", pdf_name=pdf_name, page_number=page_number, book_data=book_data, updated_date=updated_date)
+    return render_template(
+        "detail.html",
+        pdf_name=pdf_name,
+        page_number=page_number,
+        book_data=book_data,
+        updated_date=updated_date,
+        index_dir=index_dir,
+    )
 
 
 # API:book_dataデータ取得
-@app.route("/api/book_data/<pdf_name>")
+@app.route("/api/book_data/<path:pdf_name>")
 def get_book_data(pdf_name):
     pdf_path, json_path = get_paths(pdf_name)
     if not os.path.exists(json_path):
@@ -499,7 +746,7 @@ def get_book_data(pdf_name):
 
 
 # API: book_data のメタ情報のみ取得（初期ロード高速化用）
-@app.route("/api/book_meta/<pdf_name>")
+@app.route("/api/book_meta/<path:pdf_name>")
 def get_book_meta(pdf_name):
     _, json_path = get_paths(pdf_name)
     if not os.path.exists(json_path):
@@ -520,7 +767,7 @@ def get_book_meta(pdf_name):
 
 
 # API: 目次（見出し）情報のみ取得（初期ロード高速化用）
-@app.route("/api/book_toc/<pdf_name>")
+@app.route("/api/book_toc/<path:pdf_name>")
 def get_book_toc(pdf_name):
     _, json_path = get_paths(pdf_name)
     if not os.path.exists(json_path):
@@ -605,7 +852,7 @@ def get_book_toc(pdf_name):
 
 
 # API: 指定ページだけ取得（差分更新用）
-@app.route("/api/book_page/<pdf_name>/<int:page_number>")
+@app.route("/api/book_page/<path:pdf_name>/<int:page_number>")
 def get_book_page(pdf_name, page_number: int):
     _, json_path = get_paths(pdf_name)
     if not os.path.exists(json_path):
@@ -632,7 +879,7 @@ def get_book_page(pdf_name, page_number: int):
 
 
 # API: 全文検索（src_joined/trans_text/trans_auto）
-@app.route("/api/search/<pdf_name>")
+@app.route("/api/search/<path:pdf_name>")
 def search_api(pdf_name: str):
     _, json_path = get_paths(pdf_name)
     if not os.path.exists(json_path):
@@ -654,7 +901,7 @@ def search_api(pdf_name: str):
     return jsonify({"status": "ok", "query": query, "count": len(results), "results": results})
 
 # API:PDFからbook_dataファイル生成
-@app.route("/api/extract_paragraphs/<pdf_name>", methods=["POST"])
+@app.route("/api/extract_paragraphs/<path:pdf_name>", methods=["POST"])
 def create_book_data_api(pdf_name):
     pdf_path, json_path = get_paths(pdf_name)
     if os.path.exists(json_path):
@@ -668,7 +915,7 @@ def create_book_data_api(pdf_name):
 
 
 # API:ファイル全翻訳
-@app.route("/api/translate_all/<pdf_name>", methods=["POST"])
+@app.route("/api/translate_all/<path:pdf_name>", methods=["POST"])
 def translate_all_api(pdf_name):
     pdf_path, json_path = get_paths(pdf_name)
     if not os.path.exists(json_path):
@@ -710,7 +957,7 @@ def translate_api():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # パラグラフの翻訳を保存するAPI
-@app.route("/api/export_html/<pdf_name>", methods=["POST"])
+@app.route("/api/export_html/<path:pdf_name>", methods=["POST"])
 def export_html_api(pdf_name):
     pdf_path, json_path = get_paths(pdf_name)
     if not os.path.exists(json_path):
@@ -724,7 +971,7 @@ def export_html_api(pdf_name):
     return jsonify({"status": "ok", "path": rel}), 200
 
 
-@app.route("/api/download_html/<pdf_name>")
+@app.route("/api/download_html/<path:pdf_name>")
 def download_html_api(pdf_name):
     """対訳HTMLをダウンロードする（無ければ生成して返す）。"""
     _, json_path = get_paths(pdf_name)
@@ -756,7 +1003,7 @@ def _structure_path(pdf_name: str) -> str:
     return os.path.join(_structure_folder(), f"{pdf_name}.structure.json")
 
 
-@app.route("/api/export_structure/<pdf_name>", methods=["POST"])
+@app.route("/api/export_structure/<path:pdf_name>", methods=["POST"])
 def export_structure_api(pdf_name):
     """著作権配慮用の '文書構造ファイル' を出力する。
 
@@ -778,7 +1025,7 @@ def export_structure_api(pdf_name):
         return jsonify({"status": "error", "message": f"構造ファイル出力エラー: {str(e)}"}), 500
 
 
-@app.route("/api/download_structure/<pdf_name>")
+@app.route("/api/download_structure/<path:pdf_name>")
 def download_structure_api(pdf_name):
     """既存の文書構造ファイルをダウンロードする（無ければ生成して返す）。"""
     _, json_path = get_paths(pdf_name)
@@ -801,7 +1048,7 @@ def download_structure_api(pdf_name):
         return send_file(out_path, as_attachment=True)
 
 
-@app.route("/api/import_structure/<pdf_name>", methods=["POST"])
+@app.route("/api/import_structure/<path:pdf_name>", methods=["POST"])
 def import_structure_api(pdf_name):
     """文書構造ファイルを取り込み、既存JSONの構造情報のみ更新する。
 
@@ -872,7 +1119,7 @@ def import_structure_api(pdf_name):
 
 
 # API:ファイルの指定ページに辞書置換
-@app.route("/api/dict_replace_pages/<pdf_name>", methods=["POST"])
+@app.route("/api/dict_replace_pages/<path:pdf_name>", methods=["POST"])
 def dict_replace_page_api(pdf_name):
     start_page = request.form.get("start_page", type=int)
     end_page = request.form.get("end_page", type=int)
@@ -901,7 +1148,7 @@ def dict_replace_page_api(pdf_name):
         return jsonify({"status": "error", "message": f"辞書適用中のエラー: {str(e)}"}), 500
     return jsonify({"status": "ok", "delta": delta}), 200
 
-@app.route("/api/paraparatrans/<pdf_name>", methods=["POST"])
+@app.route("/api/paraparatrans/<path:pdf_name>", methods=["POST"])
 def paraparatrans_api(pdf_name):
     start_page = request.form.get("start_page", type=int)
     end_page = request.form.get("end_page", type=int)
@@ -943,7 +1190,7 @@ def paraparatrans_api(pdf_name):
         return jsonify({"status": "error", "message": f"翻訳処理中にエラーが発生しました: {str(e)}"}), 500
 
 
-@app.route("/api/align_trans_by_src_joined/<pdf_name>", methods=["POST"])
+@app.route("/api/align_trans_by_src_joined/<path:pdf_name>", methods=["POST"])
 def align_trans_by_src_joined_api(pdf_name):
     """同一 src_joined の訳を、より上位 trans_status の訳へ揃える。"""
     _, json_path = get_paths(pdf_name)
@@ -982,7 +1229,7 @@ def align_trans_by_src_joined_api(pdf_name):
         return jsonify({"status": "error", "message": f"訳揃え処理中にエラーが発生しました: {str(e)}"}), 500
 
 # APIW:book_data取得
-@app.route("/api/reload_book_data/<pdf_name>", methods=["GET"])
+@app.route("/api/reload_book_data/<path:pdf_name>", methods=["GET"])
 def reload_book_data_api(pdf_name):
     pdf_path, json_path = get_paths(pdf_name)
     if not os.path.exists(json_path):
@@ -991,7 +1238,7 @@ def reload_book_data_api(pdf_name):
         book_data = json.load(f)
     return jsonify(book_data), 200
 
-@app.route("/pdf_view/<pdf_name>")
+@app.route("/pdf_view/<path:pdf_name>")
 def pdf_view(pdf_name):
     pdf_path, _ = get_paths(pdf_name)
     if not os.path.exists(pdf_path):
@@ -1009,7 +1256,7 @@ def pdf_view(pdf_name):
     return resp
 
 # PDFの指定ページを表示するAPI
-@app.route("/pdf_view/<pdf_name>/<int:page_number>")
+@app.route("/pdf_view/<path:pdf_name>/<int:page_number>")
 def pdf_view_page(pdf_name, page_number):
     pdf_path, _ = get_paths(pdf_name)
     if not os.path.exists(pdf_path):
@@ -1024,10 +1271,11 @@ def pdf_view_page(pdf_name, page_number):
         output = io.BytesIO()
         writer.write(output)
         output.seek(0)
-        return send_file(output, download_name=f"{pdf_name}_page_{page_number}.pdf", as_attachment=False)
+        safe_name = os.path.splitext(os.path.basename(pdf_path))[0]
+        return send_file(output, download_name=f"{safe_name}_page_{page_number}.pdf", as_attachment=False)
 
 
-@app.route("/api/save_order/<pdf_name>", methods=["POST"])
+@app.route("/api/save_order/<path:pdf_name>", methods=["POST"])
 def save_order_api(pdf_name):
     order_json = request.form.get("order_json")
     title = request.form.get("title")
@@ -1105,7 +1353,7 @@ def save_order_api(pdf_name):
     return jsonify({"status": "ok", "changed": changed_count}), 200
 
 
-@app.route("/api/auto_tagging/<pdf_name>", methods=["POST"])
+@app.route("/api/auto_tagging/<path:pdf_name>", methods=["POST"])
 def auto_tagging_api(pdf_name):
     pdf_path, json_path = get_paths(pdf_name)
     if not os.path.exists(json_path):
@@ -1132,7 +1380,7 @@ def auto_tagging_api(pdf_name):
     return jsonify({"status": "ok", "message": "自動タグ付け完了", "delta": delta}), 200
 
 
-@app.route("/api/rebuild_src_text/<pdf_name>", methods=["POST"])
+@app.route("/api/rebuild_src_text/<path:pdf_name>", methods=["POST"])
 def rebuild_src_text_api(pdf_name):
     """src_html から src_text を再生成し、シンボル置換（symbolfont_dict）を適用する。"""
     pdf_path, json_path = get_paths(pdf_name)
@@ -1160,7 +1408,7 @@ def rebuild_src_text_api(pdf_name):
     return jsonify({"status": "ok", "message": f"シンボル置換完了 (更新: {changed}段落)", "changed": changed, "delta": delta}), 200
 
 # API: スタイルによるblock_tag一括更新
-@app.route("/api/update_block_tags_by_style/<pdf_name>", methods=["POST"])
+@app.route("/api/update_block_tags_by_style/<path:pdf_name>", methods=["POST"])
 def update_block_tags_by_style_api(pdf_name):
     data = request.get_json()
     target_style = data.get("target_style")
@@ -1199,7 +1447,7 @@ def update_block_tags_by_style_api(pdf_name):
 
 
 # API: スタイル + Y範囲による block_tag 更新（header/footer/remove）
-@app.route("/api/update_block_tags_by_style_y/<pdf_name>", methods=["POST"])
+@app.route("/api/update_block_tags_by_style_y/<path:pdf_name>", methods=["POST"])
 def update_block_tags_by_style_y_api(pdf_name):
     data = request.get_json() or {}
     target_style = data.get("target_style")
@@ -1240,7 +1488,7 @@ def update_block_tags_by_style_y_api(pdf_name):
         return jsonify({"status": "error", "message": f"スタイル+Y範囲によるblock_tag一括更新エラー: {str(e)}"}), 500
 
 
-@app.route("/api/join_replaced_paragraphs/<pdf_name>", methods=["POST"])
+@app.route("/api/join_replaced_paragraphs/<path:pdf_name>", methods=["POST"])
 def auto_join_replaced_paragraphs_api(pdf_name):
     pdf_path, json_path = get_paths(pdf_name)
     if not os.path.exists(json_path):
@@ -1274,7 +1522,7 @@ def auto_join_replaced_paragraphs_api(pdf_name):
         }
     ), 200
 
-@app.route("/api/dict_create/<pdf_name>", methods=["POST"])
+@app.route("/api/dict_create/<path:pdf_name>", methods=["POST"])
 def dict_create_api(pdf_name):
     pdf_path, json_path = get_paths(pdf_name)
     COMMON_WORDS_PATH = get_resource_path(os.path.join("modules", "english_common_words.txt"))
@@ -1287,7 +1535,7 @@ def dict_create_api(pdf_name):
         return jsonify({"status": "error", "message": f"辞書生成エラー: {str(e)}"}), 500
     return jsonify({"status": "ok", "message": "辞書生成完了"}), 200
 
-@app.route("/api/dict_trans/<pdf_name>", methods=["POST"])
+@app.route("/api/dict_trans/<path:pdf_name>", methods=["POST"])
 def dict_trans_api(pdf_name):
     pdf_path, json_path = get_paths(pdf_name)
     if not os.path.exists(json_path):
@@ -1299,7 +1547,7 @@ def dict_trans_api(pdf_name):
         return jsonify({"status": "error", "message": f"辞書翻訳エラー: {str(e)}"}), 500
     return jsonify({"status": "ok", "message": "辞書翻訳完了"}), 200
 
-@app.route("/api/update_book_info/<pdf_name>", methods=["POST"])
+@app.route("/api/update_book_info/<path:pdf_name>", methods=["POST"])
 def update_book_info_api(pdf_name):
     settings_path = os.path.join(DATA_FOLDER, "paraparatrans.settings.json")
     
@@ -1405,7 +1653,7 @@ def apply_trans_status_delta(book_data, old_status, new_status):
     counts[new_s] = counts.get(new_s, 0) + 1
 
 # 単パラグラフの翻訳を保存するAPI
-@app.route("/api/update_paragraph/<pdf_name>", methods=["POST"])
+@app.route("/api/update_paragraph/<path:pdf_name>", methods=["POST"])
 def update_paragraph_api(pdf_name):
     data = request.get_json()
     page_number = str(data.get("page_number"))
@@ -1507,7 +1755,7 @@ def update_paragraph_api(pdf_name):
 
 
 # 複数パラグラフを更新するAPI
-@app.route("/api/update_paragraphs/<pdf_name>", methods=["POST"])
+@app.route("/api/update_paragraphs/<path:pdf_name>", methods=["POST"])
 def update_paragraphs_api(pdf_name):
     pdf_path, json_path = get_paths(pdf_name)
     if not os.path.exists(json_path):

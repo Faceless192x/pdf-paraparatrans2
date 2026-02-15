@@ -455,7 +455,7 @@ function toggleSrcJoined(event) {
 /** @function saveParagraphData */
 async function saveParagraphData(paragraphDict) {
     try {
-        const response = await fetch(`/api/update_paragraph/${encodeURIComponent(pdfName)}`, {
+        const response = await fetch(`/api/update_paragraph/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
         headers: {
             'Content-Type': 'application/json'

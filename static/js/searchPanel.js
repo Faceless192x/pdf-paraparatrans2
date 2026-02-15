@@ -217,7 +217,7 @@
       this.setStatus("検索中…");
 
       try {
-        const url = `/api/search/${encodeURIComponent(pdfName)}?q=${encodeURIComponent(
+        const url = `/api/search/${encodePdfNamePath(pdfName)}?q=${encodeURIComponent(
           query
         )}&limit=200`;
         const res = await fetch(url);
