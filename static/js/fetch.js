@@ -753,6 +753,122 @@ async function exportDocStructure() {
 }
 
 
+function openDataExportDialog() {
+    const dialog = document.getElementById('dataExportDialog');
+    if (!dialog) return;
+    dialog.style.display = 'flex';
+    updateDataExportFieldState();
+}
+
+
+function closeDataExportDialog() {
+    const dialog = document.getElementById('dataExportDialog');
+    if (!dialog) return;
+    dialog.style.display = 'none';
+    setDataExportStatus('');
+}
+
+
+function getSelectedExportFields() {
+    const inputs = document.querySelectorAll('.data-export-field');
+    const selected = [];
+    inputs.forEach((input) => {
+        if (input.checked) selected.push(input.value);
+    });
+    return selected;
+}
+
+
+function updateDataExportFieldState() {
+    const inputs = document.querySelectorAll('.data-export-field');
+    const selected = getSelectedExportFields();
+    const isLimitReached = selected.length >= 2;
+
+    inputs.forEach((input) => {
+        if (!input.checked) {
+            input.disabled = isLimitReached;
+        } else {
+            input.disabled = false;
+        }
+    });
+
+    const hint = document.getElementById('dataExportFieldHint');
+    if (hint) {
+        hint.textContent = `2つまで選択できます。現在 ${selected.length} / 2`;
+    }
+}
+
+
+function setDataExportStatus(message, isError = false) {
+    const status = document.getElementById('dataExportStatus');
+    if (!status) return;
+    status.textContent = message || '';
+    status.style.color = isError ? '#b00020' : '#0a7a0a';
+}
+
+
+async function exportTextOrMd() {
+    await saveCurrentPageOrder();
+    const formatSelect = document.getElementById('dataExportFormat');
+    const includePage = document.getElementById('dataExportIncludePage');
+    const includeHeader = document.getElementById('dataExportIncludeHeader');
+    const includeFooter = document.getElementById('dataExportIncludeFooter');
+    const includeRemove = document.getElementById('dataExportIncludeRemove');
+    const fields = getSelectedExportFields();
+
+    if (!fields.length || fields.length > 2) {
+        alert('出力項目は1〜2件で選択してください。');
+        return;
+    }
+
+    const format = formatSelect ? formatSelect.value : 'md';
+    const includePageNumbers = !!includePage?.checked;
+    const includeHeaderFlag = !!includeHeader?.checked;
+    const includeFooterFlag = !!includeFooter?.checked;
+    const includeRemoveFlag = !!includeRemove?.checked;
+
+    setDataExportStatus('出力中...', false);
+
+    try {
+        const response = await fetch(`/api/export_text/${encodePdfNamePath(pdfName)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                format: format,
+                fields: fields,
+                include_page_numbers: includePageNumbers,
+                include_header: includeHeaderFlag,
+                include_footer: includeFooterFlag,
+                include_remove: includeRemoveFlag
+            })
+        });
+        const data = await response.json();
+        if (data.status === 'ok') {
+            window.location.href = `/api/download_text/${encodePdfNamePath(pdfName)}/${encodeURIComponent(format)}`;
+            setDataExportStatus(`出力しました: ${data.path ?? ''}`, false);
+        } else {
+            setDataExportStatus(data.message || '出力に失敗しました', true);
+            alert('エラー: ' + data.message);
+        }
+    } catch (error) {
+        console.error('Error exporting text:', error);
+        setDataExportStatus('テキスト出力中にエラーが発生しました', true);
+        alert('テキスト出力中にエラーが発生しました');
+    }
+}
+
+
+document.addEventListener('DOMContentLoaded', function () {
+    const inputs = document.querySelectorAll('.data-export-field');
+    inputs.forEach((input) => {
+        input.addEventListener('change', updateDataExportFieldState);
+    });
+    updateDataExportFieldState();
+});
+
+
 function openDocStructurePicker() {
     const input = document.getElementById('docStructureFileInput');
     if (!input) {

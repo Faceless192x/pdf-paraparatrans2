@@ -185,6 +185,106 @@ table.tocTable td {
     display: none !important;
 }
 
+.data-export-dialog {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+
+.data-export-dialog__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+}
+
+.data-export-dialog__content {
+    position: relative;
+    z-index: 1;
+    min-width: 360px;
+    max-width: 720px;
+    width: min(720px, 92vw);
+    background: #fdfdfd;
+    color: #111;
+    border: 1px solid #aaa;
+    border-radius: 6px;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+    padding: 12px 14px 14px;
+}
+
+.data-export-dialog__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.data-export-dialog__title {
+    font-weight: bold;
+}
+
+.data-export-dialog__close {
+    font-size: 16px;
+    line-height: 1;
+    width: 28px;
+    height: 28px;
+}
+
+.data-export-dialog__section {
+    border-top: 1px solid #ddd;
+    padding-top: 10px;
+    margin-top: 10px;
+}
+
+.data-export-dialog__section-title {
+    font-weight: bold;
+    margin-bottom: 6px;
+}
+
+.data-export-dialog__row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 6px 0;
+}
+
+.data-export-options {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.data-export-dialog__hint {
+    font-size: 0.9em;
+    color: #555;
+}
+
+.data-export-status {
+    font-size: 0.9em;
+    color: #0a7a0a;
+    min-height: 1.2em;
+}
+
+@media (prefers-color-scheme: dark) {
+    .data-export-dialog__content {
+        background: #1c1c1c;
+        color: #eee;
+        border-color: #444;
+    }
+
+    .data-export-dialog__section {
+        border-color: #333;
+    }
+
+    .data-export-dialog__hint {
+        color: #bbb;
+    }
+}
+
 
 
 .flex-panel {
