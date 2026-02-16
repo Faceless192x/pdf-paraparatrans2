@@ -1,3 +1,65 @@
+function canUseSessionStorage() {
+    try {
+        return typeof window !== 'undefined' && !!window.sessionStorage;
+    } catch (e) {
+        return false;
+    }
+}
+
+function getPageCacheKey() {
+    return `ppt.pages.${encodeURIComponent(pdfName || '')}`;
+}
+
+function restorePageCacheFromSession() {
+    if (!canUseSessionStorage()) return false;
+    if (!bookData || !bookData.__json_mtime) return false;
+    const key = getPageCacheKey();
+    let raw = null;
+    try {
+        raw = window.sessionStorage.getItem(key);
+    } catch (e) {
+        return false;
+    }
+    if (!raw) return false;
+
+    try {
+        const payload = JSON.parse(raw);
+        if (!payload || payload.mtime !== bookData.__json_mtime) return false;
+        if (!payload.pages || typeof payload.pages !== 'object') return false;
+        bookData.pages = payload.pages;
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function savePageCacheToSession() {
+    if (!canUseSessionStorage()) return false;
+    if (!bookData || !bookData.__json_mtime) return false;
+    if (!bookData.pages || typeof bookData.pages !== 'object') return false;
+    const key = getPageCacheKey();
+    const payload = {
+        mtime: bookData.__json_mtime,
+        pages: bookData.pages,
+    };
+    try {
+        window.sessionStorage.setItem(key, JSON.stringify(payload));
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function clearPageCacheForSession() {
+    if (!canUseSessionStorage()) return;
+    const key = getPageCacheKey();
+    try {
+        window.sessionStorage.removeItem(key);
+    } catch (e) {
+        // ignore
+    }
+}
+
 async function fetchBookData() {
     try {
         const metaRes = await fetch(`/api/book_meta/${encodePdfNamePath(pdfName)}`);
@@ -18,6 +80,7 @@ async function fetchBookData() {
             pages: {},
             toc: [],
         };
+        bookData.__json_mtime = meta?.json_mtime ?? null;
 
         document.getElementById("titleInput").value = bookData.title;
         document.getElementById("pageCount").innerText = bookData.page_count;
@@ -26,10 +89,13 @@ async function fetchBookData() {
         updateTransStatusCounts(bookData.trans_status_counts);
         updateBookStyles();
 
+        const restored = restorePageCacheFromSession();
+        const hasCachedPage = !!bookData.pages?.[String(currentPage)];
+
         // 目次と表示ページを並列に取得
         await Promise.all([
             fetchAndApplyToc(),
-            fetchAndApplyPage(currentPage),
+            (restored && hasCachedPage) ? Promise.resolve(true) : fetchAndApplyPage(currentPage),
         ]);
 
         showToc();
@@ -109,6 +175,10 @@ function applyBookDelta(delta) {
         changed = true;
     }
 
+    if (changed) {
+        savePageCacheToSession();
+    }
+
     return changed;
 }
 
@@ -118,15 +188,53 @@ function markAllPagesStale() {
     bookData.__stale_token = Date.now();
     bookData.__page_fresh_token = bookData.__page_fresh_token || {};
     bookData.__toc_stale = true;
+    clearPageCacheForSession();
 }
 
 async function fetchAndApplyPage(pageNum) {
     try {
-        const response = await fetch(`/api/book_page/${encodePdfNamePath(pdfName)}/${encodeURIComponent(pageNum)}`);
+        const tFetch = (window.PERF_NAV && typeof perfNow === 'function') ? perfNow() : null;
+        const url = `/api/book_page/${encodePdfNamePath(pdfName)}/${encodeURIComponent(pageNum)}`;
+        const response = await fetch(url);
         if (!response.ok) {
             return false;
         }
-        const data = await response.json();
+        let data = null;
+        if (tFetch !== null && typeof perfLog === 'function') {
+            const tRead = perfNow();
+            const rawText = await response.text();
+            const tParse = perfNow();
+            data = JSON.parse(rawText);
+            const tDone = perfNow();
+            const sizeKb = (rawText.length / 1024).toFixed(1);
+            if (typeof performance !== 'undefined' && typeof performance.getEntriesByName === 'function') {
+                const absUrl = new URL(url, window.location.href).toString();
+                const entries = performance.getEntriesByName(absUrl) || [];
+                const entry = entries.length > 0 ? entries[entries.length - 1] : null;
+                if (entry) {
+                    const ttfb = (entry.responseStart - entry.startTime).toFixed(1);
+                    const xfer = (entry.responseEnd - entry.responseStart).toFixed(1);
+                    const net = entry.duration.toFixed(1);
+                    perfLog("fetchAndApplyPage(net)", tFetch, `(page ${pageNum}, ttfb ${ttfb} ms, xfer ${xfer} ms, net ${net} ms)`);
+                    const reqStart = (entry.requestStart - entry.startTime).toFixed(1);
+                    const respStart = (entry.responseStart - entry.startTime).toFixed(1);
+                    const respEnd = (entry.responseEnd - entry.startTime).toFixed(1);
+                    perfLog("fetchAndApplyPage(timeline)", tFetch, `(page ${pageNum}, request ${reqStart} ms, response ${respStart}..${respEnd} ms)`);
+                } else {
+                    perfLog("fetchAndApplyPage(net)", tFetch, `(page ${pageNum}, no ResourceTiming entry)`);
+                }
+            }
+            const serverTiming = response.headers.get('server-timing');
+            if (serverTiming) {
+                perfLog("fetchAndApplyPage(server)", tFetch, `(page ${pageNum}, ${serverTiming})`);
+            }
+            perfLog("fetchAndApplyPage(fetch)", tFetch, `(page ${pageNum})`);
+            perfLog("fetchAndApplyPage(read)", tRead, `(page ${pageNum}, kb ${sizeKb})`);
+            perfLog("fetchAndApplyPage(parse)", tParse, `(page ${pageNum})`);
+            perfLog("fetchAndApplyPage(total)", tFetch, `(page ${pageNum})`);
+        } else {
+            data = await response.json();
+        }
         if (data.status !== 'ok') {
             return false;
         }
@@ -147,6 +255,8 @@ async function fetchAndApplyPage(pageNum) {
             bookData.__page_fresh_token[String(data.page_key)] = bookData.__stale_token;
         }
 
+        savePageCacheToSession();
+
         return true;
     } catch (e) {
         console.warn('fetchAndApplyPage failed:', e);
@@ -155,20 +265,38 @@ async function fetchAndApplyPage(pageNum) {
 }
 
 async function ensurePageFresh(pageNum) {
+    const tFresh = (window.PERF_NAV && typeof perfNow === 'function') ? perfNow() : null;
     const pageKey = String(pageNum);
 
     // 未ロードなら常に取得
     if (!bookData?.pages || !bookData.pages[pageKey]) {
-        return await fetchAndApplyPage(pageNum);
+        const ok = await fetchAndApplyPage(pageNum);
+        if (tFresh !== null && typeof perfLog === 'function') {
+            perfLog("ensurePageFresh(miss)", tFresh, `(page ${pageNum})`);
+        }
+        return ok;
     }
 
     const staleToken = bookData.__stale_token;
-    if (!staleToken) return true;
+    if (!staleToken) {
+        if (tFresh !== null && typeof perfLog === 'function') {
+            perfLog("ensurePageFresh(hit)", tFresh, `(page ${pageNum})`);
+        }
+        return true;
+    }
 
     const freshMap = bookData.__page_fresh_token || {};
-    if (freshMap[pageKey] === staleToken) return true;
-
-    return await fetchAndApplyPage(pageNum);
+    if (freshMap[pageKey] === staleToken) {
+        if (tFresh !== null && typeof perfLog === 'function') {
+            perfLog("ensurePageFresh(fresh)", tFresh, `(page ${pageNum})`);
+        }
+        return true;
+    }
+    const ok = await fetchAndApplyPage(pageNum);
+    if (tFresh !== null && typeof perfLog === 'function') {
+        perfLog("ensurePageFresh(refetch)", tFresh, `(page ${pageNum})`);
+    }
+    return ok;
 }
 
 /** @function transPage */

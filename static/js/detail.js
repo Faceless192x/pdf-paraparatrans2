@@ -3,6 +3,59 @@ pdfName = document.body.dataset.pdfName;
 bookData = {};
 currentPage = 1;
 
+// perf: enable with `window.PERF_NAV = true`
+function perfNow() {
+    return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+}
+
+function perfLog(label, start, extra = "") {
+    if (!window.PERF_NAV) return;
+    const elapsed = Math.max(0, perfNow() - start).toFixed(1);
+    const suffix = extra ? ` ${extra}` : "";
+    console.log(`[perf] ${label}: ${elapsed} ms${suffix}`);
+}
+
+let perfPdfRenderHandler = null;
+
+function perfAttachPdfRenderOnce(pageNum) {
+    if (!window.PERF_NAV) return;
+    const iframe = document.getElementById('pdfIframe');
+    if (!iframe || !iframe.contentWindow) return;
+
+    const doc = iframe.contentWindow.document;
+    const app = iframe.contentWindow.PDFViewerApplication;
+    const start = perfNow();
+    const handler = (event) => {
+        const renderedPageNumber = event?.detail?.pageNumber;
+        if (renderedPageNumber !== pageNum) return;
+        if (app?.eventBus && typeof app.eventBus.off === 'function') {
+            app.eventBus.off('pagerendered', handler);
+        } else if (doc) {
+            doc.removeEventListener('pagerendered', handler);
+        }
+        if (perfPdfRenderHandler === handler) perfPdfRenderHandler = null;
+        perfLog("pdfjs.pagerendered", start, `(page ${pageNum})`);
+    };
+
+    if (perfPdfRenderHandler) {
+        try {
+            if (app?.eventBus && typeof app.eventBus.off === 'function') {
+                app.eventBus.off('pagerendered', perfPdfRenderHandler);
+            } else if (doc) {
+                doc.removeEventListener('pagerendered', perfPdfRenderHandler);
+            }
+        } catch (_) {
+            // ignore
+        }
+    }
+    perfPdfRenderHandler = handler;
+    if (app?.eventBus && typeof app.eventBus.on === 'function') {
+        app.eventBus.on('pagerendered', handler);
+    } else if (doc) {
+        doc.addEventListener('pagerendered', handler);
+    }
+}
+
 // PDF.js ビューア内のページ移動と、ParaParaTrans 側のページ移動を同期するための状態
 let pdfViewerLastAppSetPage = null;
 let pdfViewerLastAppSetAt = 0;
@@ -356,6 +409,7 @@ async function nextPage() { // async を追加
 async function jumpToPage(pageNum, options = {}) { // async を追加
     const { updateUrl = true, replaceHistory = false, forceRender = false, preserveScroll = false } = options;
 
+    const navStart = perfNow();
     const targetPage = clampPage(pageNum);
 
     console.log("jumpToPage:pageNum " + pageNum);
@@ -366,7 +420,9 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
     // ただしデータ更新後などは forceRender で再描画する。
     if (targetPage === currentPage) {
         if (typeof ensurePageFresh === 'function') {
+            const tFresh = perfNow();
             await ensurePageFresh(targetPage);
+            perfLog("ensurePageFresh(same)", tFresh, `(page ${targetPage})`);
         }
         const srcPanel = document.getElementById("srcPanel");
         const savedScrollTop = (preserveScroll && srcPanel) ? srcPanel.scrollTop : null;
@@ -382,7 +438,9 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
         setPdfViewerPage(currentPage);
 
         if (forceRender) {
+            const tRender = perfNow();
             renderParagraphs({ resetScrollTop: !preserveScroll });
+            perfLog("renderParagraphs(same)", tRender, `(page ${targetPage})`);
             document.getElementById("srcPanel").focus();
 
             if (preserveScroll) {
@@ -397,6 +455,7 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
                 window.TocSearchPanel.applyHighlightsForCurrentPage();
             }
         }
+        perfLog("jumpToPage(same)", navStart, `(page ${targetPage})`);
         return;
     }
 
@@ -409,7 +468,9 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
     document.getElementById("pageInput").value = currentPage;
 
     if (typeof ensurePageFresh === 'function') {
+        const tFresh = perfNow();
         await ensurePageFresh(currentPage);
+        perfLog("ensurePageFresh", tFresh, `(page ${currentPage})`);
     }
 
     if (updateUrl) {
@@ -419,14 +480,22 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
     // PDFはフルPDFを一度だけ読み込み、ページ移動は PDFViewerApplication 経由で行う。
     // これにより「毎回iframeを再ロード」「サーバ側で1ページPDFを都度生成」を避けて高速化する。
     ensurePdfViewerLoaded(currentPage);
+    const tPdf = perfNow();
     setPdfViewerPage(currentPage);
+    perfLog("setPdfViewerPage", tPdf, `(page ${currentPage})`);
 
+    const tRender = perfNow();
     renderParagraphs({ resetScrollTop: true });
+    perfLog("renderParagraphs", tRender, `(page ${currentPage})`);
     document.getElementById("srcPanel").focus();
     setCurrentParagraph(0, false, { scrollIntoView: false });
     if (window.TocSearchPanel && typeof window.TocSearchPanel.applyHighlightsForCurrentPage === 'function') {
+        const tToc = perfNow();
         window.TocSearchPanel.applyHighlightsForCurrentPage();
+        perfLog("applyHighlightsForCurrentPage", tToc, `(page ${currentPage})`);
     }
+
+    perfLog("jumpToPage", navStart, `(page ${currentPage})`);
 }
 
 function ensurePdfViewerLoaded(initialPage = 1) {
@@ -464,6 +533,7 @@ function setPdfViewerPage(pageNum) {
 
     const app = viewerWin.PDFViewerApplication;
     const apply = () => {
+        perfAttachPdfRenderOnce(pageNum);
         // アプリ側起因のページ変更としてマーク（イベントループ抑制）
         pdfViewerLastAppSetPage = pageNum;
         pdfViewerLastAppSetAt = Date.now();

@@ -179,6 +179,7 @@ function onEditCancelClick(event, paragraph, divSrc, srcText, transText, blockTa
 
 /** @function renderParagraphs */
 function renderParagraphs(options = {}) {
+    const tStart = (window.PERF_NAV && typeof perfNow === 'function') ? perfNow() : null;
     const { resetScrollTop = false } = options;
     if (resetScrollTop) {
         const srcPanel = document.getElementById("srcPanel");
@@ -331,6 +332,11 @@ function renderParagraphs(options = {}) {
 
     window.autoToggle.dispatchAll();
     srcContainer.style.display = 'block'; // 再表示
+
+    if (tStart !== null && typeof perfLog === 'function') {
+        const count = Object.values(bookData?.pages?.[currentPage]?.paragraphs || {}).length;
+        perfLog("renderParagraphs(total)", tStart, `(page ${currentPage}, paragraphs ${count})`);
+    }
 }
 
 // スタイル一括更新ボタンのクリックイベントハンドラ

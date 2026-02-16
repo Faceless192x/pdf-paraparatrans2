@@ -113,6 +113,16 @@ _BOOK_TOC_CACHE_LOCK = threading.Lock()
 import mimetypes
 mimetypes.add_type('application/javascript', '.mjs')
 
+
+def _perf_api_enabled() -> bool:
+    flag = os.getenv("PERF_API", "").strip().lower()
+    return flag not in ("", "0", "false", "off")
+
+
+def _perf_log(message: str) -> None:
+    if _perf_api_enabled():
+        app.logger.info(message)
+
 def _get_app_dir():
     """アプリの基準ディレクトリを返す（起動CWDに依存しない）。"""
     if getattr(sys, "frozen", False):
@@ -959,6 +969,11 @@ def get_book_meta(pdf_name):
     if not os.path.exists(json_path):
         return jsonify({"status": "ok", "message": "JSONが存在しません"}), 206
 
+    try:
+        json_mtime = os.path.getmtime(json_path)
+    except OSError:
+        json_mtime = None
+
     with open(json_path, "r", encoding="utf-8") as f:
         book_data = json.load(f)
 
@@ -969,6 +984,7 @@ def get_book_meta(pdf_name):
         "page_count": book_data.get("page_count"),
         "styles": book_data.get("styles") or {},
         "trans_status_counts": book_data.get("trans_status_counts") or {},
+        "json_mtime": json_mtime,
     }
     return jsonify({"status": "ok", "meta": meta})
 
@@ -1061,19 +1077,39 @@ def get_book_toc(pdf_name):
 # API: 指定ページだけ取得（差分更新用）
 @app.route("/api/book_page/<path:pdf_name>/<int:page_number>")
 def get_book_page(pdf_name, page_number: int):
+    t0 = time.perf_counter()
     _, json_path = get_paths(pdf_name)
     if not os.path.exists(json_path):
         return jsonify({"status": "error", "message": "JSONが存在しません"}), 404
+    json_size = None
+    try:
+        json_size = os.path.getsize(json_path)
+    except Exception:
+        json_size = None
 
+    t_load_start = time.perf_counter()
     with open(json_path, "r", encoding="utf-8") as f:
         book_data = json.load(f)
+    t_load_end = time.perf_counter()
 
+    t_page_start = time.perf_counter()
     page_key = str(page_number)
     page = (book_data.get("pages", {}) or {}).get(page_key)
+    t_page_end = time.perf_counter()
     if page is None:
         return jsonify({"status": "error", "message": f"ページが存在しません: {page_number}"}), 404
 
-    return jsonify(
+    t1 = time.perf_counter()
+    if _perf_api_enabled():
+        size_kb = (json_size / 1024.0) if isinstance(json_size, (int, float)) else None
+        size_note = f", json_kb={size_kb:.1f}" if size_kb is not None else ""
+        _perf_log(
+            f"[perf] book_page page={page_number} load_json={(t_load_end - t_load_start)*1000:.1f} ms "
+            f"select_page={(t_page_end - t_page_start)*1000:.1f} ms total={(t1 - t0)*1000:.1f} ms"
+            f"{size_note}"
+        )
+
+    response = jsonify(
         {
             "status": "ok",
             "page_key": page_key,
@@ -1083,6 +1119,18 @@ def get_book_page(pdf_name, page_number: int):
             "title": book_data.get("title"),
         }
     )
+
+    if _perf_api_enabled():
+        load_ms = (t_load_end - t_load_start) * 1000.0
+        select_ms = (t_page_end - t_page_start) * 1000.0
+        total_ms = (t1 - t0) * 1000.0
+        response.headers["Server-Timing"] = (
+            f"load_json;dur={load_ms:.1f}, "
+            f"select_page;dur={select_ms:.1f}, "
+            f"total;dur={total_ms:.1f}"
+        )
+
+    return response
 
 
 # API: 全文検索（src_joined/trans_text/trans_auto）
