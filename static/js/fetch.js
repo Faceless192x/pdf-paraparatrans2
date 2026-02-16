@@ -889,6 +889,213 @@ function openDataExportDialog() {
     if (!dialog) return;
     dialog.style.display = 'flex';
     updateDataExportFieldState();
+    reloadDictSelection();
+}
+
+
+function openDictMaintenance() {
+    const pdfNameParam = window.pdfName ? `?pdf_name=${encodeURIComponent(window.pdfName)}` : '';
+    window.open(`/dict_maintenance${pdfNameParam}`, '_blank', 'noopener');
+}
+
+function openDictMaintenanceForPath(dictPath) {
+    if (!dictPath) {
+        openDictMaintenance();
+        return;
+    }
+    const pdfNameParam = window.pdfName ? `&pdf_name=${encodeURIComponent(window.pdfName)}` : '';
+    const url = `/dict_maintenance?dict_path=${encodeURIComponent(dictPath)}${pdfNameParam}`;
+    window.open(url, '_blank', 'noopener');
+}
+
+const dictSelectionState = {
+    configDicts: [],
+    bookDict: null,
+    selectedPaths: [],
+};
+
+function setDictSelectionStatus(message, isError = false) {
+    const status = document.getElementById('dictSelectionStatus');
+    if (!status) return;
+    status.textContent = message || '';
+    status.style.color = isError ? '#b00020' : '#0a7a0a';
+}
+
+function getDictSelectionItems() {
+    const items = [];
+    dictSelectionState.configDicts.forEach((item) => {
+        if (!item?.path) return;
+        items.push({
+            path: item.path,
+            label: item.label || item.path,
+        });
+    });
+    if (dictSelectionState.bookDict?.path) {
+        items.push({
+            path: dictSelectionState.bookDict.path,
+            label: dictSelectionState.bookDict.label || dictSelectionState.bookDict.path,
+        });
+    }
+    return items;
+}
+
+function moveSelectedDict(path, delta) {
+    const idx = dictSelectionState.selectedPaths.indexOf(path);
+    if (idx < 0) return;
+    const next = idx + delta;
+    if (next < 0 || next >= dictSelectionState.selectedPaths.length) return;
+    const temp = dictSelectionState.selectedPaths[idx];
+    dictSelectionState.selectedPaths[idx] = dictSelectionState.selectedPaths[next];
+    dictSelectionState.selectedPaths[next] = temp;
+    renderDictSelection();
+}
+
+function toggleSelectedDict(path, checked) {
+    const idx = dictSelectionState.selectedPaths.indexOf(path);
+    if (checked && idx < 0) {
+        dictSelectionState.selectedPaths.push(path);
+    } else if (!checked && idx >= 0) {
+        dictSelectionState.selectedPaths.splice(idx, 1);
+    }
+    renderDictSelection();
+}
+
+function renderDictSelection() {
+    const container = document.getElementById('dictSelectionList');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const items = getDictSelectionItems();
+    if (!items.length) {
+        const empty = document.createElement('div');
+        empty.textContent = '辞書がありません';
+        container.appendChild(empty);
+        return;
+    }
+
+    const selectedSet = new Set(dictSelectionState.selectedPaths);
+    const selectedItems = dictSelectionState.selectedPaths.map((path) => {
+        const item = items.find((entry) => entry.path === path);
+        return item || { path, label: path };
+    });
+    const unselectedItems = items.filter((item) => !selectedSet.has(item.path));
+
+    selectedItems.forEach((item, index) => {
+        const row = document.createElement('div');
+        row.className = 'dict-selection-row';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = true;
+        checkbox.addEventListener('change', (e) => {
+            toggleSelectedDict(item.path, e.target.checked);
+        });
+
+        const label = document.createElement('span');
+        label.className = 'dict-selection-label';
+        label.textContent = item.label;
+
+        const actions = document.createElement('span');
+        actions.className = 'dict-selection-actions';
+
+        const upButton = document.createElement('button');
+        upButton.type = 'button';
+        upButton.textContent = '↑';
+        upButton.disabled = index === 0;
+        upButton.addEventListener('click', () => moveSelectedDict(item.path, -1));
+
+        const downButton = document.createElement('button');
+        downButton.type = 'button';
+        downButton.textContent = '↓';
+        downButton.disabled = index === selectedItems.length - 1;
+        downButton.addEventListener('click', () => moveSelectedDict(item.path, 1));
+
+        actions.appendChild(upButton);
+        actions.appendChild(downButton);
+
+        const editButton = document.createElement('button');
+        editButton.type = 'button';
+        editButton.textContent = '編集';
+        editButton.addEventListener('click', () => openDictMaintenanceForPath(item.path));
+
+        row.appendChild(checkbox);
+        row.appendChild(label);
+        row.appendChild(actions);
+        row.appendChild(editButton);
+        container.appendChild(row);
+    });
+
+    unselectedItems.forEach((item) => {
+        const row = document.createElement('div');
+        row.className = 'dict-selection-row';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = false;
+        checkbox.addEventListener('change', (e) => {
+            toggleSelectedDict(item.path, e.target.checked);
+        });
+
+        const label = document.createElement('span');
+        label.className = 'dict-selection-label';
+        label.textContent = item.label;
+
+        const editButton = document.createElement('button');
+        editButton.type = 'button';
+        editButton.textContent = '編集';
+        editButton.addEventListener('click', () => openDictMaintenanceForPath(item.path));
+
+        row.appendChild(checkbox);
+        row.appendChild(label);
+        row.appendChild(editButton);
+        container.appendChild(row);
+    });
+}
+
+async function reloadDictSelection() {
+    if (!window.pdfName) return;
+    setDictSelectionStatus('読み込み中...', false);
+    try {
+        const response = await fetch(`/api/dict/selection/${encodePdfNamePath(pdfName)}`);
+        const data = await response.json();
+        if (!response.ok || data.status !== 'ok') {
+            throw new Error(data.message || `辞書一覧の取得に失敗しました (${response.status})`);
+        }
+        dictSelectionState.configDicts = Array.isArray(data.config_dicts) ? data.config_dicts : [];
+        dictSelectionState.bookDict = data.book_dict || null;
+        dictSelectionState.selectedPaths = Array.isArray(data.selected_paths) ? data.selected_paths : [];
+        renderDictSelection();
+        setDictSelectionStatus('読み込み完了', false);
+    } catch (error) {
+        console.error('dict selection load error:', error);
+        setDictSelectionStatus(String(error), true);
+    }
+}
+
+async function saveDictSelection() {
+    if (!window.pdfName) return;
+    setDictSelectionStatus('保存中...', false);
+    try {
+        const response = await fetch(`/api/dict/selection/${encodePdfNamePath(pdfName)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                dict_paths: dictSelectionState.selectedPaths,
+            }),
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== 'ok') {
+            throw new Error(data.message || `保存に失敗しました (${response.status})`);
+        }
+        dictSelectionState.selectedPaths = Array.isArray(data.selected_paths) ? data.selected_paths : dictSelectionState.selectedPaths;
+        renderDictSelection();
+        setDictSelectionStatus('保存しました', false);
+    } catch (error) {
+        console.error('dict selection save error:', error);
+        setDictSelectionStatus(String(error), true);
+    }
 }
 
 

@@ -119,7 +119,10 @@ const DictPopup = {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ word: word }),
+                body: JSON.stringify({
+                    word: word,
+                    pdf_name: window.pdfName || "",
+                }),
             });
 
             const data = await response.json();
@@ -161,6 +164,7 @@ const DictPopup = {
                     original_word: originalWord,
                     translated_word: translatedWord,
                     status: status,
+                    pdf_name: window.pdfName || "",
                 }),
             });
 

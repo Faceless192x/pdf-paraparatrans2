@@ -2,19 +2,14 @@ Temple of the Reaching Storm	昇嵐の寺院	0	0
 Empire of the Wyrms Friends	ワームの友邦帝国	0	0
 Lunar Field School of Magic	ルナー野戦魔術学校	0	0
 Temple of the Reaching Moon	昇月の寺院	0	0
-Darknessdadamixenthidehori	Darknessdadamixenthidehori	9	0
-Watersramakimanthiveredthi	Watersramakimanthiveredthi	9	0
 The Company of The Dragon	竜の結社	0	0
 Path of Immanent Mastary	内的到達への道	0	0
 Battle of Falling Hills	落ちる丘の戦い	0	0
 Lunar Colledge of Magic	ルナー魔術学院	0	0
 White Bear and Red Moon	白い熊と赤い月	0	0
 Black Dragon Mountains	黒竜山脈	0	0
-Firepromaltiurzanisali	Firepromaltiurzanisali	9	0
-Airworliumbrolikolati	Airworliumbrolikolati	9	0
 Caladora and Aurelion	カラドラとオーレリオン	0	0
 Company of The Dragon	竜の結社	0	0
-Earthlikititalosigati	Earthlikititalosigati	9	0
 Feathered Horse Queen	羽馬の女王	0	0
 Field School of Magic	野戦魔術学校	0	0
 Temple of Lhankor Mhy	ランカー・マイ寺院	0	0
@@ -32,8 +27,6 @@ Conquering Daughter	征服の娘	0	0
 Empire of Kralorela	クラロレラ帝国	0	0
 God Learners Empire	神知者帝国	0	0
 King of Dragon Pass	ドラゴン・パス王	0	0
-Kostarankarujahobbi	Kostarankarujahobbi	9	0
-Reconstructionalist	Reconstructionalist	9	0
 Shan Shan Mountains	シャン＝シャン山脈	0	0
 Temple of Maran Gor	マーラン・ゴア寺院	0	0
 White Bull Brothers	白い雄牛の兄弟	0	0
@@ -71,14 +64,10 @@ Great Compromise	大いなる盟約	0	0
 Gunda the Guilty	罪深きグンダ	0	0
 Hwarin Dalthippa	フワーレン・ダールシッパ	0	0
 Kerofin Mountain	ケロ・フィン山	0	0
-Kuochilinglishen	Kuochilinglishen	9	0
 Lady of the Wild	野の姫	0	0
 Lunar University	ルナー大学	0	0
-Palramanttenbara	Palramanttenbara	9	0
 Quivin Mountains	クイヴィン山脈	0	0
-Rathmorasomangon	Rathmorasomangon	9	0
 River of Cradles	ゆりかご河	0	0
-Shibberacavarack	Shibberacavarack	9	0
 Snakepipe Hollow	スネークパイプ・ホロウ	0	0
 Theyalan Council	ゼイヤラン評議会	0	0
 Thunder Brothers	雷鳴の兄弟	0	0
@@ -87,10 +76,7 @@ beaked dragonewt	くちばしドラゴニュート	0	0
 gifts and geases	加護と制約	0	0
 otherworld magic	異界魔術	0	0
 warrior trollkin	戦士トロウルキン	0	0
-Araliastomachia	Araliastomachia	9	0
-Archaeoceratops	Archaeoceratops	9	0
 Battle of Pavis	パヴィスの戦い	0	0
-Daughtersdotter	Daughtersdotter	9	0
 Flame of Sartar	サーターの炎	0	0
 Forbidden Woods	禁断の森	0	0
 Hykim and Mykyh	ハイキムとミキュー	0	0
@@ -98,8 +84,6 @@ Kallyr Starbrow	カリル・スターブロウ	0	0
 Larnste's Print	ラーンステイの足跡	0	0
 Larnste's Table	ラーンステイの卓子	0	0
 Lesser Darkness	小暗黒	0	0
-Navigationalism	Navigationalism	9	0
-Navigationalist	Navigationalist	9	0
 Nidan Mountains	ニーダン山脈	0	0
 Night of Horror	恐怖の夜	0	0
 Oceanic Closing	大閉鎖	0	0
@@ -109,7 +93,6 @@ Ring of Dragons	竜の輪	0	0
 Ring of Kheldon	ケルドンの輪	0	0
 Ring of Orlanth	オーランスの環	0	0
 RuneQuest Sight	ルーンクエストの眼	0	0
-Southwesterlies	Southwesterlies	9	0
 Spiral Mountain	渦巻山	0	0
 Stinking Forest	忌まわしの森	0	0
 Storm Bull Wind	ストーム・ブルの風	0	0
@@ -117,13 +100,11 @@ Two-Year Winter	２年の冬	0	0
 Yanafal Tarnils	ヤーナファル・ターニルズ	0	0
 worker trollkin	労働者トロウルキン	0	0
 Aeolian Church	アイオロス教会	0	0
-Akadrianolisto	Akadrianolisto	9	0
 Arachne Solara	アラクニー・ソラーラ	0	0
 Atroxic Church	アトロクス教会	0	0
-Caladralanders	Caladralanders	9	0
+Caladralanders	カラドラランド人	0	0
 Castle of Lead	鉛の城	0	0
 Dagori Inkarth	ダゴーリ・インカース	0	0
-Discorporation	Discorporation	9	1
 Dragon Emperor	竜帝	0	0
 Dueling Island	決闘の島	0	0
 Dyrirestolskit	Dyrirestolskit	9	0

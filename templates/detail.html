@@ -196,6 +196,18 @@
           </div>
           <div id="dataExportStatus" class="data-export-status"></div>
         </div>
+        <div class="data-export-dialog__section">
+          <div class="data-export-dialog__section-title">辞書</div>
+          <div class="data-export-dialog__row">
+            <button type="button" class="btn-step btn-step-export" onclick="openDictMaintenance()">対訳辞書メンテナンス</button>
+          </div>
+          <div class="data-export-dialog__row">
+            <button type="button" class="btn-step btn-step-export" onclick="reloadDictSelection()">辞書一覧更新</button>
+            <button type="button" class="btn-step btn-step-export" onclick="saveDictSelection()">適用辞書を保存</button>
+          </div>
+          <div id="dictSelectionStatus" class="data-export-status"></div>
+          <div id="dictSelectionList" class="dict-selection-list"></div>
+        </div>
       </div>
     </div>
   <script src="{{ url_for('static', filename='js/pdf-name.js') }}"></script>

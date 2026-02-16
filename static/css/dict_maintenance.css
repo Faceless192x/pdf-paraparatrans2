@@ -1,0 +1,161 @@
+.dict-maintenance {
+    min-height: 100vh;
+}
+
+html,
+body {
+    height: auto;
+    overflow: auto;
+}
+
+.dict-maintenance {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.dict-maintenance__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.dict-maintenance__title {
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+
+.dict-maintenance__actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.dict-maintenance__back {
+    text-decoration: none;
+    padding: 4px 8px;
+    border: 1px solid #aaa;
+    border-radius: 4px;
+    color: inherit;
+    background: #f3f3f3;
+}
+
+.dict-maintenance__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.dict-maintenance__toolbar select {
+    min-width: 220px;
+}
+
+.dict-maintenance__toolbar button {
+    white-space: nowrap;
+}
+
+.dict-maintenance__count {
+    margin-left: auto;
+    color: #555;
+}
+
+.dict-maintenance__status {
+    min-height: 1.2em;
+    color: #0a7a0a;
+    word-break: break-word;
+}
+
+.dict-maintenance__table-wrap {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+}
+
+.dict-maintenance__table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 680px;
+}
+
+.dict-maintenance__table th:first-child,
+.dict-maintenance__table td:first-child {
+    width: 32px;
+    text-align: center;
+}
+
+.dict-maintenance__table th,
+.dict-maintenance__table td {
+    border-bottom: 1px solid #ddd;
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: middle;
+}
+
+.dict-maintenance__table th {
+    background: #f6f6f6;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.dict-maintenance__input {
+    width: 100%;
+    min-width: 120px;
+    box-sizing: border-box;
+}
+
+.dict-maintenance__count-input {
+    width: 80px;
+}
+
+.dict-maintenance__compare {
+    font-size: 0.9em;
+    color: #444;
+}
+
+.dict-maintenance__compare.is-empty {
+    color: #888;
+}
+
+.dict-maintenance__delete {
+    white-space: nowrap;
+}
+
+@media (prefers-color-scheme: dark) {
+    .dict-maintenance__back {
+        background: #222;
+        border-color: #444;
+    }
+
+    .dict-maintenance__count {
+        color: #bbb;
+    }
+
+    .dict-maintenance__table-wrap {
+        border-color: #444;
+    }
+
+    .dict-maintenance__table th {
+        background: #1f1f1f;
+    }
+
+    .dict-maintenance__table th,
+    .dict-maintenance__table td {
+        border-color: #333;
+    }
+
+    .dict-maintenance__compare {
+        color: #bbb;
+    }
+
+    .dict-maintenance__compare.is-empty {
+        color: #666;
+    }
+}

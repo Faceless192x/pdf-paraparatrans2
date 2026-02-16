@@ -91,6 +91,7 @@ from modules.parapara_align_trans_by_src_joined import (
     align_translations_by_src_joined_collect_pages,
 )
 from modules.settings_sync import (
+    load_settings,
     lazy_sync_settings_from_json_files,
     save_settings,
     sync_one_pdf_settings_from_json,
@@ -1446,13 +1447,19 @@ def dict_replace_page_api(pdf_name):
     end_page = request.form.get("end_page", type=int)
     if not pdf_name or start_page is None or end_page is None:
         return jsonify({"status": "error", "message": "pdf_name, start_page, end_page は必須です"}), 400
-    if not os.path.exists(DICT_PATH):
-        return jsonify({"status": "error", "message": "dict.txtが存在しません2"}), 404
     pdf_path, json_path = get_paths(pdf_name)
     if not os.path.exists(json_path):
         return jsonify({"status": "error", "message": "対象のJSONファイルが存在しません"}), 404
     try:
-        book_data = file_replace_with_dict(json_path, DICT_PATH, start_page, end_page)
+        dict_paths = _get_active_dict_paths(pdf_name)
+        merged_path = _merged_dict_file(dict_paths)
+        try:
+            book_data = file_replace_with_dict(json_path, merged_path, start_page, end_page)
+        finally:
+            try:
+                os.remove(merged_path)
+            except OSError:
+                pass
 
         pages_delta = {}
         pages = (book_data or {}).get("pages", {}) or {}
@@ -1850,8 +1857,9 @@ def dict_create_api(pdf_name):
     if not os.path.exists(json_path):
         return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
     try:
-        print("DICT_PATH" + DICT_PATH)
-        dict_create(json_path, DICT_PATH, COMMON_WORDS_PATH)
+        dict_path = _get_primary_dict_path(pdf_name)
+        _ensure_dict_file(dict_path)
+        dict_create(json_path, dict_path, COMMON_WORDS_PATH)
     except Exception as e:
         return jsonify({"status": "error", "message": f"辞書生成エラー: {str(e)}"}), 500
     return jsonify({"status": "ok", "message": "辞書生成完了"}), 200
@@ -1862,8 +1870,13 @@ def dict_trans_api(pdf_name):
     if not os.path.exists(json_path):
         return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
     try:
-        print("DICT_PATH" + DICT_PATH)
-        dict_trans(DICT_PATH)
+        dict_paths = _get_active_dict_paths(pdf_name)
+        if not dict_paths:
+            dict_paths = [DICT_PATH]
+        for path in dict_paths:
+            if not os.path.exists(path):
+                continue
+            dict_trans(path)
     except Exception as e:
         return jsonify({"status": "error", "message": f"辞書翻訳エラー: {str(e)}"}), 500
     return jsonify({"status": "ok", "message": "辞書翻訳完了"}), 200
@@ -2235,6 +2248,423 @@ def save_dict(dict_path, dict_data):
     os.replace(tmp_path, dict_path)
 
 
+_DICT_HEADER = "#英語\t#日本語\t#状態\t#出現回数\n"
+
+
+def _normalize_rel_path(path: str) -> str:
+    if not isinstance(path, str):
+        return ""
+    normalized = path.replace("\\", "/").strip("/")
+    if not normalized:
+        return ""
+    parts = [p for p in normalized.split("/") if p]
+    if any(p in (".", "..") for p in parts):
+        return ""
+    return "/".join(parts)
+
+
+def _relpath_from_abs(path: str) -> str:
+    rel = os.path.relpath(path, APP_DIR)
+    return rel.replace("\\", "/")
+
+
+def _resolve_rel_path(rel_path: str) -> str:
+    normalized = _normalize_rel_path(rel_path)
+    if not normalized:
+        raise ValueError("invalid path")
+    abs_path = os.path.abspath(os.path.join(APP_DIR, normalized))
+    if os.path.commonpath([APP_DIR, abs_path]) != APP_DIR:
+        raise ValueError("path escapes app dir")
+    return abs_path
+
+
+def _get_book_dict_paths(pdf_name: str) -> tuple[str, str]:
+    pdf_path, _ = get_paths(pdf_name)
+    book_dict_path = os.path.splitext(pdf_path)[0] + ".dict.txt"
+    return book_dict_path, _relpath_from_abs(book_dict_path)
+
+
+def _list_config_dicts() -> list[dict]:
+    dicts = []
+    try:
+        entries = os.listdir(CONFIG_FOLDER)
+    except OSError:
+        return dicts
+
+    for name in entries:
+        lower = name.lower()
+        if lower in ("symbolfont_dict.txt", "symbolfonts.txt"):
+            continue
+        if not (lower == "dict.txt" or lower.endswith(".dict.txt")):
+            continue
+        abs_path = os.path.join(CONFIG_FOLDER, name)
+        if not os.path.isfile(abs_path):
+            continue
+        rel_path = _relpath_from_abs(abs_path)
+        dicts.append({"path": rel_path, "label": name})
+
+    dicts.sort(key=lambda d: d["label"].lower())
+    return dicts
+
+
+def _list_book_dicts() -> list[dict]:
+    dicts = []
+    for root, dirs, files in os.walk(DATA_FOLDER):
+        dirs[:] = [d for d in dirs if not _should_skip_dir(d)]
+        for name in files:
+            if not name.lower().endswith(".dict.txt"):
+                continue
+            abs_path = os.path.join(root, name)
+            if not os.path.isfile(abs_path):
+                continue
+            rel_path = _relpath_from_abs(abs_path)
+            dicts.append({"path": rel_path, "label": rel_path})
+    dicts.sort(key=lambda d: d["label"].lower())
+    return dicts
+
+
+def _default_dict_selection() -> list[str]:
+    if os.path.exists(DICT_PATH):
+        return [_relpath_from_abs(DICT_PATH)]
+    return []
+
+
+def _load_dict_selection(pdf_name: str) -> list[str]:
+    settings_path = os.path.join(DATA_FOLDER, "paraparatrans.settings.json")
+    settings = load_settings(settings_path)
+    entry = settings.get("files", {}).get(pdf_name, {})
+    selected = entry.get("dict_paths")
+    if not isinstance(selected, list):
+        return _default_dict_selection()
+    normalized = []
+    seen = set()
+    for item in selected:
+        norm = _normalize_rel_path(str(item))
+        if not norm or norm in seen:
+            continue
+        normalized.append(norm)
+        seen.add(norm)
+    return normalized or _default_dict_selection()
+
+
+def _save_dict_selection(pdf_name: str, dict_paths: list[str]) -> None:
+    settings_path = os.path.join(DATA_FOLDER, "paraparatrans.settings.json")
+    settings = load_settings(settings_path)
+    files = settings.setdefault("files", {})
+    entry = files.get(pdf_name)
+    if not isinstance(entry, dict):
+        entry = {}
+        files[pdf_name] = entry
+    entry["dict_paths"] = dict_paths
+    save_settings(settings_path, settings, indent=4)
+
+
+def _ensure_dict_file(path: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if not os.path.exists(path):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(_DICT_HEADER)
+
+
+def _merged_dict_file(dict_paths: list[str]) -> str:
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=CONFIG_FOLDER, suffix=".dict.txt", text=True)
+    with os.fdopen(tmp_fd, "w", encoding="utf-8") as out:
+        out.write(_DICT_HEADER)
+        for path in dict_paths:
+            if not os.path.exists(path):
+                continue
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip() or line.lstrip().startswith("#"):
+                        continue
+                    out.write(line)
+    return tmp_path
+
+
+def _find_dict_entry(dict_data: list[list], word: str):
+    if not word:
+        return None
+    # 1. 状態0 (大文字小文字区別) で一致
+    for entry in dict_data:
+        if entry[2] == 0 and entry[0] == word:
+            return entry
+    # 2. 状態1 (大文字小文字区別しない) で一致
+    for entry in dict_data:
+        if entry[2] == 1 and entry[0].lower() == word.lower():
+            return entry
+    # 3. その他
+    for entry in dict_data:
+        if entry[2] not in [0, 1] and entry[0].lower() == word.lower():
+            return entry
+    return None
+
+
+def _get_active_dict_paths(pdf_name: str) -> list[str]:
+    selected_rel = _load_dict_selection(pdf_name)
+    abs_paths = []
+    for rel in selected_rel:
+        try:
+            abs_paths.append(_resolve_rel_path(rel))
+        except ValueError:
+            continue
+    if not abs_paths:
+        abs_paths = [DICT_PATH]
+    return abs_paths
+
+
+def _get_primary_dict_path(pdf_name: str) -> str:
+    selected = _get_active_dict_paths(pdf_name)
+    return selected[-1] if selected else DICT_PATH
+
+
+@app.route("/dict_maintenance")
+def dict_maintenance_page():
+    return render_template("dict_maintenance.html")
+
+
+@app.route("/api/dict/list", methods=["GET"])
+def dict_list_api():
+    dict_path = request.args.get("dict_path") or ""
+    if dict_path:
+        try:
+            dict_path = _resolve_rel_path(dict_path)
+        except ValueError:
+            return jsonify({"status": "error", "message": "dict_path が不正です"}), 400
+    else:
+        dict_path = DICT_PATH
+
+    dict_data = load_dict(dict_path)
+    entries = []
+    for entry in dict_data:
+        count = entry[3] if len(entry) > 3 else 0
+        entries.append(
+            {
+                "original_word": entry[0],
+                "translated_word": entry[1],
+                "status": entry[2],
+                "count": count,
+            }
+        )
+    return jsonify({"status": "ok", "entries": entries, "dict_path": _relpath_from_abs(dict_path)}), 200
+
+
+@app.route("/api/dict/bulk_update", methods=["POST"])
+def dict_bulk_update_api():
+    payload = request.get_json(silent=True) or {}
+    entries = payload.get("entries")
+    dict_path = payload.get("dict_path") or ""
+    if not isinstance(entries, list):
+        return jsonify({"status": "error", "message": "entries が配列ではありません"}), 400
+
+    if dict_path:
+        try:
+            dict_path = _resolve_rel_path(dict_path)
+        except ValueError:
+            return jsonify({"status": "error", "message": "dict_path が不正です"}), 400
+    else:
+        dict_path = DICT_PATH
+
+    new_data = []
+    for idx, entry in enumerate(entries, start=1):
+        if not isinstance(entry, dict):
+            return jsonify({"status": "error", "message": f"{idx} 行目の形式が不正です"}), 400
+        original_word = str(entry.get("original_word") or "").strip()
+        if not original_word:
+            return jsonify({"status": "error", "message": f"{idx} 行目の原語が空です"}), 400
+        translated_word = str(entry.get("translated_word") or "").strip()
+        try:
+            status = int(entry.get("status", 0))
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": f"{idx} 行目の状態が不正です"}), 400
+        try:
+            count = int(entry.get("count", 0))
+        except (TypeError, ValueError):
+            count = 0
+        if count < 0:
+            count = 0
+
+        new_data.append([original_word, translated_word, status, count])
+
+    os.makedirs(os.path.dirname(dict_path), exist_ok=True)
+    try:
+        save_dict(dict_path, new_data)
+        return jsonify({"status": "ok", "count": len(new_data)}), 200
+    except Exception as e:
+        app.logger.error(f"辞書ファイル書き込みエラー: {str(e)}")
+        return jsonify({"status": "error", "message": f"辞書ファイル書き込みエラー: {str(e)}"}), 500
+
+
+@app.route("/api/dict/catalog", methods=["GET"])
+def dict_catalog_api():
+    config_dicts = _list_config_dicts()
+    book_dicts = _list_book_dicts()
+    all_dicts = config_dicts + [d for d in book_dicts if d["path"] not in {c["path"] for c in config_dicts}]
+    default_path = _relpath_from_abs(DICT_PATH) if os.path.exists(DICT_PATH) else (all_dicts[0]["path"] if all_dicts else "")
+    return jsonify({"status": "ok", "dicts": all_dicts, "default_path": default_path}), 200
+
+
+@app.route("/api/dict/compare", methods=["GET"])
+def dict_compare_api():
+    dict_path = request.args.get("dict_path") or ""
+    if not dict_path:
+        return jsonify({"status": "error", "message": "dict_path が必要です"}), 400
+    try:
+        dict_abs = _resolve_rel_path(dict_path)
+    except ValueError:
+        return jsonify({"status": "error", "message": "dict_path が不正です"}), 400
+
+    dict_data = load_dict(dict_abs)
+    entries = {}
+    for entry in dict_data:
+        key = entry[0]
+        status = entry[2]
+        entries[key] = {
+            "translated_word": entry[1],
+            "status": status,
+        }
+
+    return jsonify({"status": "ok", "entries": entries, "dict_path": _relpath_from_abs(dict_abs)}), 200
+
+
+@app.route("/api/dict/create_book/<path:pdf_name>", methods=["POST"])
+def dict_create_book_api(pdf_name):
+    _, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
+
+    book_abs, book_rel = _get_book_dict_paths(pdf_name)
+    COMMON_WORDS_PATH = get_resource_path(os.path.join("modules", "english_common_words.txt"))
+    try:
+        _ensure_dict_file(book_abs)
+        dict_create(json_path, book_abs, COMMON_WORDS_PATH)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"辞書生成エラー: {str(e)}"}), 500
+
+    return jsonify({"status": "ok", "dict_path": book_rel}), 200
+
+
+@app.route("/api/dict/transfer", methods=["POST"])
+def dict_transfer_api():
+    payload = request.get_json(silent=True) or {}
+    action = str(payload.get("action") or "").lower()
+    source_path = payload.get("source_path") or ""
+    target_path = payload.get("target_path") or ""
+    entries = payload.get("entries")
+
+    if action not in {"move", "copy", "delete"}:
+        return jsonify({"status": "error", "message": "action が不正です"}), 400
+    if not isinstance(entries, list) or not entries:
+        return jsonify({"status": "error", "message": "entries が空です"}), 400
+
+    try:
+        source_abs = _resolve_rel_path(source_path) if source_path else DICT_PATH
+    except ValueError:
+        return jsonify({"status": "error", "message": "source_path が不正です"}), 400
+
+    target_abs = None
+    if action in {"move", "copy"}:
+        try:
+            target_abs = _resolve_rel_path(target_path) if target_path else None
+        except ValueError:
+            return jsonify({"status": "error", "message": "target_path が不正です"}), 400
+        if not target_abs:
+            return jsonify({"status": "error", "message": "target_path が必要です"}), 400
+
+    _ensure_dict_file(source_abs)
+    source_data = load_dict(source_abs)
+    target_data = load_dict(target_abs) if target_abs else []
+
+    source_map = {entry[0]: entry for entry in source_data}
+    target_map = {entry[0]: entry for entry in target_data}
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        key = str(entry.get("original_word") or "").strip()
+        if not key:
+            continue
+        value = str(entry.get("translated_word") or "")
+        try:
+            status = int(entry.get("status", 0))
+        except (TypeError, ValueError):
+            status = 0
+        try:
+            count = int(entry.get("count", 0))
+        except (TypeError, ValueError):
+            count = 0
+
+        if action in {"move", "copy"} and target_abs:
+            target_map[key] = [key, value, status, count]
+        if action in {"move", "delete"}:
+            source_map.pop(key, None)
+
+    source_data = list(source_map.values())
+    target_data = list(target_map.values())
+
+    try:
+        save_dict(source_abs, source_data)
+        if target_abs:
+            save_dict(target_abs, target_data)
+    except Exception as e:
+        app.logger.error(f"辞書ファイル書き込みエラー: {str(e)}")
+        return jsonify({"status": "error", "message": f"辞書ファイル書き込みエラー: {str(e)}"}), 500
+
+    return jsonify({"status": "ok", "message": "更新しました"}), 200
+
+
+@app.route("/api/dict/selection/<path:pdf_name>", methods=["GET"])
+def dict_selection_get_api(pdf_name):
+    config_dicts = _list_config_dicts()
+    book_abs, book_rel = _get_book_dict_paths(pdf_name)
+    selected = _load_dict_selection(pdf_name)
+    return jsonify(
+        {
+            "status": "ok",
+            "config_dicts": config_dicts,
+            "book_dict": {
+                "path": book_rel,
+                "label": os.path.basename(book_rel),
+                "exists": os.path.exists(book_abs),
+            },
+            "selected_paths": selected,
+        }
+    ), 200
+
+
+@app.route("/api/dict/selection/<path:pdf_name>", methods=["POST"])
+def dict_selection_save_api(pdf_name):
+    payload = request.get_json(silent=True) or {}
+    dict_paths = payload.get("dict_paths")
+    if not isinstance(dict_paths, list):
+        return jsonify({"status": "error", "message": "dict_paths が配列ではありません"}), 400
+
+    config_dicts = _list_config_dicts()
+    book_abs, book_rel = _get_book_dict_paths(pdf_name)
+    allowed = {d["path"].lower(): d["path"] for d in config_dicts}
+    allowed[book_rel.lower()] = book_rel
+
+    selected = []
+    seen = set()
+    for item in dict_paths:
+        norm = _normalize_rel_path(str(item))
+        if not norm:
+            continue
+        key = norm.lower()
+        if key not in allowed or key in seen:
+            continue
+        selected.append(allowed[key])
+        seen.add(key)
+
+    if not selected:
+        selected = _default_dict_selection()
+
+    if book_rel.lower() in {p.lower() for p in selected}:
+        _ensure_dict_file(book_abs)
+
+    _save_dict_selection(pdf_name, selected)
+    return jsonify({"status": "ok", "selected_paths": selected}), 200
+
+
 def atomicsave_json(json_path, data):
     tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(json_path), suffix=".tmp", text=True)
     with os.fdopen(tmp_fd, "w", encoding="utf-8") as tmp_file:
@@ -2244,35 +2674,20 @@ def atomicsave_json(json_path, data):
 # API: 単語辞書検索
 @app.route("/api/dict/search", methods=["POST"])
 def dict_search_api():
-    data = request.get_json()
+    data = request.get_json() or {}
     word = data.get("word")
+    pdf_name = data.get("pdf_name")
 
     if not word:
         return jsonify({"status": "error", "message": "単語が指定されていません"}), 400
 
-    dict_data = load_dict(DICT_PATH)
     found_entry = None
-
-    # 検索ロジック
-    # 1. 状態0 (大文字小文字区別) で一致
-    for entry in dict_data:
-        if entry[2] == 0 and entry[0] == word:
-            found_entry = entry
+    dict_paths = _get_active_dict_paths(pdf_name) if pdf_name else [DICT_PATH]
+    for path in reversed(dict_paths):
+        dict_data = load_dict(path)
+        found_entry = _find_dict_entry(dict_data, word)
+        if found_entry:
             break
-
-    # 2. 状態0で見つからず、状態1 (大文字小文字区別しない) で一致
-    if found_entry is None:
-        for entry in dict_data:
-            if entry[2] == 1 and entry[0].lower() == word.lower():
-                found_entry = entry
-                break
-
-    # 3. それ以外の状態で一致 (最初のマッチを採用)
-    if found_entry is None:
-        for entry in dict_data:
-            if entry[2] not in [0, 1] and entry[0].lower() == word.lower(): # ここも大文字小文字区別しない検索にするか要検討。今回は区別しない方向で。
-                 found_entry = entry
-                 break
 
 
     if found_entry:
@@ -2296,65 +2711,63 @@ def dict_search_api():
 # API: 単語辞書更新
 @app.route("/api/dict/update", methods=["POST"])
 def dict_update_api():
-    data = request.get_json()
+    data = request.get_json() or {}
     original_word = data.get("original_word")
     translated_word = data.get("translated_word")
     status = data.get("status", 0) # 状態の既定値は0
+    pdf_name = data.get("pdf_name")
 
     if not original_word:
         return jsonify({"status": "error", "message": "原語が指定されていません"}), 400
 
-    dict_data = load_dict(DICT_PATH)
+    dict_paths = _get_active_dict_paths(pdf_name) if pdf_name else [DICT_PATH]
+    target_path = None
+    for path in reversed(dict_paths):
+        if _find_dict_entry(load_dict(path), original_word):
+            target_path = path
+            break
+    if target_path is None:
+        target_path = dict_paths[-1] if dict_paths else DICT_PATH
+
+    _ensure_dict_file(target_path)
+    dict_data = load_dict(target_path)
     updated = False
 
-    # 既存エントリの検索と更新
-    # 検索ロジックはsearchと同様の優先順位
     found_index = -1
-
-    # 1. 状態0 (大文字小文字区別) で一致
     for i, entry in enumerate(dict_data):
         if entry[2] == 0 and entry[0] == original_word:
             found_index = i
             break
-
-    # 2. 状態0で見つからず、状態1 (大文字小文字区別しない) で一致
     if found_index == -1:
         for i, entry in enumerate(dict_data):
             if entry[2] == 1 and entry[0].lower() == original_word.lower():
                 found_index = i
                 break
-
-    # 3. それ以外の状態で一致 (最初のマッチを採用)
     if found_index == -1:
-         for i, entry in enumerate(dict_data):
+        for i, entry in enumerate(dict_data):
             if entry[2] not in [0, 1] and entry[0].lower() == original_word.lower():
-                 found_index = i
-                 break
-
+                found_index = i
+                break
 
     if found_index != -1:
-        # 既存エントリを更新
         dict_data[found_index][1] = translated_word
         dict_data[found_index][2] = status
-        # 出現回数はそのまま
         updated = True
         app.logger.info(f"辞書更新: '{original_word}' -> '{translated_word}' (状態: {status})")
     else:
-        # 新規エントリを追加
-        dict_data.append([original_word, translated_word, status, 0]) # 新規なので出現回数は0
+        dict_data.append([original_word, translated_word, status, 0])
         updated = True
         app.logger.info(f"辞書新規登録: '{original_word}' -> '{translated_word}' (状態: {status})")
 
     if updated:
         try:
-            save_dict(DICT_PATH, dict_data)
+            save_dict(target_path, dict_data)
             return jsonify({"status": "ok", "message": "辞書が更新されました"}), 200
         except Exception as e:
             app.logger.error(f"辞書ファイル書き込みエラー: {str(e)}")
             return jsonify({"status": "error", "message": f"辞書ファイル書き込みエラー: {str(e)}"}), 500
-    else:
-        # 更新が不要な場合（ありえないはずだが念のため）
-        return jsonify({"status": "ok", "message": "辞書に変更はありません"}), 200
+
+    return jsonify({"status": "ok", "message": "辞書に変更はありません"}), 200
 
 # PDFビューアーがChromeで読み込めなかったときに対策として入れてみた。
 # キャッシュクリアで治ったのでコメントアウト化。
