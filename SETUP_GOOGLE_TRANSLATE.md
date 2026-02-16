@@ -45,7 +45,7 @@ APIキーが漏れると第三者に使われる可能性があります。可�
 
 ### 4. `.env` に設定する
 
-リポジトリ直下の `.env_sample` を `.env` にコピーし、キーを貼り付けます。
+リポジトリ直下の `.env.example` を `.env` にコピーし、キーを貼り付けます。
 
 Codespaces の場合は `.env` を作らず、Codespaces Secrets に `GOOGLE_API_KEY` を登録する運用でもOKです。
 

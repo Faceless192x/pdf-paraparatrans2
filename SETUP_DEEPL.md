@@ -25,7 +25,7 @@
 
 ### 2. `.env` に設定する
 
-リポジトリ直下の `.env_sample` を `.env` にコピーして、以下を設定します。
+リポジトリ直下の `.env.example` を `.env` にコピーして、以下を設定します。
 
 - `TRANSLATOR=deepl`
 - `DEEPL_AUTH_KEY=...`

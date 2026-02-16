@@ -116,14 +116,14 @@
     python -m pip install -r requirements.txt
     ```
 6. 翻訳APIキーを設定（最初はここだけ頑張ればOK）
-    - `.env_sample` を `.env` にコピー
+    - `.env.example` を `.env` にコピー
         - PowerShell:
             ```
-            Copy-Item .env_sample .env
+            Copy-Item .env.example .env
             ```
         - macOS / Linux:
             ```
-            cp .env_sample .env
+            cp .env.example .env
             ```
     - `.env` をメモ帳等で開き、使う翻訳サービスの設定だけを入れる
         - Google（APIキー方式）: `TRANSLATOR=google` と `GOOGLE_API_KEY=...`

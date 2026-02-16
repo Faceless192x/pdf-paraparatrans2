@@ -19,25 +19,16 @@ import re
 sys.path.append(os.path.join(os.path.dirname(__file__), 'modules'))
 
 from dotenv import load_dotenv
-# .envのひな形
-ENV_TEMPLATE = """
-# 使用する翻訳APIをコメントアウトしてください。
-# KEYはコメントアウトしなくても影響ありません。
 
-TRANSLATOR=google
-# TRANSLATOR=deepl
-
-# ※値が空なら未設定扱いです（プレースホルダ文字列は入れないでください）
-GOOGLE_API_KEY=
-DEEPL_AUTH_KEY=
-"""
-
-# .envが存在しない場合にひな形を出力
+# .envが存在しない場合に .env.example から作成
 ENV_PATH = ".env"
+ENV_EXAMPLE_PATH = ".env.example"
 if not os.path.exists(ENV_PATH):
-    print(f".env が存在しません。ひな形を作成します: {ENV_PATH}")
-    with open(ENV_PATH, "w", encoding="utf-8") as f:
-        f.write(ENV_TEMPLATE)
+    if os.path.exists(ENV_EXAMPLE_PATH):
+        print(f".env が存在しません。{ENV_EXAMPLE_PATH} から作成します: {ENV_PATH}")
+        shutil.copyfile(ENV_EXAMPLE_PATH, ENV_PATH)
+    else:
+        print(f"Warning: {ENV_PATH} も {ENV_EXAMPLE_PATH} も存在しません。環境変数が未設定の可能性があります。")
 
 load_dotenv(ENV_PATH)
 
