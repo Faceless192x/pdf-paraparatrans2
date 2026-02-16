@@ -571,4 +571,32 @@ header {
     height: 100%;
 }
 
+#urlPreviewPanel {
+    width: 500px;         /* 初期幅 */
+    flex: 0 0 auto;
+    overflow: hidden;
+    position: relative;   /* オーバーレイ用 */
+    height: 100%;
+}
 
+.url-preview-iframe {
+    width: 133.33%;
+    height: 133.33%;
+    border: none;
+    transform: scale(0.75);
+    transform-origin: 0 0;
+    pointer-events: auto;
+    flex-shrink: 0;
+}
+
+.url-preview-message {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    z-index: 10;
+}

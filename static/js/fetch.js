@@ -60,6 +60,143 @@ function clearPageCacheForSession() {
     }
 }
 
+async function navigateUrlBook(targetUrl) {
+    if (!bookData || bookData.source_type !== 'url') {
+        return false;
+    }
+    const url = String(targetUrl || '').trim();
+    if (!url) return false;
+
+    try {
+        const res = await fetch('/api/url_book/navigate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ book_name: pdfName, url }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.status !== 'ok') {
+            alert(data.message || `URL遷移に失敗しました (${res.status})`);
+            return false;
+        }
+
+        if (data.page_count) {
+            bookData.page_count = data.page_count;
+            const pageCountEl = document.getElementById('pageCount');
+            const pageInputEl = document.getElementById('pageInput');
+            if (pageCountEl) pageCountEl.innerText = data.page_count;
+            if (pageInputEl) pageInputEl.max = data.page_count;
+        }
+
+        if (data.page_url_map) {
+            bookData.page_url_map = data.page_url_map;
+        }
+
+        if (data.trans_status_counts) {
+            updateTransStatusCounts(data.trans_status_counts);
+        }
+
+        if (data.page) {
+            applyBookDelta({ pages: { [String(data.page_number)]: data.page } });
+        }
+
+        if (typeof fetchAndApplyToc === 'function') {
+            await fetchAndApplyToc();
+        }
+
+        await jumpToPage(data.page_number, { updateUrl: true, preserveScroll: false });
+        return true;
+    } catch (e) {
+        console.error('navigateUrlBook failed:', e);
+        alert(`URL遷移に失敗しました: ${e}`);
+        return false;
+    }
+}
+
+function findPageNumberByUrl(targetUrl) {
+    if (!bookData || !bookData.page_url_map) return null;
+    const url = String(targetUrl || '').trim();
+    if (!url) return null;
+    for (const [pageNum, pageUrl] of Object.entries(bookData.page_url_map)) {
+        if (pageUrl === url) return parseInt(pageNum, 10);
+    }
+    return null;
+}
+
+async function confirmAndAddUrlPage(targetUrl) {
+    if (!bookData || bookData.source_type !== 'url') return false;
+    const url = String(targetUrl || '').trim();
+    if (!url) return false;
+
+    const exists = findPageNumberByUrl(url);
+    const message = exists
+        ? 'このURLは既にページ追加されています。移動しますか？'
+        : 'ページを追加しますか？';
+    if (!confirm(message)) return false;
+
+    return await navigateUrlBook(url);
+}
+
+async function addUrlPageByPrompt() {
+    if (!bookData || bookData.source_type !== 'url') return false;
+    const url = prompt('追加するURLを入力してください');
+    if (!url) return false;
+    return await navigateUrlBook(url);
+}
+
+async function crawlUrlBookByPrompt() {
+    if (!bookData || bookData.source_type !== 'url') return false;
+    const pathPrefix = prompt('クロール範囲のパス（空白=サイト全体、例: /docs/）');
+    if (pathPrefix === null) return false;
+
+    const maxInput = prompt('最大ページ数（1～500、デフォルト100）', '100');
+    if (maxInput === null) return false;
+    const maxPages = parseInt(maxInput, 10) || 100;
+
+    if (!confirm(`${pathPrefix || '（サイト全体）'}を最大${maxPages}ページまでクロールします。よろしいですか？`)) {
+        return false;
+    }
+
+    try {
+        const res = await fetch('/api/url_book/crawl', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                book_name: pdfName,
+                path_prefix: pathPrefix.trim() || null,
+                max_pages: maxPages,
+            }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.status !== 'ok') {
+            alert(data.message || `クロールに失敗しました (${res.status})`);
+            return false;
+        }
+
+        if (data.page_count) {
+            bookData.page_count = data.page_count;
+            const pageCountEl = document.getElementById('pageCount');
+            const pageInputEl = document.getElementById('pageInput');
+            if (pageCountEl) pageCountEl.innerText = data.page_count;
+            if (pageInputEl) pageInputEl.max = data.page_count;
+        }
+
+        if (data.trans_status_counts) {
+            updateTransStatusCounts(data.trans_status_counts);
+        }
+
+        alert(`クロール完了: ${data.discovered}件発見、${data.added}件追加`);
+        if (typeof fetchAndApplyToc === 'function') {
+            await fetchAndApplyToc();
+        }
+        return true;
+    } catch (e) {
+        console.error('crawlUrlBookByPrompt failed:', e);
+        alert(`クロールに失敗しました: ${e}`);
+        return false;
+    }
+}
+
+
 async function fetchBookData() {
     try {
         const metaRes = await fetch(`/api/book_meta/${encodePdfNamePath(pdfName)}`);
@@ -81,6 +218,10 @@ async function fetchBookData() {
             toc: [],
         };
         bookData.__json_mtime = meta?.json_mtime ?? null;
+
+        if (typeof applyBookTypeUi === 'function') {
+            applyBookTypeUi();
+        }
 
         document.getElementById("titleInput").value = bookData.title;
         document.getElementById("pageCount").innerText = bookData.page_count;

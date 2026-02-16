@@ -3,6 +3,69 @@ pdfName = document.body.dataset.pdfName;
 bookData = {};
 currentPage = 1;
 
+function isUrlBook() {
+    const bodyType = document.body?.dataset?.bookType;
+    if (bodyType === 'url') return true;
+    return (bookData && bookData.source_type === 'url');
+}
+
+function applyBookTypeUi() {
+    const addUrlButton = document.getElementById('addUrlPageButton');
+    const crawlButton = document.getElementById('crawlUrlBookButton');
+    const pdfPanel = document.getElementById('pdfPanel');
+    const urlPreviewPanel = document.getElementById('urlPreviewPanel');
+    const resizer1 = document.getElementById('resizer1');
+    const togglePdf = document.getElementById('togglePdfPanel');
+    const toggleUrl = document.getElementById('toggleUrlPanel');
+    
+    if (!isUrlBook()) {
+        if (addUrlButton) addUrlButton.style.display = 'none';
+        if (crawlButton) crawlButton.style.display = 'none';
+        if (pdfPanel) pdfPanel.style.display = 'flex';
+        if (urlPreviewPanel) urlPreviewPanel.style.display = 'none';
+        if (resizer1) resizer1.style.display = 'block';
+        if (togglePdf) togglePdf.style.display = 'inline-block';
+        if (toggleUrl) toggleUrl.style.display = 'none';
+        return;
+    }
+
+    const resizer2 = document.getElementById('resizer2');
+    const extractButton = document.querySelector('.btn-step-extract');
+
+    if (pdfPanel) pdfPanel.style.display = 'none';
+    if (urlPreviewPanel) urlPreviewPanel.style.display = 'flex';
+    if (resizer1) resizer1.style.display = 'block';
+    if (resizer2) resizer2.style.display = 'block';
+    if (togglePdf) togglePdf.style.display = 'none';
+    if (toggleUrl) toggleUrl.style.display = 'inline-block';
+    if (extractButton) {
+        extractButton.disabled = true;
+        extractButton.title = 'URLブックは抽出済みです';
+    }
+    if (addUrlButton) {
+        addUrlButton.style.display = 'inline-block';
+        if (!addUrlButton.dataset.bound) {
+            addUrlButton.dataset.bound = '1';
+            addUrlButton.addEventListener('click', () => {
+                if (typeof addUrlPageByPrompt === 'function') {
+                    addUrlPageByPrompt();
+                }
+            });
+        }
+    }
+    if (crawlButton) {
+        crawlButton.style.display = 'inline-block';
+        if (!crawlButton.dataset.bound) {
+            crawlButton.dataset.bound = '1';
+            crawlButton.addEventListener('click', () => {
+                if (typeof crawlUrlBookByPrompt === 'function') {
+                    crawlUrlBookByPrompt();
+                }
+            });
+        }
+    }
+}
+
 // perf: enable with `window.PERF_NAV = true`
 // debug: auto-toggle logs are gated by `window.AUTO_TOGGLE_DEBUG = true`
 function perfNow() {
@@ -19,6 +82,7 @@ function perfLog(label, start, extra = "") {
 let perfPdfRenderHandler = null;
 
 function perfAttachPdfRenderOnce(pageNum) {
+    if (isUrlBook()) return;
     if (!window.PERF_NAV) return;
     const iframe = document.getElementById('pdfIframe');
     if (!iframe || !iframe.contentWindow) return;
@@ -112,6 +176,7 @@ function schedulePagePrefetch(pageNum) {
 }
 
 function attachPdfViewerPageSync() {
+    if (isUrlBook()) return;
     const iframe = document.getElementById('pdfIframe');
     if (!iframe) return;
 
@@ -322,6 +387,17 @@ function autoToggleChanged(event) {
             panel.classList.add("hidden");
             resizer.classList.add("hidden");
         }
+    } else if (id==='toggleUrlPanel') {
+        // URLパネルのON/OFF
+        let panel = document.getElementById("urlPreviewPanel");
+        let resizer = document.getElementById("resizer2");
+        if (newState){
+            panel.classList.remove("hidden");
+            resizer.classList.remove("hidden");
+        } else {
+            panel.classList.add("hidden");
+            resizer.classList.add("hidden");
+        }
     } else if (id === 'toggleSrcHtml') {
         // 「HTML」列のON/OFF
         document.querySelectorAll('.src-html').forEach(el => {
@@ -423,6 +499,7 @@ function updateTransStatusCounts(counts) {
    - iframe.contentWindow.PDFViewerApplication を介して制御
 --------------------------------------- */
 function fitToWidth() {
+    if (isUrlBook()) return;
     const iframe = document.getElementById("pdfIframe");
     if (!iframe) return;
 
@@ -485,8 +562,10 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
         }
 
         // 初回遷移時など、同一ページでもPDFビューアが未ロードの場合があるため必ず反映する。
-        ensurePdfViewerLoaded(currentPage);
-        setPdfViewerPage(currentPage);
+        if (!isUrlBook()) {
+            ensurePdfViewerLoaded(currentPage);
+            setPdfViewerPage(currentPage);
+        }
 
         if (forceRender) {
             const tRender = perfNow();
@@ -535,10 +614,14 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
 
     // PDFはフルPDFを一度だけ読み込み、ページ移動は PDFViewerApplication 経由で行う。
     // これにより「毎回iframeを再ロード」「サーバ側で1ページPDFを都度生成」を避けて高速化する。
-    ensurePdfViewerLoaded(currentPage);
-    const tPdf = perfNow();
-    setPdfViewerPage(currentPage);
-    perfLog("setPdfViewerPage", tPdf, `(page ${currentPage})`);
+    if (!isUrlBook()) {
+        ensurePdfViewerLoaded(currentPage);
+        const tPdf = perfNow();
+        setPdfViewerPage(currentPage);
+        perfLog("setPdfViewerPage", tPdf, `(page ${currentPage})`);
+    } else {
+        updateUrlPreview(currentPage);
+    }
 
     const tRender = perfNow();
     renderParagraphs({ resetScrollTop: true });
@@ -556,7 +639,41 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
     perfLog("jumpToPage", navStart, `(page ${currentPage})`);
 }
 
+function updateUrlPreview(pageNum) {
+    if (!isUrlBook()) return;
+    
+    const iframe = document.getElementById('urlPreviewIframe');
+    const messageDiv = document.querySelector('.url-preview-message');
+    if (!iframe) return;
+
+    const pageKey = String(pageNum);
+    const pageUrl = bookData?.pages?.[pageKey]?.url || bookData?.page_url_map?.[pageKey];
+    
+    if (!pageUrl) {
+        if (messageDiv) {
+            messageDiv.textContent = 'ページURLが見つかりません';
+            messageDiv.style.display = 'block';
+        }
+        iframe.style.display = 'none';
+        return;
+    }
+
+    iframe.src = pageUrl;
+    iframe.style.display = 'block';
+    if (messageDiv) messageDiv.style.display = 'none';
+
+    // iframe読み込みエラー検出（X-Frame-Options等）
+    iframe.onerror = () => {
+        if (messageDiv) {
+            messageDiv.textContent = 'このサイトはフレーム内での表示を許可していません';
+            messageDiv.style.display = 'block';
+        }
+        iframe.style.display = 'none';
+    };
+}
+
 function ensurePdfViewerLoaded(initialPage = 1) {
+    if (isUrlBook()) return;
     const iframe = document.getElementById('pdfIframe');
     if (!iframe) return;
 
@@ -580,6 +697,7 @@ function ensurePdfViewerLoaded(initialPage = 1) {
 }
 
 function setPdfViewerPage(pageNum) {
+    if (isUrlBook()) return;
     const iframe = document.getElementById('pdfIframe');
     if (!iframe) return;
 
@@ -761,6 +879,7 @@ function initResizers() {
 
     // PDFパネルとsrcPanelの間のリサイズ
     const resizer2 = document.getElementById('resizer2');
+    const urlPreviewPanel = document.getElementById('urlPreviewPanel');
     let startX2 = 0;
     let startWidthPdf = 0;
     const minPdfWidth = 200; // 最小幅を200pxに設定（必要に応じて調整）
@@ -768,7 +887,8 @@ function initResizers() {
     setupResizerPointerDrag(resizer2, {
         onStart: (e) => {
             startX2 = e.clientX;
-            startWidthPdf = pdfPanel.getBoundingClientRect().width;
+            const panel = isUrlBook() ? urlPreviewPanel : pdfPanel;
+            startWidthPdf = panel.getBoundingClientRect().width;
         },
         onMove: (e) => {
             const dx = e.clientX - startX2;
@@ -777,11 +897,15 @@ function initResizers() {
             if (newWidth < minPdfWidth) {
                 newWidth = minPdfWidth;
             }
-            pdfPanel.style.width = newWidth + 'px';
+            const panel = isUrlBook() ? urlPreviewPanel : pdfPanel;
+            panel.style.flex = '0 0 auto';
+            panel.style.width = newWidth + 'px';
         },
         onEnd: () => {
             // リサイズ完了後に「page-width」を再適用
-            setTimeout(fitToWidth, 100);
+            if (!isUrlBook()) {
+                setTimeout(fitToWidth, 100);
+            }
         },
     });
 }

@@ -17,6 +17,7 @@
             <button onclick="refreshBookList()" data-help-id="ブックリストの更新">一覧を更新</button>
             <input id="pdf-upload-input" type="file" accept="application/pdf,.pdf" style="display:none">
             <button type="button" id="pdf-upload-button" class="pdf-upload-button" data-help-id="PDFのアップロード">PDFを追加</button>
+          <button type="button" id="url-book-button" data-help-id="URLブックの追加">URLを追加</button>
             <button id="show-full-help">Help</button>
         </div>
     </div>
@@ -92,14 +93,25 @@
         {% for idx, (pdf_name, item) in enumerate(pdf_dict.items()) %}
             <tr>
               <td>{{ idx+1 }}</td>
-              <td>{{ item['title'] }}</td>
+              <td>
+                {{ item['title'] }}
+                {% if item.get('book_type') == 'url' %}
+                  <span class="book-type-tag">URL</span>
+                {% endif %}
+              </td>
               <td><a href="{{ url_for('detail', pdf_name=pdf_name) }}">{{ pdf_name }}</a></td>
               <td>{{ item.get('trans_status_counts', {}).get('none', 0) }}</td>
               <td>{{ item.get('trans_status_counts', {}).get('auto', 0) }}</td>
               <td>{{ item.get('trans_status_counts', {}).get('draft', 0) }}</td>
               <td>{{ item.get('trans_status_counts', {}).get('fixed', 0) }}</td>
               <td>{{ item['updated'] }}</td>
-              <td><button type="button" onclick='openMoveDialog({{ pdf_name|tojson }})'>移動</button></td>
+              <td>
+                {% if item.get('book_type') == 'url' %}
+                  <span class="book-action-placeholder">-</span>
+                {% else %}
+                  <button type="button" onclick='openMoveDialog({{ pdf_name|tojson }})'>移動</button>
+                {% endif %}
+              </td>
             </tr>
         {% endfor %}
         </tbody>
@@ -119,6 +131,7 @@
 
       const uploadInput = document.getElementById('pdf-upload-input');
       const uploadButton = document.getElementById('pdf-upload-button');
+      const urlBookButton = document.getElementById('url-book-button');
       const statusEl = document.getElementById('pdf-upload-status');
       const moveStatusEl = document.getElementById('pdf-move-status');
       const moveDialogEl = document.getElementById('pdf-move-dialog');
@@ -214,6 +227,53 @@
         if (moveDialogEl) {
           moveDialogEl.style.display = 'flex';
         }
+      }
+
+      function encodePathSegment(path) {
+        return encodeURIComponent(path).replace(/%2F/g, '/');
+      }
+
+      async function createUrlBook() {
+        setUploadStatus('');
+        const url = window.prompt('翻訳対象のURLを入力してください');
+        if (!url) {
+          return;
+        }
+
+        urlBookButton.disabled = true;
+        urlBookButton.classList.add('is-busy');
+        setUploadStatus(`URLブックを作成中...\n${url}`, false);
+
+        try {
+          const res = await fetch('/api/url_book/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.status !== 'ok') {
+            setUploadStatus(data.message || `URLブック作成に失敗しました (${res.status})`);
+            return;
+          }
+
+          const bookName = data.book_name;
+          if (bookName) {
+            window.location.href = `/detail/${encodePathSegment(bookName)}`;
+            return;
+          }
+
+          setUploadStatus('URLブック作成に成功しました。', false);
+          window.location.reload();
+        } catch (e) {
+          setUploadStatus(`URLブック作成に失敗しました: ${e}`);
+        } finally {
+          urlBookButton.disabled = false;
+          urlBookButton.classList.remove('is-busy');
+        }
+      }
+
+      if (urlBookButton) {
+        urlBookButton.addEventListener('click', createUrlBook);
       }
 
       function closeMoveDialog() {

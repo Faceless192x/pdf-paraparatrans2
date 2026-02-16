@@ -15,6 +15,23 @@ function normalizeUrlForHref(urlText) {
     return null;
 }
 
+function isUrlBookContext() {
+    return !!(bookData && bookData.source_type === 'url');
+}
+
+function isInternalUrl(url) {
+    if (!isUrlBookContext()) return false;
+    const root = bookData.source_root_url || '';
+    const host = bookData.source_host || '';
+    if (!host) return false;
+    try {
+        const resolved = new URL(url, root || window.location.href);
+        return resolved.host === host;
+    } catch (e) {
+        return false;
+    }
+}
+
 function linkifyTextNode(textNode) {
     const text = textNode.nodeValue;
     if (!text || !URL_PATTERN.test(text)) return;
@@ -36,8 +53,12 @@ function linkifyTextNode(textNode) {
             const a = document.createElement('a');
             a.textContent = urlText;
             a.href = href;
-            a.target = '_blank';
-            a.rel = 'noopener noreferrer';
+            if (isInternalUrl(href)) {
+                a.dataset.url = href;
+            } else {
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+            }
             frag.appendChild(a);
         } else {
             frag.appendChild(document.createTextNode(urlText));
@@ -83,6 +104,27 @@ function linkifyParagraphBox(divSrc) {
     divSrc.querySelectorAll('.src-text, .src-joined, .src-replaced, .trans-auto, .trans-text, .comment-text')
         .forEach(linkifyElement);
 }
+
+document.addEventListener('click', async (event) => {
+    const anchor = event.target.closest('#srcPanel a');
+    if (!anchor) return;
+    if (anchor.isContentEditable) return;
+    if (!isUrlBookContext()) return;
+
+    const targetUrl = anchor.dataset.url || anchor.getAttribute('href');
+    if (!targetUrl) return;
+
+    if (!isInternalUrl(targetUrl)) {
+        return;
+    }
+
+    event.preventDefault();
+    if (typeof confirmAndAddUrlPage === 'function') {
+        await confirmAndAddUrlPage(targetUrl);
+    } else if (typeof navigateUrlBook === 'function') {
+        await navigateUrlBook(targetUrl);
+    }
+});
 
 function initSrcPanel() {
     $("#srcParagraphs").sortable({
@@ -199,6 +241,28 @@ function renderParagraphs(options = {}) {
     let srcContainer = document.getElementById("srcParagraphs");
     srcContainer.style.display = 'none'; // チラつき防止にいったん非表示
     srcContainer.innerHTML = "";
+
+    // URLブックの場合、ページURLを先頭に表示
+    if (isUrlBookContext() && bookData?.pages?.[String(currentPage)]?.url) {
+        const pageUrl = bookData.pages[String(currentPage)].url;
+        const urlBox = document.createElement("div");
+        urlBox.className = "paragraph-box url-header";
+        urlBox.style.cssText = "background: #f0f8ff; border-left: 4px solid #4a90e2; padding: 8px 12px; margin-bottom: 12px; font-size: 0.9em;";
+        const urlLink = document.createElement("a");
+        urlLink.href = pageUrl;
+        urlLink.target = "_blank";
+        urlLink.rel = "noopener noreferrer";
+        urlLink.textContent = pageUrl;
+        urlLink.style.cssText = "color: #4a90e2; text-decoration: none; word-break: break-all;";
+        urlLink.addEventListener('mouseenter', () => { urlLink.style.textDecoration = 'underline'; });
+        urlLink.addEventListener('mouseleave', () => { urlLink.style.textDecoration = 'none'; });
+        const label = document.createElement("span");
+        label.textContent = "🔗 ";
+        label.style.marginRight = "4px";
+        urlBox.appendChild(label);
+        urlBox.appendChild(urlLink);
+        srcContainer.appendChild(urlBox);
+    }
 
 
 

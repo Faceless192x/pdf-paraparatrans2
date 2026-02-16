@@ -95,6 +95,16 @@ from modules.parapara_structure import (
 )
 
 from modules.parapara_search import search_paragraphs_in_book
+from modules.parapara_url2json import (
+    build_url_book_data,
+    crawl_site,
+    ensure_url_page_in_book,
+    get_site_profile,
+    load_site_profiles,
+    normalize_host,
+    normalize_url,
+    save_url_book,
+)
 from app.services.dict_service import DictService
 
 
@@ -131,6 +141,9 @@ APP_DIR = _get_app_dir()
 # data/ は入出力（pdf/json/html）、config/ はユーザー設定（辞書・settings）
 DATA_FOLDER = os.path.abspath(os.getenv("PARAPARATRANS_DATA_DIR", os.path.join(APP_DIR, "data")))
 CONFIG_FOLDER = os.path.abspath(os.getenv("PARAPARATRANS_CONFIG_DIR", os.path.join(APP_DIR, "config")))
+
+URL_BOOKS_DIRNAME = "url_books"
+URL_BOOK_PREFIX = "url/"
 
 # 既存コード互換のため BASE_FOLDER は data/ を指す
 BASE_FOLDER = DATA_FOLDER
@@ -379,6 +392,7 @@ _IGNORED_DIR_NAMES = {
     "backup",
     "structure",
     "doc_structure",
+    "url_books",
     "__pycache__",
     "old",
 }
@@ -416,6 +430,10 @@ def _normalize_pdf_name(pdf_name: str) -> str:
     return "/".join(parts)
 
 
+def _is_url_book_name(pdf_name: str) -> bool:
+    return isinstance(pdf_name, str) and pdf_name.startswith(URL_BOOK_PREFIX)
+
+
 def _sanitize_folder_name(name: str) -> str:
     if not isinstance(name, str):
         return ""
@@ -446,8 +464,13 @@ def get_paths(pdf_name):
     normalized = _normalize_pdf_name(pdf_name)
     if not normalized:
         normalized = "_invalid"
-    parts = normalized.split("/")
-    base_path = _safe_join_data(*parts)
+    if normalized.startswith(URL_BOOK_PREFIX):
+        rel = normalized[len(URL_BOOK_PREFIX):]
+        parts = [p for p in rel.split("/") if p] or ["_invalid"]
+        base_path = _safe_join_data(URL_BOOKS_DIRNAME, *parts)
+    else:
+        parts = normalized.split("/")
+        base_path = _safe_join_data(*parts)
     pdf_path = base_path + ".pdf"
     json_path = base_path + ".json"
     return pdf_path, json_path
@@ -550,6 +573,56 @@ def get_pdf_files(rel_dir: str = ""):
     return file_dict
 
 
+def get_url_books() -> dict:
+    books: dict = {}
+    try:
+        base_dir = _safe_join_data(URL_BOOKS_DIRNAME)
+    except Exception:
+        return books
+
+    if not os.path.isdir(base_dir):
+        return books
+
+    for root, _dirs, files in os.walk(base_dir):
+        for fname in files:
+            if not fname.lower().endswith(".json"):
+                continue
+            full_path = os.path.join(root, fname)
+            rel_path = os.path.relpath(full_path, base_dir)
+            book_key = rel_path[:-5].replace(os.sep, "/")
+            pdf_name = f"{URL_BOOK_PREFIX}{book_key}"
+
+            try:
+                with open(full_path, "r", encoding="utf-8") as f:
+                    book_data = json.load(f)
+            except Exception:
+                book_data = {}
+
+            updated_date = ""
+            try:
+                updated_date = datetime.datetime.fromtimestamp(os.path.getmtime(full_path)).strftime("%Y/%m/%d")
+            except Exception:
+                pass
+
+            trans_counts = (book_data or {}).get("trans_status_counts", {}) or {}
+            books[pdf_name] = {
+                "json_path": full_path,
+                "pdf_name": pdf_name,
+                "title": (book_data or {}).get("title") or pdf_name,
+                "updated": updated_date,
+                "trans_status_counts": {
+                    "none": trans_counts.get("none", 0),
+                    "auto": trans_counts.get("auto", 0),
+                    "draft": trans_counts.get("draft", 0),
+                    "fixed": trans_counts.get("fixed", 0),
+                },
+                "book_type": (book_data or {}).get("source_type") or "url",
+            }
+
+    books = dict(sorted(books.items(), key=lambda x: x[1].get("updated", ""), reverse=True))
+    return books
+
+
 def get_all_dirs() -> list:
     dirs = []
     for root, subdirs, _files in os.walk(BASE_FOLDER):
@@ -629,6 +702,13 @@ def index():
                 "fixed": trans_counts.get("fixed", 0)
             }
         })
+
+    # URLブックを追加
+    url_books = get_url_books()
+    for book_name, book_item in url_books.items():
+        if book_name in pdf_dict:
+            continue
+        pdf_dict[book_name] = book_item
     
     # フィルタ処理
     filter_text = request.args.get("filter", "").lower().strip()
@@ -637,6 +717,8 @@ def index():
             key: value for key, value in pdf_dict.items()
             if filter_text in value["title"].lower() or filter_text in value["pdf_name"].lower()
         }
+
+    pdf_dict = dict(sorted(pdf_dict.items(), key=lambda x: x[1].get("updated", ""), reverse=True))
     
     return render_template(
         "index.html",
@@ -925,6 +1007,8 @@ def detail(pdf_name, page_number=1):
         return "pdf_name が不正です", 400
 
     pdf_name = normalized_pdf_name
+    is_url_book = _is_url_book_name(pdf_name)
+    book_type = "url" if is_url_book else "pdf"
     current_dir = os.path.dirname(pdf_name).replace("\\", "/")
     index_dir = current_dir if current_dir else None
     pdf_path, json_path = get_paths(pdf_name)
@@ -932,7 +1016,11 @@ def detail(pdf_name, page_number=1):
     if os.path.exists(json_path):
         with open(json_path, "r", encoding="utf-8") as f:
             book_data = json.load(f)
+        if isinstance(book_data, dict) and book_type == "url":
+            book_data.setdefault("source_type", "url")
     else:
+        if is_url_book:
+            return "URLブックが存在しません", 404
         book_data = {
             "src_filename": pdf_name,
             "title": pdf_name,
@@ -941,9 +1029,11 @@ def detail(pdf_name, page_number=1):
             "pages": []
         }
 
-    updated_date = datetime.datetime.fromtimestamp(os.path.getmtime(pdf_path)).strftime("%Y/%m/%d")
+    updated_date = ""
     if os.path.exists(json_path):
         updated_date = datetime.datetime.fromtimestamp(os.path.getmtime(json_path)).strftime("%Y/%m/%d")
+    elif os.path.exists(pdf_path):
+        updated_date = datetime.datetime.fromtimestamp(os.path.getmtime(pdf_path)).strftime("%Y/%m/%d")
 
     return render_template(
         "detail.html",
@@ -952,6 +1042,7 @@ def detail(pdf_name, page_number=1):
         book_data=book_data,
         updated_date=updated_date,
         index_dir=index_dir,
+        book_type=book_type,
     )
 
 
@@ -989,6 +1080,10 @@ def get_book_meta(pdf_name):
         "styles": book_data.get("styles") or {},
         "trans_status_counts": book_data.get("trans_status_counts") or {},
         "json_mtime": json_mtime,
+        "source_type": book_data.get("source_type") or "pdf",
+        "source_root_url": book_data.get("source_root_url"),
+        "source_host": book_data.get("source_host"),
+        "page_url_map": book_data.get("page_url_map") or {},
     }
     return jsonify({"status": "ok", "meta": meta})
 
@@ -1159,9 +1254,186 @@ def search_api(pdf_name: str):
 
     return jsonify({"status": "ok", "query": query, "count": len(results), "results": results})
 
+
+@app.route("/api/url_book/create", methods=["POST"])
+def create_url_book_api():
+    payload = request.get_json(silent=True) or {}
+    raw_url = (payload.get("url") or "").strip()
+    normalized = normalize_url(raw_url)
+    if not normalized:
+        return jsonify({"status": "error", "message": "URLが不正です"}), 400
+
+    host = normalize_host(normalized)
+    if not host:
+        return jsonify({"status": "error", "message": "URLのホスト名が不正です"}), 400
+
+    book_name = (payload.get("book_name") or "").strip()
+    if book_name:
+        book_name = _normalize_pdf_name(book_name)
+        if not book_name:
+            return jsonify({"status": "error", "message": "book_nameが不正です"}), 400
+        if not book_name.startswith(URL_BOOK_PREFIX):
+            book_name = f"{URL_BOOK_PREFIX}{book_name}"
+    else:
+        slug = _sanitize_folder_name(host.replace(":", "_")) or host.replace(":", "_")
+        book_name = f"{URL_BOOK_PREFIX}{slug}"
+
+    _, json_path = get_paths(book_name)
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                book_data = json.load(f)
+        except Exception:
+            book_data = {}
+        return jsonify({
+            "status": "ok",
+            "book_name": book_name,
+            "exists": True,
+            "title": (book_data or {}).get("title"),
+            "page_count": (book_data or {}).get("page_count"),
+        })
+
+    profiles = load_site_profiles(CONFIG_FOLDER)
+    profile = get_site_profile(profiles, host)
+    title = (payload.get("title") or "").strip() or None
+
+    try:
+        book_data = build_url_book_data(normalized, title=title, site_profile=profile)
+        save_url_book(json_path, book_data)
+    except Exception as e:
+        app.logger.exception("URL book create failed")
+        return jsonify({"status": "error", "message": f"URL取得に失敗しました: {str(e)}"}), 500
+
+    return jsonify({
+        "status": "ok",
+        "book_name": book_name,
+        "exists": False,
+        "title": book_data.get("title"),
+        "page_count": book_data.get("page_count"),
+    })
+
+
+@app.route("/api/url_book/navigate", methods=["POST"])
+def navigate_url_book_api():
+    payload = request.get_json(silent=True) or {}
+    book_name = _normalize_pdf_name(payload.get("book_name") or "")
+    if not book_name or not _is_url_book_name(book_name):
+        return jsonify({"status": "error", "message": "book_nameが不正です"}), 400
+
+    raw_url = (payload.get("url") or "").strip()
+    normalized = normalize_url(raw_url)
+    if not normalized:
+        return jsonify({"status": "error", "message": "URLが不正です"}), 400
+
+    _, json_path = get_paths(book_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "URLブックが存在しません"}), 404
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            book_data = json.load(f)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"URLブックの読み込みに失敗しました: {str(e)}"}), 500
+
+    root_host = (book_data or {}).get("source_host") or normalize_host((book_data or {}).get("source_root_url") or "")
+    target_host = normalize_host(normalized)
+    if root_host and target_host and root_host != target_host:
+        return jsonify({"status": "error", "message": "別ドメインのURLはこのブックに追加できません"}), 400
+
+    profiles = load_site_profiles(CONFIG_FOLDER)
+    profile = get_site_profile(profiles, root_host)
+
+    try:
+        page_number, page_data, added = ensure_url_page_in_book(book_data, normalized, site_profile=profile)
+        if added:
+            save_url_book(json_path, book_data)
+    except Exception as e:
+        app.logger.exception("URL book navigate failed")
+        return jsonify({"status": "error", "message": f"URL取得に失敗しました: {str(e)}"}), 500
+
+    return jsonify({
+        "status": "ok",
+        "page_number": page_number,
+        "page": page_data,
+        "page_count": book_data.get("page_count"),
+        "trans_status_counts": book_data.get("trans_status_counts"),
+        "title": book_data.get("title"),
+        "page_url_map": book_data.get("page_url_map") or {},
+    })
+
+
+@app.route("/api/url_book/crawl", methods=["POST"])
+def crawl_url_book_api():
+    payload = request.get_json(silent=True) or {}
+    book_name = _normalize_pdf_name(payload.get("book_name") or "")
+    if not book_name or not _is_url_book_name(book_name):
+        return jsonify({"status": "error", "message": "book_nameが不正です"}), 400
+
+    _, json_path = get_paths(book_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "URLブックが存在しません"}), 404
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            book_data = json.load(f)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"URLブックの読み込みに失敗しました: {str(e)}"}), 500
+
+    root_url = (book_data or {}).get("source_root_url")
+    if not root_url:
+        return jsonify({"status": "error", "message": "source_root_urlが不正です"}), 400
+
+    root_host = (book_data or {}).get("source_host") or normalize_host(root_url)
+    profiles = load_site_profiles(CONFIG_FOLDER)
+    profile = get_site_profile(profiles, root_host)
+
+    path_prefix = payload.get("path_prefix") or None
+    max_pages = int(payload.get("max_pages") or 100)
+    if max_pages < 1:
+        max_pages = 100
+    if max_pages > 500:
+        max_pages = 500
+
+    try:
+        discovered = crawl_site(
+            root_url,
+            path_prefix=path_prefix,
+            max_pages=max_pages,
+            respect_robots=True,
+            site_profile=profile,
+            delay_sec=0.5,
+        )
+    except Exception as e:
+        app.logger.exception("URL book crawl failed")
+        return jsonify({"status": "error", "message": f"クロール失敗: {str(e)}"}), 500
+
+    added_count = 0
+    for url in discovered:
+        try:
+            _, _, added = ensure_url_page_in_book(book_data, url, site_profile=profile)
+            if added:
+                added_count += 1
+        except Exception as e:
+            app.logger.warning(f"Failed to add URL {url}: {e}")
+            continue
+
+    if added_count > 0:
+        save_url_book(json_path, book_data)
+
+    return jsonify({
+        "status": "ok",
+        "discovered": len(discovered),
+        "added": added_count,
+        "page_count": book_data.get("page_count"),
+        "trans_status_counts": book_data.get("trans_status_counts"),
+    })
+
+
 # API:PDFからbook_dataファイル生成
 @app.route("/api/extract_paragraphs/<path:pdf_name>", methods=["POST"])
 def create_book_data_api(pdf_name):
+    if _is_url_book_name(pdf_name):
+        return jsonify({"status": "error", "message": "URLブックはパラグラフ抽出不要です"}), 400
     pdf_path, json_path = get_paths(pdf_name)
     if os.path.exists(json_path):
         return jsonify({"status": "ok", "message": "既に抽出済みです"}), 200
