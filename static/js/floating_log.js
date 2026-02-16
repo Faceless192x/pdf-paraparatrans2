@@ -1,5 +1,8 @@
+// Debug: set `window.FLOATING_LOG_DEBUG = true` to enable console logs.
 document.addEventListener("DOMContentLoaded", () => {
-  console.log("floating_log.js loaded");
+  if (window.FLOATING_LOG_DEBUG) {
+    console.log("floating_log.js loaded");
+  }
 
   const style = document.createElement("style");
   style.textContent = `
@@ -134,7 +137,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const sse = new EventSource("/logstream");
   sse.onmessage = (e) => {
-    console.log("[SSE受信]", e.data);
+    if (window.FLOATING_LOG_DEBUG) {
+      console.log("[SSE受信]", e.data);
+    }
     const lines = e.data.split("\n");
     lines.forEach(line => {
       if (line.trim()) renderLogLine(line);

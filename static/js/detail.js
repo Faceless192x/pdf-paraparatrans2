@@ -4,6 +4,7 @@ bookData = {};
 currentPage = 1;
 
 // perf: enable with `window.PERF_NAV = true`
+// debug: auto-toggle logs are gated by `window.AUTO_TOGGLE_DEBUG = true`
 function perfNow() {
     return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 }
@@ -62,6 +63,53 @@ let pdfViewerLastAppSetAt = 0;
 let pdfViewerSyncAttachInProgress = false;
 let pdfViewerSyncIsJumping = false;
 let pdfViewerSyncPendingPage = null;
+let prefetchInFlight = false;
+let prefetchPendingPage = null;
+let prefetchEnabled = false;
+
+function enablePagePrefetch() {
+    prefetchEnabled = true;
+}
+
+function schedulePagePrefetch(pageNum) {
+    if (!prefetchEnabled) return;
+    if (!Number.isFinite(pageNum) || pageNum < 1) return;
+    if (!bookData?.page_count || pageNum > parseInt(bookData.page_count, 10)) return;
+    if (bookData?.pages?.[String(pageNum)]) return;
+
+    prefetchPendingPage = pageNum;
+    if (prefetchInFlight) return;
+
+    const run = async () => {
+        if (prefetchInFlight) return;
+        const target = prefetchPendingPage;
+        if (!target || bookData?.pages?.[String(target)]) {
+            prefetchPendingPage = null;
+            return;
+        }
+        prefetchInFlight = true;
+        try {
+            if (typeof fetchAndApplyPage === 'function') {
+                await fetchAndApplyPage(target);
+            }
+        } catch (_) {
+            // ignore prefetch errors
+        } finally {
+            prefetchInFlight = false;
+            if (prefetchPendingPage && prefetchPendingPage !== target) {
+                const next = prefetchPendingPage;
+                prefetchPendingPage = null;
+                schedulePagePrefetch(next);
+            }
+        }
+    };
+
+    if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(run, { timeout: 1000 });
+    } else {
+        setTimeout(run, 0);
+    }
+}
 
 function attachPdfViewerPageSync() {
     const iframe = document.getElementById('pdfIframe');
@@ -248,7 +296,9 @@ document.addEventListener('DOMContentLoaded', function() {
 function autoToggleChanged(event) {
     const id = event.detail.id;
     const newState = event.detail.newState;
-    console.log(`トグルスイッチ ${id} が ${newState ? 'ON' : 'OFF'} に変更されました。`);
+    if (window.AUTO_TOGGLE_DEBUG) {
+        console.log(`トグルスイッチ ${id} が ${newState ? 'ON' : 'OFF'} に変更されました。`);
+    }
 
     if (id === 'toggleTocPanel') {
         // 目次パネル本体のON/OFF（トグルボタン自体は常に表示）
@@ -411,6 +461,7 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
 
     const navStart = perfNow();
     const targetPage = clampPage(pageNum);
+    const prevPage = currentPage;
 
     console.log("jumpToPage:pageNum " + pageNum);
     console.log("currentPage " + currentPage);
@@ -455,6 +506,7 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
                 window.TocSearchPanel.applyHighlightsForCurrentPage();
             }
         }
+        schedulePagePrefetch(targetPage + 1);
         perfLog("jumpToPage(same)", navStart, `(page ${targetPage})`);
         return;
     }
@@ -469,8 +521,12 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
 
     if (typeof ensurePageFresh === 'function') {
         const tFresh = perfNow();
-        await ensurePageFresh(currentPage);
+        const freshOk = await ensurePageFresh(currentPage);
         perfLog("ensurePageFresh", tFresh, `(page ${currentPage})`);
+        const pageKey = String(currentPage);
+        if (!freshOk || !bookData?.pages?.[pageKey]) {
+            console.warn(`Page data missing after fetch: ${currentPage}`);
+        }
     }
 
     if (updateUrl) {
@@ -494,6 +550,8 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
         window.TocSearchPanel.applyHighlightsForCurrentPage();
         perfLog("applyHighlightsForCurrentPage", tToc, `(page ${currentPage})`);
     }
+
+    schedulePagePrefetch(currentPage + 1);
 
     perfLog("jumpToPage", navStart, `(page ${currentPage})`);
 }

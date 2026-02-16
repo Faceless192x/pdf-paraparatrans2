@@ -100,6 +100,9 @@ async function fetchBookData() {
 
         showToc();
         await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: true });
+        if (typeof enablePagePrefetch === 'function') {
+            enablePagePrefetch();
+        }
     } catch (error) {
         console.error("Error fetching book data:", error);
         alert("書籍データの取得中にエラーが発生しました。"); // ユーザーへの通知

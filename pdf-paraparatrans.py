@@ -8,6 +8,7 @@ import threading
 import shutil
 import time
 import html
+import gzip
 # /api/book_toc 用の簡易キャッシュ（JSONのmtimeが変わらない限り再計算しない）
 from PyPDF2 import PdfReader, PdfWriter
 import uuid  # ファイル名の一意性を確保するために追加
@@ -2362,6 +2363,43 @@ def dict_update_api():
 #     if request.path.endswith('.mjs'):
 #         response.headers['Content-Type'] = 'application/javascript'
 #     return response
+
+
+@app.after_request
+def gzip_compress_response(response):
+    try:
+        accept = request.headers.get("Accept-Encoding", "")
+        if "gzip" not in accept.lower():
+            return response
+        if response.direct_passthrough or response.is_streamed:
+            return response
+        if response.headers.get("Content-Encoding"):
+            return response
+        if response.mimetype == "text/event-stream":
+            return response
+
+        data = response.get_data()
+        if not data or len(data) < 512:
+            return response
+
+        compressible_types = (
+            "text/",
+            "application/javascript",
+            "application/json",
+            "application/xml",
+            "image/svg+xml",
+        )
+        if not any(response.mimetype.startswith(t) for t in compressible_types):
+            return response
+
+        compressed = gzip.compress(data, compresslevel=6)
+        response.set_data(compressed)
+        response.headers["Content-Encoding"] = "gzip"
+        response.headers["Content-Length"] = str(len(compressed))
+        response.headers.add("Vary", "Accept-Encoding")
+        return response
+    except Exception:
+        return response
 
 if __name__ == "__main__":
     # portはenvファイルの設定に従う。未指定の場合は5077

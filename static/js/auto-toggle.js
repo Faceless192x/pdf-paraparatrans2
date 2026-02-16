@@ -1,6 +1,13 @@
+// Debug: set `window.AUTO_TOGGLE_DEBUG = true` to enable console logs.
 window.autoToggle = (function () {
     const states = {};
     const callbacks = [];
+
+    function debugLog(...args) {
+      if (window.AUTO_TOGGLE_DEBUG) {
+        console.log(...args);
+      }
+    }
   
     function getState(key) {
       return states[key];
@@ -8,7 +15,7 @@ window.autoToggle = (function () {
   
     function setState(key, value) {
       states[key] = value;
-      console.log(`State updated: ${key} = ${value}`);
+      debugLog(`State updated: ${key} = ${value}`);
     }
   
     function getAllStates() {
@@ -29,7 +36,7 @@ window.autoToggle = (function () {
           detail: { id: containerId, newState: newState }
         });
         container.dispatchEvent(event);
-        console.log(`Fired auto-toggle-change event for ${containerId} with state ${newState}`);
+        debugLog(`Fired auto-toggle-change event for ${containerId} with state ${newState}`);
       });
     }
   
@@ -88,7 +95,7 @@ window.autoToggle = (function () {
           const checkbox = shortcutMap.get(pressedKey);
           checkbox.checked = !checkbox.checked;
           checkbox.dispatchEvent(new Event('change'));
-          console.log(`Shortcut ${pressedKey} triggered for ${checkbox.id}`);
+          debugLog(`Shortcut ${pressedKey} triggered for ${checkbox.id}`);
         }
       });
     }
@@ -101,7 +108,7 @@ window.autoToggle = (function () {
       if (reset) {
         localStorage.clear();
         for (let key in states) delete states[key];
-        console.log('Toggle states and localStorage have been reset.');
+        debugLog('Toggle states and localStorage have been reset.');
       }
   
       autoToggles.forEach(container => {
@@ -156,7 +163,7 @@ window.autoToggle = (function () {
   
         if (storedState === null) {
           window[storageType].setItem(storageKey, initialState.toString());
-          console.log(`${containerId} initial state set to ${initialState}`);
+          debugLog(`${containerId} initial state set to ${initialState}`);
         }
   
         if (fireInitial) {
@@ -169,7 +176,7 @@ window.autoToggle = (function () {
   
         container.addEventListener('auto-toggle-change', (event) => {
           const { id, newState } = event.detail;
-          console.log(`Toggle ${id} changed to ${newState}`);
+          debugLog(`Toggle ${id} changed to ${newState}`);
         });
   
         checkbox.addEventListener('change', () => {
@@ -188,13 +195,13 @@ window.autoToggle = (function () {
           const normalizedShortcut = normalizeShortcut(shortcutKey);
           if (normalizedShortcut) {
             shortcutMap.set(normalizedShortcut, checkbox);
-            console.log(`Registered shortcut: ${normalizedShortcut} for ${containerId}`);
+            debugLog(`Registered shortcut: ${normalizedShortcut} for ${containerId}`);
           } else {
             console.warn(`Invalid shortcut format: ${shortcutKey} for ${containerId}`);
           }
         }
   
-        console.log(`Initialized control: ${containerId}`);
+        debugLog(`Initialized control: ${containerId}`);
       });
   
       return shortcutMap;
@@ -203,7 +210,7 @@ window.autoToggle = (function () {
     function init(options = {}) {
       const shortcutMap = initializeToggleSwitches(options);
       setupShortcutListener(shortcutMap);
-      console.log("Initial toggle states cache:", getAllStates());
+      debugLog("Initial toggle states cache:", getAllStates());
     }
   
     return {

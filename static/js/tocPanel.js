@@ -1,5 +1,12 @@
+// Debug: set `window.TOC_DEBUG = true` to enable console logs.
+function tocDebugLog(...args) {
+  if (window.TOC_DEBUG) {
+    console.log(...args);
+  }
+}
+
 function initTocPanel() {
-  console.log("Initializing TOC Panel");
+  tocDebugLog("Initializing TOC Panel");
 }
 
 function headlineParagraphs() {
@@ -148,7 +155,7 @@ document.addEventListener("click", function (e) {
   if (e.target.classList.contains("toc-toggle")) {
     const toggleEl = e.target;
     const targetId = toggleEl.dataset.target;
-    console.log("Toggle clicked:", targetId);
+    tocDebugLog("Toggle clicked:", targetId);
     const parentRow = document.querySelector(`#toc-row-${targetId}`);
 
     const wasOpen = parentRow.getAttribute("data-open") === "true";

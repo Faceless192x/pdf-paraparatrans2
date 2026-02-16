@@ -1,5 +1,12 @@
 // help.js
+// Debug: set `window.HELP_DEBUG = true` to enable console logs.
 // This file will contain the JavaScript code for displaying help tooltips.
+
+const helpDebugLog = (...args) => {
+  if (window.HELP_DEBUG) {
+    console.log(...args);
+  }
+};
 
 // Load marked.js and Tippy.js from CDN
 const loadScript = (url) => {
@@ -20,7 +27,7 @@ const initializeHelp = async () => {
     const response = await fetch('/static/parapara-help.md');
     const text = await response.text();
     helpSections = parseHelpMarkdown(text);
-    console.log('Help sections loaded and parsed.');
+    helpDebugLog('Help sections loaded and parsed.');
   } catch (error) {
     console.error('Failed to fetch or parse help.md:', error);
   }
@@ -46,7 +53,7 @@ const initializeHelp = async () => {
 };
 
 const parseHelpMarkdown = (markdownText) => {
-  console.log('Parsing markdown text...');
+  helpDebugLog('Parsing markdown text...');
   const sections = {};
   const lines = markdownText.trim().split('\n'); // Trim the whole text
   let currentId = null;
@@ -61,7 +68,7 @@ const parseHelpMarkdown = (markdownText) => {
       }
       currentId = sectionMatch[1].trim();
       currentContent = [];
-      console.log(`Found section: ${currentId}`);
+      helpDebugLog(`Found section: ${currentId}`);
     } else if (currentId !== null) {
       currentContent.push(line); // Keep original line content for section body
     }
@@ -71,7 +78,7 @@ const parseHelpMarkdown = (markdownText) => {
   if (currentId && currentContent.length > 0) {
     sections[currentId] = currentContent.join('\n').trim();
   }
-  console.log('Markdown parsing complete. Resulting sections:', sections);
+  helpDebugLog('Markdown parsing complete. Resulting sections:', sections);
   return sections;
 };
 
@@ -99,11 +106,11 @@ const showFullHelp = async () => {
     let currentLevel = 0;
     let currentHierarchy = headings;
 
-    console.log('Starting heading extraction and hierarchy building...');
+    helpDebugLog('Starting heading extraction and hierarchy building...');
 
     lines.forEach((line, index) => {
       const trimmedLine = line.trim(); // Trim each line before matching
-      console.log(`Processing line ${index + 1}: "${trimmedLine}"`);
+      helpDebugLog(`Processing line ${index + 1}: "${trimmedLine}"`);
       const match = trimmedLine.match(headingRegex);
       if (match) {
         const level = match[1].length;
@@ -111,26 +118,26 @@ const showFullHelp = async () => {
         const id = text.toLowerCase().replace(/\s+/g, '-');
 
         const heading = { id: id, text: text, level: level, children: [] };
-        console.log(`Matched heading: Level ${level}, Text: "${text}", ID: "${id}"`);
+        helpDebugLog(`Matched heading: Level ${level}, Text: "${text}", ID: "${id}"`);
 
         if (level > currentLevel) {
           // Deeper level
-          console.log(`Moving to deeper level from ${currentLevel} to ${level}`);
+          helpDebugLog(`Moving to deeper level from ${currentLevel} to ${level}`);
           if (currentHierarchy.length > 0) {
             const lastSibling = currentHierarchy[currentHierarchy.length - 1];
             lastSibling.children.push(heading);
             currentHierarchy = lastSibling.children;
-            console.log('Added as child:', heading);
+            helpDebugLog('Added as child:', heading);
           } else {
              // Should not happen with valid markdown starting from #
              console.warn('Unexpected hierarchy structure: Deeper level with empty currentHierarchy.');
              headings.push(heading);
              currentHierarchy = headings;
-             console.log('Added to root as deeper level:', heading);
+             helpDebugLog('Added to root as deeper level:', heading);
           }
         } else if (level < currentLevel) {
           // Higher level
-          console.log(`Moving to higher level from ${currentLevel} to ${level}`);
+          helpDebugLog(`Moving to higher level from ${currentLevel} to ${level}`);
           let parentHierarchy = headings;
           // Navigate up the hierarchy
           for (let i = 1; i < level; i++) { // Corrected loop condition
@@ -143,22 +150,22 @@ const showFullHelp = async () => {
           }
           parentHierarchy.push(heading);
           currentHierarchy = parentHierarchy;
-          console.log('Added to higher level:', heading);
+          helpDebugLog('Added to higher level:', heading);
 
         } else {
           // Same level
-          console.log(`Staying at same level ${level}`);
+          helpDebugLog(`Staying at same level ${level}`);
           currentHierarchy.push(heading);
-          console.log('Added to current level:', heading);
+          helpDebugLog('Added to current level:', heading);
         }
         currentLevel = level;
-        console.log('Current hierarchy:', currentHierarchy);
+        helpDebugLog('Current hierarchy:', currentHierarchy);
       } else {
-        console.log('No heading match.');
+        helpDebugLog('No heading match.');
       }
     });
 
-    console.log('Heading extraction and hierarchy building complete. Resulting headings:', headings);
+    helpDebugLog('Heading extraction and hierarchy building complete. Resulting headings:', headings);
 
 
     // Function to build nested TOC HTML

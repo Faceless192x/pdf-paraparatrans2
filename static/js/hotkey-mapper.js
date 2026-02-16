@@ -1,3 +1,4 @@
+// Debug: set `window.HOTKEY_DEBUG = true` to enable console logs.
 // --- HotkeyMapper 設計検証フレーム（必読） ---
 // この関数はレビュー済項目が存在します。
 // 【仕様】【実装】【出力】の3点が一致しており、以下の通り検証されています：
@@ -18,6 +19,12 @@ const HotkeyMapper = (() => {
   const HOTKEY_INPUT_HISTORY_LIMIT = 50;
   let hotkeyInputHistoryCounter = 0;
   const pressedKeyCodes = new Set();
+
+  const debugLog = (...args) => {
+    if (window.HOTKEY_DEBUG) {
+      console.log(...args);
+    }
+  };
 
   const VALID_ACTIONS = new Set([
     "click", "dblclick", "mousedown", "mouseup", "keydown", "keyup", "focus", "blur",
@@ -359,23 +366,23 @@ function normalizeHotkey(hotkey) {
   function handleKeydown(event, capturePhase) {
     if (event.repeat || event.isComposing) return;
     const key = getPressedKeyString(event);
-    console.log("key1:", key, capturePhase);
+    debugLog("key1:", key, capturePhase);
     if (!capturePhase) updateHotkeyInputDisplay(key, { appendHistory: false });
     const isCapture = captureHotkeys.has(key);
     if (capturePhase !== isCapture) return;
-    console.log("key2:", key, capturePhase);
+    debugLog("key2:", key, capturePhase);
     const entry = hotkeyMap.get(key);
     if (!entry) return;
-    console.log("key3:", key, capturePhase);
+    debugLog("key3:", key, capturePhase);
     if (isTypingContext() && !entry.allowInInput) return;
-    console.log("key4:", key, capturePhase);
+    debugLog("key4:", key, capturePhase);
     if (!isModifierKey(event.key)) {
       if (pressedKeyCodes.has(event.code)) return;
       pressedKeyCodes.add(event.code);
     }
     updateHotkeyInputDisplay(key, { appendHistory: true });
     event.preventDefault();
-    console.log("HotkeyMapper: 発火", key);
+    debugLog("HotkeyMapper: 発火", key);
     entry.handler(event);
   }
 

@@ -186,6 +186,16 @@ function renderParagraphs(options = {}) {
         if (srcPanel) srcPanel.scrollTop = 0;
     }
 
+    if (!bookData?.pages?.[String(currentPage)]) {
+        console.warn(`renderParagraphs skipped: page data not loaded (${currentPage})`);
+        const srcContainer = document.getElementById("srcParagraphs");
+        if (srcContainer) {
+            srcContainer.style.display = 'block';
+            srcContainer.innerHTML = `<div class="paragraph-box">Loading page ${currentPage}...</div>`;
+        }
+        return;
+    }
+
     let srcContainer = document.getElementById("srcParagraphs");
     srcContainer.style.display = 'none'; // チラつき防止にいったん非表示
     srcContainer.innerHTML = "";
