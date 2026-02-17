@@ -205,6 +205,7 @@ CONFIG_FOLDER = os.path.abspath(os.getenv("PARAPARATRANS_CONFIG_DIR", os.path.jo
 
 URL_BOOKS_DIRNAME = "url_books"
 URL_BOOK_PREFIX = "url/"
+URL_BOOK_JSON_SUFFIX = ".url.json"
 
 # 既存コード互換のため BASE_FOLDER は data/ を指す
 BASE_FOLDER = DATA_FOLDER
@@ -528,12 +529,18 @@ def get_paths(pdf_name):
     if normalized.startswith(URL_BOOK_PREFIX):
         rel = normalized[len(URL_BOOK_PREFIX):]
         parts = [p for p in rel.split("/") if p] or ["_invalid"]
-        base_path = _safe_join_data(URL_BOOKS_DIRNAME, *parts)
+        base_path = _safe_join_data(*parts)
     else:
         parts = normalized.split("/")
         base_path = _safe_join_data(*parts)
     pdf_path = base_path + ".pdf"
-    json_path = base_path + ".json"
+    if normalized.startswith(URL_BOOK_PREFIX):
+        json_path = base_path + URL_BOOK_JSON_SUFFIX
+        legacy_json_path = _safe_join_data(URL_BOOKS_DIRNAME, *parts) + ".json"
+        if not os.path.exists(json_path) and os.path.exists(legacy_json_path):
+            json_path = legacy_json_path
+    else:
+        json_path = base_path + ".json"
     return pdf_path, json_path
 
 
@@ -636,49 +643,91 @@ def get_pdf_files(rel_dir: str = ""):
 
 def get_url_books() -> dict:
     books: dict = {}
+    seen_keys: set[str] = set()
+    base_dir = BASE_FOLDER
+
+    if os.path.isdir(base_dir):
+        for root, subdirs, files in os.walk(base_dir):
+            subdirs[:] = [d for d in subdirs if not _should_skip_dir(d)]
+            for fname in files:
+                if not fname.lower().endswith(URL_BOOK_JSON_SUFFIX):
+                    continue
+                full_path = os.path.join(root, fname)
+                rel_path = os.path.relpath(full_path, base_dir).replace(os.sep, "/")
+                book_key = rel_path[:-len(URL_BOOK_JSON_SUFFIX)]
+                seen_keys.add(book_key)
+                pdf_name = f"{URL_BOOK_PREFIX}{book_key}"
+
+                try:
+                    with open(full_path, "r", encoding="utf-8") as f:
+                        book_data = json.load(f)
+                except Exception:
+                    book_data = {}
+
+                updated_date = ""
+                try:
+                    updated_date = datetime.datetime.fromtimestamp(os.path.getmtime(full_path)).strftime("%Y/%m/%d")
+                except Exception:
+                    pass
+
+                trans_counts = (book_data or {}).get("trans_status_counts", {}) or {}
+                books[pdf_name] = {
+                    "json_path": full_path,
+                    "pdf_name": pdf_name,
+                    "title": (book_data or {}).get("title") or pdf_name,
+                    "updated": updated_date,
+                    "trans_status_counts": {
+                        "none": trans_counts.get("none", 0),
+                        "auto": trans_counts.get("auto", 0),
+                        "draft": trans_counts.get("draft", 0),
+                        "fixed": trans_counts.get("fixed", 0),
+                    },
+                    "book_type": (book_data or {}).get("source_type") or "url",
+                }
+
     try:
-        base_dir = _safe_join_data(URL_BOOKS_DIRNAME)
+        legacy_dir = _safe_join_data(URL_BOOKS_DIRNAME)
     except Exception:
-        return books
+        legacy_dir = None
 
-    if not os.path.isdir(base_dir):
-        return books
+    if legacy_dir and os.path.isdir(legacy_dir):
+        for root, _dirs, files in os.walk(legacy_dir):
+            for fname in files:
+                if not fname.lower().endswith(".json"):
+                    continue
+                full_path = os.path.join(root, fname)
+                rel_path = os.path.relpath(full_path, legacy_dir)
+                book_key = rel_path[:-5].replace(os.sep, "/")
+                if book_key in seen_keys:
+                    continue
+                pdf_name = f"{URL_BOOK_PREFIX}{book_key}"
 
-    for root, _dirs, files in os.walk(base_dir):
-        for fname in files:
-            if not fname.lower().endswith(".json"):
-                continue
-            full_path = os.path.join(root, fname)
-            rel_path = os.path.relpath(full_path, base_dir)
-            book_key = rel_path[:-5].replace(os.sep, "/")
-            pdf_name = f"{URL_BOOK_PREFIX}{book_key}"
+                try:
+                    with open(full_path, "r", encoding="utf-8") as f:
+                        book_data = json.load(f)
+                except Exception:
+                    book_data = {}
 
-            try:
-                with open(full_path, "r", encoding="utf-8") as f:
-                    book_data = json.load(f)
-            except Exception:
-                book_data = {}
+                updated_date = ""
+                try:
+                    updated_date = datetime.datetime.fromtimestamp(os.path.getmtime(full_path)).strftime("%Y/%m/%d")
+                except Exception:
+                    pass
 
-            updated_date = ""
-            try:
-                updated_date = datetime.datetime.fromtimestamp(os.path.getmtime(full_path)).strftime("%Y/%m/%d")
-            except Exception:
-                pass
-
-            trans_counts = (book_data or {}).get("trans_status_counts", {}) or {}
-            books[pdf_name] = {
-                "json_path": full_path,
-                "pdf_name": pdf_name,
-                "title": (book_data or {}).get("title") or pdf_name,
-                "updated": updated_date,
-                "trans_status_counts": {
-                    "none": trans_counts.get("none", 0),
-                    "auto": trans_counts.get("auto", 0),
-                    "draft": trans_counts.get("draft", 0),
-                    "fixed": trans_counts.get("fixed", 0),
-                },
-                "book_type": (book_data or {}).get("source_type") or "url",
-            }
+                trans_counts = (book_data or {}).get("trans_status_counts", {}) or {}
+                books[pdf_name] = {
+                    "json_path": full_path,
+                    "pdf_name": pdf_name,
+                    "title": (book_data or {}).get("title") or pdf_name,
+                    "updated": updated_date,
+                    "trans_status_counts": {
+                        "none": trans_counts.get("none", 0),
+                        "auto": trans_counts.get("auto", 0),
+                        "draft": trans_counts.get("draft", 0),
+                        "fixed": trans_counts.get("fixed", 0),
+                    },
+                    "book_type": (book_data or {}).get("source_type") or "url",
+                }
 
     books = dict(sorted(books.items(), key=lambda x: x[1].get("updated", ""), reverse=True))
     return books
@@ -694,6 +743,73 @@ def get_all_dirs() -> list:
         dirs.append(rel.replace(os.sep, "/"))
     dirs.sort(key=lambda x: x.lower())
     return dirs
+
+
+def _normalize_book_dir(book_name: str) -> str:
+    if not isinstance(book_name, str):
+        return ""
+    rel = book_name
+    if rel.startswith(URL_BOOK_PREFIX):
+        rel = rel[len(URL_BOOK_PREFIX):]
+    rel = rel.replace("\\", "/").strip("/")
+    if not rel:
+        return ""
+    return os.path.dirname(rel).replace("\\", "/").strip("/")
+
+
+def _accumulate_folder_counts(book_names: list[str]) -> dict:
+    counts: dict[str, int] = {}
+    for name in book_names:
+        current = _normalize_book_dir(name)
+        while True:
+            counts[current] = counts.get(current, 0) + 1
+            if not current:
+                break
+            current = os.path.dirname(current).replace("\\", "/").strip("/")
+    return counts
+
+
+def _build_folder_tree(all_dirs: list[str], counts: dict, current_dir: str | None) -> dict:
+    root = {
+        "name": "/ (ルート)",
+        "path": "",
+        "children": [],
+        "count": counts.get("", 0),
+        "open": True,
+        "active": not current_dir,
+    }
+    nodes: dict[str, dict] = {"": root}
+
+    for dir_path in sorted(all_dirs, key=lambda x: (x.count("/"), x.lower())):
+        parts = dir_path.split("/")
+        acc = []
+        for part in parts:
+            acc.append(part)
+            key = "/".join(acc)
+            if key in nodes:
+                continue
+            parent_key = "/".join(acc[:-1])
+            parent_node = nodes.get(parent_key, root)
+            node = {
+                "name": part,
+                "path": key,
+                "children": [],
+                "count": counts.get(key, 0),
+                "open": False,
+                "active": False,
+            }
+            parent_node["children"].append(node)
+            nodes[key] = node
+
+    for key, node in nodes.items():
+        if key == "":
+            continue
+        node["count"] = counts.get(key, 0)
+        if current_dir and (current_dir == key or current_dir.startswith(f"{key}/")):
+            node["open"] = True
+        node["active"] = bool(current_dir) and current_dir == key
+
+    return root
 
 
 def _build_breadcrumbs(current_dir: str):
@@ -767,29 +883,54 @@ def index():
     # URLブックを追加
     url_books = get_url_books()
     for book_name, book_item in url_books.items():
+        if current_dir:
+            book_rel = book_name[len(URL_BOOK_PREFIX):] if book_name.startswith(URL_BOOK_PREFIX) else book_name
+            book_dir = os.path.dirname(book_rel).replace("\\", "/")
+            if book_dir != current_dir:
+                continue
+        else:
+            book_rel = book_name[len(URL_BOOK_PREFIX):] if book_name.startswith(URL_BOOK_PREFIX) else book_name
+            if os.path.dirname(book_rel).strip():
+                continue
         if book_name in pdf_dict:
             continue
         pdf_dict[book_name] = book_item
     
     # フィルタ処理
     filter_text = request.args.get("filter", "").lower().strip()
+    selected_types = set(request.args.getlist("type"))
+    if not selected_types:
+        selected_types = {"pdf", "url"}
+
     if filter_text:
         pdf_dict = {
             key: value for key, value in pdf_dict.items()
             if filter_text in value["title"].lower() or filter_text in value["pdf_name"].lower()
         }
 
+    pdf_dict = {
+        key: value for key, value in pdf_dict.items()
+        if (value.get("book_type") or "pdf") in selected_types
+    }
+
     pdf_dict = dict(sorted(pdf_dict.items(), key=lambda x: x[1].get("updated", ""), reverse=True))
     
+    all_dirs = get_all_dirs()
+    book_names = list((files or {}).keys()) + list(url_books.keys())
+    folder_counts = _accumulate_folder_counts(book_names)
+    folder_tree = _build_folder_tree(all_dirs, folder_counts, current_dir)
+
     return render_template(
         "index.html",
         pdf_dict=pdf_dict,
         filter_text=filter_text,
+        selected_types=sorted(selected_types),
         current_dir=current_dir,
         parent_dir=parent_dir,
         subdirs=subdirs,
         breadcrumbs=_build_breadcrumbs(current_dir),
-        all_dirs=get_all_dirs(),
+        all_dirs=all_dirs,
+        folder_tree=folder_tree,
     )
 
 
@@ -908,11 +1049,19 @@ def move_pdf_api():
     except ValueError:
         return jsonify({"status": "error", "message": "dest_dirが不正です"}), 400
 
+    is_url_book = _is_url_book_name(normalized_pdf_name)
     src_pdf_path, src_json_path = get_paths(normalized_pdf_name)
-    if not os.path.exists(src_pdf_path):
-        return jsonify({"status": "error", "message": "PDFが存在しません"}), 404
+    if is_url_book:
+        if not os.path.exists(src_json_path):
+            return jsonify({"status": "error", "message": "URLブックが存在しません"}), 404
+    else:
+        if not os.path.exists(src_pdf_path):
+            return jsonify({"status": "error", "message": "PDFが存在しません"}), 404
 
-    src_dir = os.path.dirname(normalized_pdf_name).replace("\\", "/")
+    if is_url_book:
+        src_dir = os.path.dirname(normalized_pdf_name[len(URL_BOOK_PREFIX):]).replace("\\", "/")
+    else:
+        src_dir = os.path.dirname(normalized_pdf_name).replace("\\", "/")
     if normalized_dest_dir == src_dir:
         return jsonify({"status": "ok", "pdf_name": normalized_pdf_name, "moved": False}), 200
 
@@ -924,16 +1073,27 @@ def move_pdf_api():
     if not os.path.isdir(dest_dir_path):
         return jsonify({"status": "error", "message": "移動先フォルダが存在しません"}), 404
 
-    base_name = os.path.basename(normalized_pdf_name)
-    new_pdf_name = f"{normalized_dest_dir}/{base_name}" if normalized_dest_dir else base_name
+    if is_url_book:
+        base_name = os.path.basename(normalized_pdf_name[len(URL_BOOK_PREFIX):])
+        new_book_key = f"{normalized_dest_dir}/{base_name}" if normalized_dest_dir else base_name
+        new_pdf_name = f"{URL_BOOK_PREFIX}{new_book_key}"
+    else:
+        base_name = os.path.basename(normalized_pdf_name)
+        new_pdf_name = f"{normalized_dest_dir}/{base_name}" if normalized_dest_dir else base_name
     dest_pdf_path, dest_json_path = get_paths(new_pdf_name)
 
-    if os.path.exists(dest_pdf_path):
+    if not is_url_book and os.path.exists(dest_pdf_path):
         return jsonify({"status": "error", "message": "移動先に同名PDFが存在します"}), 409
     if os.path.exists(dest_json_path):
         return jsonify({"status": "error", "message": "移動先に同名JSONが存在します"}), 409
 
     try:
+        if is_url_book:
+            os.replace(src_json_path, dest_json_path)
+            if _get_current_url_book() == normalized_pdf_name:
+                _set_current_url_book(new_pdf_name)
+            return jsonify({"status": "ok", "pdf_name": new_pdf_name, "moved": True}), 200
+
         os.replace(src_pdf_path, dest_pdf_path)
         if os.path.exists(src_json_path):
             os.replace(src_json_path, dest_json_path)
@@ -1070,7 +1230,11 @@ def detail(pdf_name, page_number=1):
     pdf_name = normalized_pdf_name
     is_url_book = _is_url_book_name(pdf_name)
     book_type = "url" if is_url_book else "pdf"
-    current_dir = os.path.dirname(pdf_name).replace("\\", "/")
+    if is_url_book:
+        book_rel = pdf_name[len(URL_BOOK_PREFIX):]
+        current_dir = os.path.dirname(book_rel).replace("\\", "/")
+    else:
+        current_dir = os.path.dirname(pdf_name).replace("\\", "/")
     index_dir = current_dir if current_dir else None
     pdf_path, json_path = get_paths(pdf_name)
 

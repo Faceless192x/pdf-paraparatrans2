@@ -38,14 +38,65 @@
         </div>
       </div>
     </div>
-    <form method="GET">
+    <form method="GET" class="filter-bar">
       {% if current_dir %}
         <input type="hidden" name="dir" value="{{ current_dir|e }}">
       {% endif %}
-      <input type="text" name="filter" placeholder="タイトル/ファイル名でフィルタ" value="{{ filter_text|e }}">
-      <button type="submit" data-help-id="ブックのフィルタリング">フィルタ</button>
+      <div class="filter-row">
+        <input type="text" name="filter" placeholder="タイトル/ファイル名でフィルタ" value="{{ filter_text|e }}">
+        <label class="filter-type">
+          <input type="checkbox" name="type" value="pdf" {% if 'pdf' in selected_types %}checked{% endif %}>
+          PDF
+        </label>
+        <label class="filter-type">
+          <input type="checkbox" name="type" value="url" {% if 'url' in selected_types %}checked{% endif %}>
+          URL
+        </label>
+        <button type="submit" data-help-id="ブックのフィルタリング">フィルタ</button>
+      </div>
     </form>
-    <div class="folder-nav">
+    <div class="index-layout">
+      <aside class="folder-tree-panel">
+        <div class="folder-tree-title">フォルダ</div>
+        {% macro render_tree(node) %}
+          <li class="folder-node {% if node.active %}active{% endif %}">
+            {% if node.children %}
+              <details class="folder-node__details" {% if node.open %}open{% endif %}>
+                <summary class="folder-node__summary">
+                  <a href="{{ url_for('index', dir=node.path) if node.path else url_for('index') }}">{{ node.name }}</a>
+                  <span class="folder-count">{{ node.count }}</span>
+                </summary>
+                <ul class="folder-tree-list">
+                  {% for child in node.children %}
+                    {{ render_tree(child) }}
+                  {% endfor %}
+                </ul>
+              </details>
+            {% else %}
+              <div class="folder-node__leaf">
+                <a href="{{ url_for('index', dir=node.path) if node.path else url_for('index') }}">{{ node.name }}</a>
+                <span class="folder-count">{{ node.count }}</span>
+              </div>
+            {% endif %}
+          </li>
+        {% endmacro %}
+        {% if folder_tree and (folder_tree.children or folder_tree.count) %}
+          <ul class="folder-tree-list">
+            {{ render_tree(folder_tree) }}
+          </ul>
+        {% else %}
+          <div class="folder-tree-empty">フォルダはありません</div>
+        {% endif %}
+        <div class="folder-actions">
+          <button type="button" onclick="createFolder()">フォルダ作成</button>
+          {% if current_dir %}
+            <button type="button" onclick="renameFolder('{{ current_dir|e }}')">現在のフォルダ名変更</button>
+            <button type="button" onclick="deleteFolder('{{ current_dir|e }}')">現在のフォルダ削除</button>
+          {% endif %}
+        </div>
+        <div id="folder-action-status" class="folder-status"></div>
+      </aside>
+      <main class="index-main-panel">
         <div class="folder-breadcrumbs">
           {% for crumb in breadcrumbs %}
             {% if loop.last %}
@@ -55,67 +106,47 @@
             {% endif %}
           {% endfor %}
         </div>
-        <div class="folder-actions">
-          <button type="button" onclick="createFolder()">フォルダ作成</button>
-          {% if current_dir %}
-            <button type="button" onclick="renameFolder('{{ current_dir|e }}')">現在のフォルダ名変更</button>
-            <button type="button" onclick="deleteFolder('{{ current_dir|e }}')">現在のフォルダ削除</button>
-          {% endif %}
-        </div>
         {% if current_dir and parent_dir is not none %}
           <div class="folder-up">
             <a href="{{ url_for('index', dir=parent_dir) }}">.. (上のフォルダ)</a>
           </div>
         {% endif %}
-        <div class="folder-list">
-          <div class="folder-list-title">フォルダ</div>
-          {% if subdirs %}
-            <ul class="folder-list-items">
-              {% for folder in subdirs %}
-                <li>
-                  <a href="{{ url_for('index', dir=folder.rel_path) }}">{{ folder.name }}</a>
-                  <button type="button" class="folder-action" onclick="renameFolder('{{ folder.rel_path|e }}')">名前変更</button>
-                  <button type="button" class="folder-action" onclick="deleteFolder('{{ folder.rel_path|e }}')">削除</button>
-                </li>
-              {% endfor %}
-            </ul>
-          {% else %}
-            <div class="folder-list-empty">フォルダはありません</div>
-          {% endif %}
-        </div>
-        <div id="folder-action-status" class="folder-status"></div>
+        <table class="book-list">
+            <thead>
+                <tr><th>Id</th><th>種別</th><th>タイトル</th><th>ファイル名</th><th>none</th><th>auto</th><th>draft</th><th>fixed</th><th>更新日</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+            {% for idx, (pdf_name, item) in enumerate(pdf_dict.items()) %}
+                <tr>
+                  <td>{{ idx+1 }}</td>
+                  <td>{% if item.get('book_type') == 'url' %}URL{% else %}PDF{% endif %}</td>
+                  <td>
+                    {{ item['title'] }}
+                  </td>
+                  <td>
+                    {% set display_name = pdf_name %}
+                    {% if display_name.startswith('url/') %}
+                      {% set display_name = display_name[4:] %}
+                    {% endif %}
+                    {% if '/' in display_name %}
+                      {% set display_name = display_name.split('/')[-1] %}
+                    {% endif %}
+                    <a href="{{ url_for('detail', pdf_name=pdf_name) }}">{{ display_name }}</a>
+                  </td>
+                  <td>{{ item.get('trans_status_counts', {}).get('none', 0) }}</td>
+                  <td>{{ item.get('trans_status_counts', {}).get('auto', 0) }}</td>
+                  <td>{{ item.get('trans_status_counts', {}).get('draft', 0) }}</td>
+                  <td>{{ item.get('trans_status_counts', {}).get('fixed', 0) }}</td>
+                  <td>{{ item['updated'] }}</td>
+                  <td>
+                    <button type="button" onclick='openMoveDialog({{ pdf_name|tojson }})'>移動</button>
+                  </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+      </main>
     </div>
-    <table class="book-list">
-        <thead>
-            <tr><th>Id</th><th>タイトル</th><th>ファイル名</th><th>none</th><th>auto</th><th>draft</th><th>fixed</th><th>更新日</th><th>操作</th></tr>
-        </thead>
-        <tbody>
-        {% for idx, (pdf_name, item) in enumerate(pdf_dict.items()) %}
-            <tr>
-              <td>{{ idx+1 }}</td>
-              <td>
-                {{ item['title'] }}
-                {% if item.get('book_type') == 'url' %}
-                  <span class="book-type-tag">URL</span>
-                {% endif %}
-              </td>
-              <td><a href="{{ url_for('detail', pdf_name=pdf_name) }}">{{ pdf_name }}</a></td>
-              <td>{{ item.get('trans_status_counts', {}).get('none', 0) }}</td>
-              <td>{{ item.get('trans_status_counts', {}).get('auto', 0) }}</td>
-              <td>{{ item.get('trans_status_counts', {}).get('draft', 0) }}</td>
-              <td>{{ item.get('trans_status_counts', {}).get('fixed', 0) }}</td>
-              <td>{{ item['updated'] }}</td>
-              <td>
-                {% if item.get('book_type') == 'url' %}
-                  <span class="book-action-placeholder">-</span>
-                {% else %}
-                  <button type="button" onclick='openMoveDialog({{ pdf_name|tojson }})'>移動</button>
-                {% endif %}
-              </td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
     <script>
         async function refreshBookList() {
             const url = window.location.pathname + window.location.search;

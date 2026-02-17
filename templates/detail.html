@@ -34,7 +34,14 @@
               <button type="button" data-href="{{ url_for('index', dir=index_dir) }}" onclick="window.location.href=this.dataset.href" data-help-id="一覧画面に戻る">戻る</button>
               Title: <input type="text" id="titleInput" value="{{ book_data.title|e }}" class="title-input">
               <button id="saveOrderButton" data-help-id="表題と構造を保存">保存</button>
-              FileName: {{ pdf_name }} / Update: {{ updated_date }}
+              {% set display_name = pdf_name %}
+              {% if display_name.startswith('url/') %}
+                {% set display_name = display_name[4:] %}
+              {% endif %}
+              {% if '/' in display_name %}
+                {% set display_name = display_name.split('/')[-1] %}
+              {% endif %}
+              FileName: {{ display_name }} / Update: {{ updated_date }}
             </span>
             <span class="inline-block-margin">
               <button onclick="extractParagraphs()" class="btn-step btn-step-extract" data-help-id="パラグラフの抽出">1.パラグラフ抽出</button>
