@@ -332,12 +332,12 @@ def _build_paragraphs(
         pid = f"{page_number}_{order}"
         paragraphs[pid] = {
             "id": pid,
-            "src_text": inline_html,
+            "src_text": text,
             "src_html": inline_html,
             "src_joined": text,
             "src_replaced": text,
-            "trans_auto": "",
-            "trans_text": "",
+            "trans_auto": text,
+            "trans_text": text,
             "trans_status": "none",
             "block_tag": tag if tag.startswith("h") else "p",
             "modified_at": now,
@@ -349,6 +349,53 @@ def _build_paragraphs(
             "comment": "",
         }
     return paragraphs
+
+
+def _prepend_title_block(title: Optional[str], blocks: List[Tuple[str, str, str]]) -> List[Tuple[str, str, str]]:
+    if not isinstance(title, str):
+        return blocks
+    title_text = title.strip()
+    if not title_text:
+        return blocks
+    if blocks:
+        first_tag, first_text, _first_html = blocks[0]
+        if first_tag == "h1" and (first_text or "").strip() == title_text:
+            return blocks
+    title_html = html.escape(title_text)
+    return [("h1", title_text, title_html)] + list(blocks)
+
+
+def _merge_translations_by_src_text(
+    old_paragraphs: Dict[str, Dict[str, Any]],
+    new_paragraphs: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    if not old_paragraphs or not new_paragraphs:
+        return new_paragraphs
+    index: Dict[str, Dict[str, Any]] = {}
+    for p in old_paragraphs.values():
+        key = (p or {}).get("src_text") or ""
+        key = key.strip()
+        if key:
+            index[key] = p
+
+    for p in new_paragraphs.values():
+        key = (p or {}).get("src_text") or ""
+        key = key.strip()
+        if not key:
+            continue
+        old = index.get(key)
+        if not old:
+            continue
+        old_auto = old.get("trans_auto")
+        if isinstance(old_auto, str) and old_auto != "":
+            p["trans_auto"] = old_auto
+        old_text = old.get("trans_text")
+        if isinstance(old_text, str) and old_text != "":
+            p["trans_text"] = old_text
+        old_status = old.get("trans_status")
+        if old_status:
+            p["trans_status"] = old_status
+    return new_paragraphs
 
 
 def _recalc_trans_status_counts(book_data: Dict[str, Any]) -> Dict[str, int]:
@@ -375,8 +422,9 @@ def build_url_book_data(
     page_title, blocks = extract_page_from_html(html_text, root_url, site_profile)
 
     page_number = 1
-    paragraphs = _build_paragraphs(page_number, blocks)
     book_title = title or page_title or root_url
+    blocks = _prepend_title_block(book_title, blocks)
+    paragraphs = _build_paragraphs(page_number, blocks)
 
     normalized_root = normalize_url(root_url) or root_url
     host = normalize_host(normalized_root)
@@ -423,6 +471,7 @@ def ensure_url_page_in_book(
 
     html_text = fetch_html(normalized)
     page_title, blocks = extract_page_from_html(html_text, normalized, site_profile)
+    blocks = _prepend_title_block(page_title or normalized, blocks)
 
     pages = book_data.setdefault("pages", {})
     page_number = int(book_data.get("page_count") or 0) + 1
@@ -472,8 +521,11 @@ def ensure_url_page_in_book_from_html(
         if not force:
             return page_number, page, False, False
 
+        old_paragraphs = (page or {}).get("paragraphs") or {}
         page_title, blocks = extract_page_from_html(html_text, normalized, site_profile)
+        blocks = _prepend_title_block(page_title or normalized, blocks)
         paragraphs = _build_paragraphs(page_number, blocks)
+        paragraphs = _merge_translations_by_src_text(old_paragraphs, paragraphs)
         page.update({
             "url": normalized,
             "title": page_title or page.get("title") or normalized,
@@ -488,6 +540,7 @@ def ensure_url_page_in_book_from_html(
         return page_number, page, False, True
 
     page_title, blocks = extract_page_from_html(html_text, normalized, site_profile)
+    blocks = _prepend_title_block(page_title or normalized, blocks)
     page_number = int(book_data.get("page_count") or 0) + 1
     page_key = str(page_number)
     paragraphs = _build_paragraphs(page_number, blocks)
