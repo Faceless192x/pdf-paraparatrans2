@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "ParaParaTrans URL Capture",
+  "version": "0.1.0",
+  "description": "Send current page HTML to ParaParaTrans URL book.",
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["contentScript.js"],
+      "all_frames": true
+    }
+  ],
+  "permissions": ["activeTab", "contextMenus", "scripting", "storage"],
+  "host_permissions": ["http://*/*", "https://*/*"]
+}

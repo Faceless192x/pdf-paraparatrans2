@@ -99,6 +99,7 @@ from modules.parapara_url2json import (
     build_url_book_data,
     crawl_site,
     ensure_url_page_in_book,
+    ensure_url_page_in_book_from_html,
     get_site_profile,
     load_site_profiles,
     normalize_host,
@@ -112,10 +113,70 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 # /api/book_toc 用の簡易キャッシュ（JSONのmtimeが変わらない限り再計算しない）
 _BOOK_TOC_CACHE = {}
 _BOOK_TOC_CACHE_LOCK = threading.Lock()
+_CURRENT_URL_BOOK = {"name": "", "updated_at": 0}
+_CURRENT_URL_BOOK_LOCK = threading.Lock()
+_URL_IMPORT_EVENTS = {}
+_URL_IMPORT_EVENTS_LOCK = threading.Lock()
 # mjsがtext/plain解釈されPDFビューアーが読み込めないケースへの対策。
 # 一度キャッシュされると壊れたままになるので、F12→ハードキャッシュクリアを推奨。
 import mimetypes
 mimetypes.add_type('application/javascript', '.mjs')
+
+
+def _corsify_response(resp):
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    resp.headers["Access-Control-Max-Age"] = "600"
+    return resp
+
+
+def _set_current_url_book(book_name: str) -> None:
+    with _CURRENT_URL_BOOK_LOCK:
+        _CURRENT_URL_BOOK["name"] = book_name
+        _CURRENT_URL_BOOK["updated_at"] = int(time.time())
+
+
+def _get_current_url_book() -> str:
+    with _CURRENT_URL_BOOK_LOCK:
+        return _CURRENT_URL_BOOK.get("name") or ""
+
+
+def _save_site_profiles(config_folder: str, profiles: dict) -> None:
+    os.makedirs(config_folder, exist_ok=True)
+    path = os.path.join(config_folder, "url_site_profiles.json")
+    tmp_path = f"{path}.{uuid.uuid4().hex}.tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(profiles, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, path)
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+
+def _normalize_selector_list(values) -> list:
+    if not isinstance(values, list):
+        return []
+    out = []
+    for item in values:
+        text = str(item or "").strip()
+        if text:
+            out.append(text)
+    return out
+
+
+def _set_url_import_event(book_name: str, event: dict) -> None:
+    with _URL_IMPORT_EVENTS_LOCK:
+        _URL_IMPORT_EVENTS[book_name] = event
+
+
+def _get_url_import_event(book_name: str) -> dict:
+    with _URL_IMPORT_EVENTS_LOCK:
+        return _URL_IMPORT_EVENTS.get(book_name) or {}
 
 
 def _perf_api_enabled() -> bool:
@@ -1360,6 +1421,202 @@ def navigate_url_book_api():
         "title": book_data.get("title"),
         "page_url_map": book_data.get("page_url_map") or {},
     })
+
+
+@app.route("/api/url_book/import_html", methods=["POST", "OPTIONS"])
+def import_url_book_html_api():
+    if request.method == "OPTIONS":
+        resp = app.make_response("")
+        resp.status_code = 204
+        return _corsify_response(resp)
+
+    payload = request.get_json(silent=True) or {}
+    book_name = _normalize_pdf_name(payload.get("book_name") or "")
+    if not book_name:
+        book_name = _get_current_url_book()
+    if not book_name or not _is_url_book_name(book_name):
+        resp = jsonify({"status": "error", "message": "book_nameが不正です"})
+        resp.status_code = 400
+        return _corsify_response(resp)
+
+    raw_url = (payload.get("url") or "").strip()
+    normalized = normalize_url(raw_url)
+    if not normalized:
+        resp = jsonify({"status": "error", "message": "URLが不正です"})
+        resp.status_code = 400
+        return _corsify_response(resp)
+
+    html_text = payload.get("html") or ""
+    force = bool(payload.get("force", False))
+
+    _, json_path = get_paths(book_name)
+    if not os.path.exists(json_path):
+        resp = jsonify({"status": "error", "message": "URLブックが存在しません"})
+        resp.status_code = 404
+        return _corsify_response(resp)
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            book_data = json.load(f)
+    except Exception as e:
+        resp = jsonify({"status": "error", "message": f"URLブックの読み込みに失敗しました: {str(e)}"})
+        resp.status_code = 500
+        return _corsify_response(resp)
+
+    root_host = (book_data or {}).get("source_host") or normalize_host((book_data or {}).get("source_root_url") or "")
+    target_host = normalize_host(normalized)
+    if root_host and target_host and root_host != target_host:
+        resp = jsonify({"status": "error", "message": "別ドメインのURLはこのブックに追加できません"})
+        resp.status_code = 400
+        return _corsify_response(resp)
+
+    profiles = load_site_profiles(CONFIG_FOLDER)
+    profile = get_site_profile(profiles, root_host)
+
+    try:
+        page_number, page_data, added, updated = ensure_url_page_in_book_from_html(
+            book_data,
+            normalized,
+            html_text,
+            site_profile=profile,
+            force=force,
+        )
+        if added or updated:
+            save_url_book(json_path, book_data)
+    except Exception as e:
+        app.logger.exception("URL book import_html failed")
+        resp = jsonify({"status": "error", "message": f"HTML取り込みに失敗しました: {str(e)}"})
+        resp.status_code = 500
+        return _corsify_response(resp)
+
+    exists = (not added and not updated)
+    event = {
+        "id": uuid.uuid4().hex,
+        "book_name": book_name,
+        "kind": "import",
+        "page_number": page_number,
+        "page_count": book_data.get("page_count"),
+        "url": normalized,
+        "added": bool(added),
+        "updated": bool(updated),
+        "exists": bool(exists),
+        "created_at": int(time.time()),
+    }
+    _set_url_import_event(book_name, event)
+
+    resp = jsonify({
+        "status": "ok",
+        "page_number": page_number,
+        "page": page_data,
+        "page_count": book_data.get("page_count"),
+        "trans_status_counts": book_data.get("trans_status_counts"),
+        "title": book_data.get("title"),
+        "page_url_map": book_data.get("page_url_map") or {},
+        "added": bool(added),
+        "updated": bool(updated),
+        "exists": bool(exists),
+    })
+    return _corsify_response(resp)
+
+
+@app.route("/api/url_book/import_event/<path:book_name>", methods=["GET"])
+def url_book_import_event_api(book_name: str):
+    normalized = _normalize_pdf_name(book_name or "")
+    if not normalized or not _is_url_book_name(normalized):
+        return jsonify({"status": "error", "message": "book_nameが不正です"}), 400
+
+    event = _get_url_import_event(normalized)
+    if not event:
+        return jsonify({"status": "ok", "event": None}), 200
+
+    return jsonify({"status": "ok", "event": event}), 200
+
+
+@app.route("/api/url_book/site_rules/<path:book_name>", methods=["GET", "POST"])
+def url_book_site_rules_api(book_name: str):
+    normalized = _normalize_pdf_name(book_name or "")
+    if not normalized or not _is_url_book_name(normalized):
+        return jsonify({"status": "error", "message": "book_nameが不正です"}), 400
+
+    _, json_path = get_paths(normalized)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "URLブックが存在しません"}), 404
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            book_data = json.load(f)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"URLブックの読み込みに失敗しました: {str(e)}"}), 500
+
+    host = (book_data or {}).get("source_host") or normalize_host((book_data or {}).get("source_root_url") or "")
+    if not host:
+        return jsonify({"status": "error", "message": "hostが不正です"}), 400
+
+    profiles = load_site_profiles(CONFIG_FOLDER)
+    profile = get_site_profile(profiles, host) or {}
+
+    if request.method == "GET":
+        return jsonify({
+            "status": "ok",
+            "host": host,
+            "site_rules": {
+                "include_selectors": profile.get("include_selectors") or [],
+                "add_selectors": profile.get("add_selectors") or [],
+                "exclude_selectors": profile.get("exclude_selectors") or [],
+            },
+        }), 200
+
+    payload = request.get_json(silent=True) or {}
+    include_selectors = _normalize_selector_list(payload.get("include_selectors"))
+    add_selectors = _normalize_selector_list(payload.get("add_selectors"))
+    exclude_selectors = _normalize_selector_list(payload.get("exclude_selectors"))
+
+    profiles[host] = {
+        "include_selectors": include_selectors,
+        "add_selectors": add_selectors,
+        "exclude_selectors": exclude_selectors,
+    }
+    try:
+        _save_site_profiles(CONFIG_FOLDER, profiles)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"ルールの保存に失敗しました: {str(e)}"}), 500
+
+    rule_event = {
+        "id": uuid.uuid4().hex,
+        "book_name": normalized,
+        "kind": "rule_update",
+        "created_at": int(time.time()),
+    }
+    _set_url_import_event(normalized, rule_event)
+
+    return jsonify({
+        "status": "ok",
+        "host": host,
+        "site_rules": profiles[host],
+    }), 200
+
+
+@app.route("/api/url_book/current", methods=["GET", "POST", "OPTIONS"])
+def current_url_book_api():
+    if request.method == "OPTIONS":
+        resp = app.make_response("")
+        resp.status_code = 204
+        return _corsify_response(resp)
+
+    if request.method == "GET":
+        resp = jsonify({"status": "ok", "book_name": _get_current_url_book()})
+        return _corsify_response(resp)
+
+    payload = request.get_json(silent=True) or {}
+    book_name = _normalize_pdf_name(payload.get("book_name") or "")
+    if not book_name or not _is_url_book_name(book_name):
+        resp = jsonify({"status": "error", "message": "book_nameが不正です"})
+        resp.status_code = 400
+        return _corsify_response(resp)
+
+    _set_current_url_book(book_name)
+    resp = jsonify({"status": "ok", "book_name": book_name})
+    return _corsify_response(resp)
 
 
 @app.route("/api/url_book/crawl", methods=["POST"])

@@ -187,6 +187,21 @@ def _apply_exclude_selectors(soup: BeautifulSoup, site_profile: Optional[Dict[st
                 pass
 
 
+def _apply_add_selectors(soup: BeautifulSoup, site_profile: Optional[Dict[str, Any]]) -> List[Any]:
+    if not site_profile:
+        return []
+    add_selectors = site_profile.get("add_selectors") or []
+    if not isinstance(add_selectors, list) or not add_selectors:
+        return []
+    added: List[Any] = []
+    for selector in add_selectors:
+        try:
+            added.extend(soup.select(selector))
+        except Exception:
+            continue
+    return added
+
+
 def _build_inline_html(node, base_url: str) -> str:
     if node is None:
         return ""
@@ -280,6 +295,21 @@ def extract_page_from_html(
     _strip_noise(soup)
     _apply_exclude_selectors(soup, site_profile)
     roots = _pick_content_roots(soup, site_profile)
+    added_roots = _apply_add_selectors(soup, site_profile)
+    if added_roots:
+        merged: List[Any] = []
+        seen_ids = set()
+        for el in list(roots) + list(added_roots):
+            try:
+                key = id(el)
+            except Exception:
+                key = None
+            if key is not None and key in seen_ids:
+                continue
+            if key is not None:
+                seen_ids.add(key)
+            merged.append(el)
+        roots = merged
     blocks = _extract_blocks_from_roots(roots, page_url)
     if not blocks:
         fallback_text = soup.get_text(" ", strip=True)
@@ -415,6 +445,65 @@ def ensure_url_page_in_book(
     _recalc_trans_status_counts(book_data)
 
     return page_number, pages[page_key], True
+
+
+def ensure_url_page_in_book_from_html(
+    book_data: Dict[str, Any],
+    url: str,
+    html_text: str,
+    *,
+    site_profile: Optional[Dict[str, Any]] = None,
+    force: bool = False,
+) -> Tuple[int, Dict[str, Any], bool, bool]:
+    normalized = normalize_url(url)
+    if not normalized:
+        raise ValueError("invalid url")
+    if not isinstance(html_text, str) or not html_text.strip():
+        raise ValueError("invalid html")
+
+    url_to_page = book_data.get("url_to_page") or {}
+    pages = book_data.setdefault("pages", {})
+    page_url_map = book_data.setdefault("page_url_map", {})
+
+    if normalized in url_to_page:
+        page_key = str(url_to_page[normalized])
+        page_number = int(page_key)
+        page = pages.get(page_key) or {}
+        if not force:
+            return page_number, page, False, False
+
+        page_title, blocks = extract_page_from_html(html_text, normalized, site_profile)
+        paragraphs = _build_paragraphs(page_number, blocks)
+        page.update({
+            "url": normalized,
+            "title": page_title or page.get("title") or normalized,
+            "paragraphs": paragraphs,
+        })
+        pages[page_key] = page
+        page_url_map[page_key] = normalized
+        url_to_page[normalized] = page_key
+        book_data["url_to_page"] = url_to_page
+        book_data["page_url_map"] = page_url_map
+        _recalc_trans_status_counts(book_data)
+        return page_number, page, False, True
+
+    page_title, blocks = extract_page_from_html(html_text, normalized, site_profile)
+    page_number = int(book_data.get("page_count") or 0) + 1
+    page_key = str(page_number)
+    paragraphs = _build_paragraphs(page_number, blocks)
+
+    pages[page_key] = {
+        "url": normalized,
+        "title": page_title or normalized,
+        "paragraphs": paragraphs,
+    }
+    page_url_map[page_key] = normalized
+    url_to_page[normalized] = page_key
+    book_data["url_to_page"] = url_to_page
+    book_data["page_url_map"] = page_url_map
+    book_data["page_count"] = page_number
+    _recalc_trans_status_counts(book_data)
+    return page_number, pages[page_key], True, False
 
 
 _SKIP_EXTENSIONS = {

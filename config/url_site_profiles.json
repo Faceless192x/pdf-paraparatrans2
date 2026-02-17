@@ -1,0 +1,17 @@
+{
+  "glorantha.fandom.com": {
+    "include_selectors": [],
+    "add_selectors": [
+      "#firstHeading > span.mw-page-title-main"
+    ],
+    "exclude_selectors": []
+  },
+  "wellofdaliath.chaosium.com": {
+    "include_selectors": [],
+    "add_selectors": [
+      "div.entry-content > div.wp-block-post-author > div.wp-block-post-author__content > p.wp-block-post-author__name",
+      "div.entry-meta > div.blog-data-wrapper > div.post-data-positioning > div.post-data-text"
+    ],
+    "exclude_selectors": []
+  }
+}

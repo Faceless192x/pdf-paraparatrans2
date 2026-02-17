@@ -60,6 +60,99 @@ function clearPageCacheForSession() {
     }
 }
 
+let urlImportPollTimer = null;
+let lastUrlImportEventId = null;
+
+async function processUrlImportEvent(event) {
+    if (!event || !event.id) return;
+    if (lastUrlImportEventId === event.id) return;
+    lastUrlImportEventId = event.id;
+
+    if (event.kind === 'rule_update') {
+        if (typeof loadUrlRuleDialog === 'function' && typeof isUrlRuleDialogOpen === 'function') {
+            if (isUrlRuleDialogOpen()) {
+                await loadUrlRuleDialog();
+                if (typeof setUrlRuleStatus === 'function') {
+                    setUrlRuleStatus('ルールが更新されました');
+                }
+            }
+        }
+        return;
+    }
+
+    const pageNum = Number(event.page_number || 0);
+    if (!pageNum) return;
+
+    if (event.exists) {
+        if (confirm('すでに取り込み済みです。移動しますか？')) {
+            await jumpToPage(pageNum, { updateUrl: true, preserveScroll: false });
+        }
+        return;
+    }
+
+    if (event.page_count && bookData) {
+        bookData.page_count = event.page_count;
+        const pageCountEl = document.getElementById('pageCount');
+        const pageInputEl = document.getElementById('pageInput');
+        if (pageCountEl) pageCountEl.innerText = event.page_count;
+        if (pageInputEl) pageInputEl.max = event.page_count;
+    }
+    if (bookData && bookData.page_url_map && event.url) {
+        bookData.page_url_map[String(pageNum)] = event.url;
+    }
+
+    await fetchAndApplyPage(pageNum);
+    if (typeof fetchAndApplyToc === 'function') {
+        await fetchAndApplyToc();
+    }
+    await jumpToPage(pageNum, { updateUrl: true, preserveScroll: false });
+}
+
+async function fetchLatestUrlImportEvent() {
+    if (!isUrlBookContext() || !pdfName) return;
+    try {
+        const res = await fetch(`/api/url_book/import_event/${encodePdfNamePath(pdfName)}`);
+        const data = await res.json().catch(() => ({}));
+        const event = data?.event || null;
+        if (!event || !event.id) return;
+        await processUrlImportEvent(event);
+    } catch (e) {
+        // ignore
+    }
+}
+
+function stopUrlImportPolling() {
+    if (urlImportPollTimer) {
+        clearInterval(urlImportPollTimer);
+        urlImportPollTimer = null;
+    }
+}
+
+function startUrlImportPolling() {
+    stopUrlImportPolling();
+    if (!isUrlBookContext()) return;
+
+    urlImportPollTimer = setInterval(async () => {
+        await fetchLatestUrlImportEvent();
+    }, 1500);
+}
+
+window.addEventListener('message', (event) => {
+    if (!event || !event.data) return;
+    if (event.data.type !== 'ppt-refresh') return;
+    if (event.data.kind === 'rule_update') {
+        if (typeof isUrlRuleDialogOpen === 'function' && isUrlRuleDialogOpen()) {
+            if (typeof loadUrlRuleDialog === 'function') {
+                loadUrlRuleDialog();
+            }
+            if (typeof setUrlRuleStatus === 'function') {
+                setUrlRuleStatus('ルールが更新されました');
+            }
+        }
+    }
+    fetchLatestUrlImportEvent();
+});
+
 async function navigateUrlBook(targetUrl) {
     if (!bookData || bookData.source_type !== 'url') {
         return false;
@@ -196,6 +289,22 @@ async function crawlUrlBookByPrompt() {
     }
 }
 
+async function setCurrentUrlBook() {
+    if (!bookData || bookData.source_type !== 'url') return false;
+    if (!pdfName) return false;
+    try {
+        await fetch('/api/url_book/current', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ book_name: pdfName }),
+        });
+        return true;
+    } catch (e) {
+        console.warn('setCurrentUrlBook failed:', e);
+        return false;
+    }
+}
+
 
 async function fetchBookData() {
     try {
@@ -218,6 +327,9 @@ async function fetchBookData() {
             toc: [],
         };
         bookData.__json_mtime = meta?.json_mtime ?? null;
+
+        setCurrentUrlBook();
+        startUrlImportPolling();
 
         if (typeof applyBookTypeUi === 'function') {
             applyBookTypeUi();

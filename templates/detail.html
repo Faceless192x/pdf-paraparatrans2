@@ -57,6 +57,14 @@
                 onclick="openDataExportDialog()"
                 data-help-id="データ入出力ダイアログ"
               >データ</button>
+              <button
+                type="button"
+                id="openUrlRuleButton"
+                class="btn-step btn-step-export"
+                onclick="openUrlRuleDialog()"
+                data-help-id="URL取得ルール"
+                style="display:none"
+              >ルール</button>
               <input id="docStructureFileInput" type="file" accept=".json" style="display:none" onchange="importDocStructureFile(this.files)">
             </span>
           </div>
@@ -221,6 +229,37 @@
         </div>
       </div>
     </div>
+    <div id="urlRuleDialog" class="data-export-dialog" style="display:none">
+      <div class="data-export-dialog__backdrop" onclick="closeUrlRuleDialog()"></div>
+      <div class="data-export-dialog__content url-rule-dialog__content" role="dialog" aria-modal="true" aria-labelledby="urlRuleDialogTitle">
+        <div class="data-export-dialog__header">
+          <div id="urlRuleDialogTitle" class="data-export-dialog__title">URL取得ルール</div>
+          <button type="button" class="data-export-dialog__close" onclick="closeUrlRuleDialog()">×</button>
+        </div>
+        <div class="data-export-dialog__section">
+          <div class="data-export-dialog__section-title">対象範囲（指定階層以下を取得）</div>
+          <div class="url-rule-dialog__hint">1行に1つのCSSセレクタを入力</div>
+          <textarea id="urlRuleInclude" class="url-rule-dialog__textarea" rows="4" placeholder="例: main\n.mw-parser-output"></textarea>
+        </div>
+        <div class="data-export-dialog__section">
+          <div class="data-export-dialog__section-title">特定の要素を追加</div>
+          <div class="url-rule-dialog__hint">本文に追加したい要素を指定</div>
+          <textarea id="urlRuleAdd" class="url-rule-dialog__textarea" rows="4" placeholder="例: .infobox\n#sidebar"></textarea>
+        </div>
+        <div class="data-export-dialog__section">
+          <div class="data-export-dialog__section-title">特定の要素を排除</div>
+          <div class="url-rule-dialog__hint">本文から除外したい要素を指定</div>
+          <textarea id="urlRuleExclude" class="url-rule-dialog__textarea" rows="4" placeholder="例: nav\n.footer\n#ads"></textarea>
+        </div>
+        <div class="data-export-dialog__section">
+          <div class="data-export-dialog__row">
+            <button type="button" class="btn-step btn-step-export" onclick="saveUrlRuleDialog()">保存</button>
+            <button type="button" onclick="closeUrlRuleDialog()">閉じる</button>
+          </div>
+          <div id="urlRuleStatus" class="data-export-status"></div>
+        </div>
+      </div>
+    </div>
   <script src="{{ url_for('static', filename='js/pdf-name.js') }}"></script>
   <script src="{{ url_for('static', filename='js/dict.js') }}"></script>
   <script src="{{ url_for('static', filename='js/tocPanel.js') }}"></script>    
@@ -229,6 +268,7 @@
   <script src="{{ url_for('static', filename='js/detail.js') }}"></script>    
   <script src="{{ url_for('static', filename='js/fetch.js') }}"></script>    
   <script src="{{ url_for('static', filename='js/searchPanel.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/urlRules.js') }}"></script>
   <script src="{{ url_for('static', filename='js/header-actions-menu.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/hotkey-mapper.js') }}" defer></script>    
   <script src="{{ url_for('static', filename='js/keyDown.js') }}" defer></script>    

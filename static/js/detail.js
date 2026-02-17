@@ -12,6 +12,7 @@ function isUrlBook() {
 function applyBookTypeUi() {
     const addUrlButton = document.getElementById('addUrlPageButton');
     const crawlButton = document.getElementById('crawlUrlBookButton');
+    const ruleButton = document.getElementById('openUrlRuleButton');
     const pdfPanel = document.getElementById('pdfPanel');
     const urlPreviewPanel = document.getElementById('urlPreviewPanel');
     const resizer1 = document.getElementById('resizer1');
@@ -21,6 +22,7 @@ function applyBookTypeUi() {
     if (!isUrlBook()) {
         if (addUrlButton) addUrlButton.style.display = 'none';
         if (crawlButton) crawlButton.style.display = 'none';
+        if (ruleButton) ruleButton.style.display = 'none';
         if (pdfPanel) pdfPanel.style.display = 'flex';
         if (urlPreviewPanel) urlPreviewPanel.style.display = 'none';
         if (resizer1) resizer1.style.display = 'block';
@@ -63,6 +65,9 @@ function applyBookTypeUi() {
                 }
             });
         }
+    }
+    if (ruleButton) {
+        ruleButton.style.display = 'inline-block';
     }
 }
 
@@ -565,6 +570,8 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
         if (!isUrlBook()) {
             ensurePdfViewerLoaded(currentPage);
             setPdfViewerPage(currentPage);
+        } else {
+            updateUrlPreview(currentPage);
         }
 
         if (forceRender) {
