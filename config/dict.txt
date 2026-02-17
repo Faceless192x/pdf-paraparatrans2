@@ -7454,3 +7454,5 @@ Touch, Instant, Stackable	接触、瞬間、複合可	0	0
 Self, Temporal	自身、瞬間	1	0
 Ranged, Temporal, Stackable	範囲、瞬間、複合可	1	0
 Ranged, Temporal, Nonstackable	範囲、瞬間、複合不可	1	0
+Dwarfs	ドワーフ達	0	0
+dwarf	ドワーフ	0	0
