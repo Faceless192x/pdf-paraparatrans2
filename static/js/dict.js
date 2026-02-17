@@ -8,6 +8,8 @@ const DictPopup = {
     originalWordInput: null,
     translatedWordInput: null,
     statusSelect: null,
+    targetSelect: null,
+    targetDicts: [],
     okButton: null,
     cancelButton: null,
 
@@ -44,6 +46,10 @@ const DictPopup = {
                 <label for="status">状態:</label>
                 <select id="status"></select>
             </div>
+            <div>
+                <label for="dict-target">登録先:</label>
+                <select id="dict-target"></select>
+            </div>
             <div class="button-container">
                 <button id="dict-ok">登録のみ</button>
                 <button id="dict-replace-page">登録してページ置換</button>
@@ -58,6 +64,7 @@ const DictPopup = {
         this.originalWordInput = document.getElementById('original-word');
         this.translatedWordInput = document.getElementById('translated-word');
         this.statusSelect = document.getElementById('status');
+        this.targetSelect = document.getElementById('dict-target');
         this.okButton = document.getElementById('dict-ok');
         this.replacePageButton = document.getElementById('dict-replace-page');
         this.replaceAllButton = document.getElementById('dict-replace-all');
@@ -86,6 +93,8 @@ const DictPopup = {
         this.translatedWordInput.value = ''; // 訳語をクリア
         this.statusSelect.value = 0; // 状態を既定値に
 
+        await this.loadTargetDicts();
+
         try {
             const text = await navigator.clipboard.readText();
             this.originalWordInput.value = text.trim(); // クリップボードのテキストをセット
@@ -96,6 +105,85 @@ const DictPopup = {
         } catch (err) {
             console.error('Failed to read clipboard contents: ', err);
             this.originalWordInput.value = 'クリップボード取得エラー';
+        }
+    },
+
+    renderTargetDicts: function() {
+        if (!this.targetSelect) return;
+        const prev = this.targetSelect.value;
+        this.targetSelect.innerHTML = '';
+
+        if (!this.targetDicts.length) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'dict.txt';
+            this.targetSelect.appendChild(option);
+            return;
+        }
+
+        this.targetDicts.forEach((dict) => {
+            const option = document.createElement('option');
+            option.value = dict.path;
+            option.textContent = dict.label || dict.path;
+            this.targetSelect.appendChild(option);
+        });
+
+        if (prev && this.targetDicts.some((dict) => dict.path === prev)) {
+            this.targetSelect.value = prev;
+        }
+    },
+
+    loadTargetDicts: async function() {
+        if (!this.targetSelect) return;
+        const pdfName = window.pdfName || '';
+        if (!pdfName || typeof encodePdfNamePath !== 'function') {
+            this.targetDicts = [];
+            this.renderTargetDicts();
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/dict/selection/${encodePdfNamePath(pdfName)}`);
+            const data = await response.json();
+            if (!response.ok || data.status !== 'ok') {
+                throw new Error(data.message || `辞書一覧の取得に失敗しました (${response.status})`);
+            }
+
+            const configDicts = Array.isArray(data.config_dicts) ? data.config_dicts : [];
+            const bookDict = data.book_dict || null;
+            const selectedPaths = Array.isArray(data.selected_paths) ? data.selected_paths : [];
+
+            const labelMap = new Map();
+            configDicts.forEach((item) => {
+                if (item?.path) {
+                    labelMap.set(item.path, item.label || item.path);
+                }
+            });
+            if (bookDict?.path) {
+                labelMap.set(bookDict.path, bookDict.label || bookDict.path);
+            }
+
+            let targets = selectedPaths.slice();
+            if (!targets.length) {
+                if (bookDict?.path) {
+                    targets = [bookDict.path];
+                } else if (configDicts.length) {
+                    targets = [configDicts[0].path];
+                }
+            }
+
+            this.targetDicts = targets.map((path) => {
+                const fallbackLabel = String(path || '').split('/').pop() || String(path || '');
+                return {
+                    path: path,
+                    label: labelMap.get(path) || fallbackLabel,
+                };
+            });
+            this.renderTargetDicts();
+        } catch (error) {
+            console.error('辞書一覧の取得に失敗しました:', error);
+            this.targetDicts = [];
+            this.renderTargetDicts();
         }
     },
 
@@ -144,14 +232,15 @@ const DictPopup = {
     /**
      * OKボタンクリック時のハンドラ
      */
-    handleOkClick: async function() {
+    handleOkClick: async function(options = {}) {
         const originalWord = this.originalWordInput.value;
         const translatedWord = this.translatedWordInput.value;
         const status = parseInt(this.statusSelect.value, 10);
+        const dictPath = this.targetSelect ? this.targetSelect.value : '';
 
         if (!originalWord) {
             alert('原語が空です。');
-            return;
+            return false;
         }
 
         try {
@@ -164,6 +253,7 @@ const DictPopup = {
                     original_word: originalWord,
                     translated_word: translatedWord,
                     status: status,
+                    dict_path: dictPath || null,
                     pdf_name: window.pdfName || "",
                 }),
             });
@@ -172,7 +262,10 @@ const DictPopup = {
 
             if (data.status === 'ok') {
                 console.log('辞書更新成功:', data.message);
-                this.hide(); // 成功したらポップアップを閉じる
+                if (!options.keepOpen) {
+                    this.hide(); // 成功したらポップアップを閉じる
+                }
+                return true;
             } else {
                 console.error('辞書更新エラー:', data.message);
                 alert('辞書更新に失敗しました: ' + data.message);
@@ -182,6 +275,7 @@ const DictPopup = {
             console.error('辞書更新API呼び出しエラー:', error);
             alert('辞書更新API呼び出し中にエラーが発生しました。');
         }
+        return false;
     },
 
     /**
@@ -189,7 +283,8 @@ const DictPopup = {
      */
     handleReplaceAllClick: async function() {
         // まず辞書登録
-        await this.handleOkClick();
+        const ok = await this.handleOkClick({ keepOpen: true });
+        if (!ok) return;
         // 辞書登録が成功した場合のみ全置換処理を呼ぶ（ここではカスタムイベントを発火する例）
         // 実際の全置換処理はアプリ側でこのイベントを受けて実装してください
         const event = new CustomEvent('dict-replace-all', {
@@ -208,7 +303,8 @@ const DictPopup = {
      * 「登録してページ置換」ボタンクリック時のハンドラ
      */
     handleReplacePageClick: async function() {
-        await this.handleOkClick();
+        const ok = await this.handleOkClick({ keepOpen: true });
+        if (!ok) return;
         const event = new CustomEvent('dict-replace-page', {
             detail: {
                 originalWord: this.originalWordInput.value,

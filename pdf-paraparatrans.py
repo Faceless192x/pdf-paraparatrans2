@@ -3063,14 +3063,20 @@ def dict_update_api():
     translated_word = data.get("translated_word")
     status = data.get("status", 0) # 状態の既定値は0
     pdf_name = data.get("pdf_name")
+    dict_path = data.get("dict_path")
 
     if not original_word:
         return jsonify({"status": "error", "message": "原語が指定されていません"}), 400
 
+    if dict_path and not pdf_name:
+        return jsonify({"status": "error", "message": "dict_path 指定時は pdf_name が必要です"}), 400
+
     try:
-        dict_service.update(original_word, translated_word, status, pdf_name)
+        dict_service.update(original_word, translated_word, status, pdf_name, dict_path=dict_path)
         app.logger.info(f"辞書更新: '{original_word}' -> '{translated_word}' (状態: {status})")
         return jsonify({"status": "ok", "message": "辞書が更新されました"}), 200
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
         app.logger.error(f"辞書ファイル書き込みエラー: {str(e)}")
         return jsonify({"status": "error", "message": f"辞書ファイル書き込みエラー: {str(e)}"}), 500

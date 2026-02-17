@@ -95,6 +95,12 @@ input[type="reset"]:disabled {
     gap: 12px;
     overflow: hidden;
     padding: 8px 10px 12px;
+    transition: gap 0.2s ease;
+    position: relative;
+}
+
+.index-layout.tree-hidden {
+    gap: 0;
 }
 
 .folder-tree-panel {
@@ -106,6 +112,49 @@ input[type="reset"]:disabled {
     background: var(--panel-bg);
     border-radius: 10px;
     box-shadow: var(--panel-shadow);
+    transition: margin-left 0.2s ease, opacity 0.2s ease, width 0.2s ease;
+}
+
+.folder-tree-panel.hidden {
+    width: 0;
+    min-width: 0;
+    margin-left: -268px;
+    opacity: 0;
+    pointer-events: none;
+    overflow: hidden;
+    padding: 0;
+    border: none;
+}
+
+.folder-tree-toggle {
+    position: absolute;
+    top: 18px;
+    left: 268px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 6px;
+    background: var(--surface-hover);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: left 0.2s ease, background 0.15s ease, transform 0.15s ease;
+    font-size: 14px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    z-index: 10;
+}
+
+.folder-tree-toggle:hover {
+    background: var(--primary);
+    color: var(--text-on-primary);
+    transform: scale(1.05);
+}
+
+.index-layout.tree-hidden .folder-tree-toggle {
+    left: 8px;
 }
 
 .folder-tree-title {
@@ -164,11 +213,12 @@ input[type="reset"]:disabled {
     position: absolute;
     left: 4px;
     top: 2px;
-    width: 10px;
-    height: 10px;
-    line-height: 10px;
+    width: 14px;
+    height: 14px;
+    line-height: 14px;
     text-align: center;
-    font-size: 10px;
+    font-size: 14px;
+    font-weight: 600;
     color: var(--text-muted);
 }
 
@@ -203,11 +253,12 @@ input[type="reset"]:disabled {
     position: absolute;
     left: 6px;
     top: 2px;
-    width: 8px;
-    height: 10px;
-    line-height: 10px;
+    width: 12px;
+    height: 14px;
+    line-height: 14px;
     text-align: center;
-    font-size: 10px;
+    font-size: 14px;
+    font-weight: 600;
     color: var(--text-muted);
 }
 
@@ -238,6 +289,15 @@ input[type="reset"]:disabled {
     border-radius: 12px;
     padding: 10px 12px 14px;
     box-shadow: var(--panel-shadow);
+}
+
+.index-main-panel > .book-list {
+    overflow-x: auto;
+    display: block;
+}
+
+.index-main-panel table.book-list {
+    min-width: 800px;
 }
 
 .app-header {
@@ -911,4 +971,33 @@ header {
     font-size: 12px;
     color: #666;
     margin-bottom: 6px;
+}
+
+/* Responsive table for narrow viewports */
+@media (max-width: 768px) {
+    .book-list th:nth-child(1),
+    .book-list td:nth-child(1),
+    .book-list th:nth-child(2),
+    .book-list td:nth-child(2) {
+        display: none;
+    }
+    
+    .index-main-panel table.book-list {
+        min-width: 600px;
+    }
+}
+
+@media (max-width: 600px) {
+    .folder-tree-panel {
+        width: 220px;
+    }
+    
+    .index-layout {
+        gap: 8px;
+        padding: 6px 8px 10px;
+    }
+    
+    .index-main-panel {
+        padding: 8px 10px 12px;
+    }
 }

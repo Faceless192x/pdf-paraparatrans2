@@ -310,7 +310,9 @@ async function fetchBookData() {
     try {
         const metaRes = await fetch(`/api/book_meta/${encodePdfNamePath(pdfName)}`);
         if (metaRes.status === 206) {
-            confirm("まだパラグラフ抽出がされていません。");
+            // 未抽出のPDFの場合、自動的にパラグラフ抽出を実行
+            console.log("未抽出のPDFです。パラグラフ抽出を自動実行します。");
+            await extractParagraphs(true);
             return;
         }
         if (!metaRes.ok) {
@@ -333,6 +335,13 @@ async function fetchBookData() {
 
         if (typeof applyBookTypeUi === 'function') {
             applyBookTypeUi();
+        }
+
+        // 抽出済みのPDFの場合、抽出ボタンを無効化
+        const extractButton = document.querySelector('.btn-step-extract');
+        if (extractButton && !isUrlBook()) {
+            extractButton.disabled = true;
+            extractButton.title = '抽出済みです';
         }
 
         document.getElementById("titleInput").value = bookData.title;
@@ -784,8 +793,8 @@ function formatTranslationStatsMessage(title, stats) {
     return msg.trim();
 }
 
-async function extractParagraphs(){
-    if(!confirm("PDFを解析してJSONを新規生成します。よろしいですか？")) return;
+async function extractParagraphs(auto = false){
+    if(!auto && !confirm("PDFを解析してJSONを新規生成します。よろしいですか？")) return;
     showLog();
 
     let form = new FormData();
@@ -796,7 +805,7 @@ async function extractParagraphs(){
         });
         const res = await response.json();
         if(res.status === "ok"){
-            alert("パラグラフ抽出完了");
+            if (!auto) alert("パラグラフ抽出完了");
             location.reload(); // リロード前にfetchBookDataを呼ぶ意味は薄い
             // await fetchBookData(); // 必要ならリロード後に実行されるようにする
         } else {
@@ -1578,6 +1587,9 @@ async function transParagraph(paragraph, divSrc) {
 }
 
 async function updateBookInfo() {
+    if (typeof isUrlBook === 'function' && isUrlBook()) {
+        return;
+    }
     try {
         const payload = {
             title: document.getElementById('titleInput').value,

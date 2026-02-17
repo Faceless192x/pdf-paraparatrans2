@@ -347,6 +347,18 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    window.addEventListener('dict-replace-page', () => {
+        if (typeof dictReplacePage === 'function') {
+            dictReplacePage();
+        }
+    });
+
+    window.addEventListener('dict-replace-all', () => {
+        if (typeof dictReplaceAll === 'function') {
+            dictReplaceAll();
+        }
+    });
+
 
     window.autoToggle.init();
     // トグル/チェックボックスのカスタムイベント
@@ -919,6 +931,11 @@ function initResizers() {
 
 async function saveForce() {
     isPageEdited = true;
-    saveCurrentPageOrder();
-    updateBookInfo();
+    try {
+        await saveCurrentPageOrder();
+        await updateBookInfo();
+    } catch (error) {
+        console.error("saveForce failed:", error);
+        alert("保存中にエラーが発生しました。");
+    }
 }

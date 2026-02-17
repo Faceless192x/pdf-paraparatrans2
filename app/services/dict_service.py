@@ -359,15 +359,34 @@ class DictService:
                 return found_entry
         return None
 
-    def update(self, original_word: str, translated_word: str, status: int, pdf_name: Optional[str]) -> bool:
-        dict_paths = self.get_active_dict_paths(pdf_name) if pdf_name else [self.dict_path]
-        target_path = None
-        for path in reversed(dict_paths):
-            if self._find_dict_entry(load_dict(path), original_word):
-                target_path = path
-                break
-        if target_path is None:
-            target_path = dict_paths[-1] if dict_paths else self.dict_path
+    def update(
+        self,
+        original_word: str,
+        translated_word: str,
+        status: int,
+        pdf_name: Optional[str],
+        dict_path: Optional[str] = None,
+    ) -> bool:
+        if dict_path:
+            if not pdf_name:
+                raise ValueError("pdf_name が必要です")
+            normalized = self._normalize_rel_path(dict_path)
+            if not normalized:
+                raise ValueError("dict_path が不正です")
+            active_abs = self.get_active_dict_paths(pdf_name)
+            active_map = {self._relpath_from_abs(path).lower(): path for path in active_abs}
+            target_path = active_map.get(normalized.lower())
+            if not target_path:
+                raise ValueError("dict_path が適用辞書に含まれていません")
+        else:
+            dict_paths = self.get_active_dict_paths(pdf_name) if pdf_name else [self.dict_path]
+            target_path = None
+            for path in reversed(dict_paths):
+                if self._find_dict_entry(load_dict(path), original_word):
+                    target_path = path
+                    break
+            if target_path is None:
+                target_path = dict_paths[-1] if dict_paths else self.dict_path
 
         self.ensure_dict_file(target_path)
         dict_data = load_dict(target_path)

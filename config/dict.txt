@@ -7456,3 +7456,4 @@ Ranged, Temporal, Stackable	範囲、瞬間、複合可	1	0
 Ranged, Temporal, Nonstackable	範囲、瞬間、複合不可	1	0
 Dwarfs	ドワーフ達	0	0
 dwarf	ドワーフ	0	0
+mistress race troll	女王種トロウル	0	0

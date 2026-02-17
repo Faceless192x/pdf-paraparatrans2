@@ -56,6 +56,7 @@
       </div>
     </form>
     <div class="index-layout">
+      <button type="button" class="folder-tree-toggle" onclick="toggleFolderTree()" title="フォルダパネルを閉じる">◀</button>
       <aside class="folder-tree-panel">
         <div class="folder-tree-title">フォルダ</div>
         {% macro render_tree(node) %}
@@ -170,6 +171,43 @@
       const uploadButtonLabel = uploadButton.textContent;
       const currentDir = "{{ current_dir|e }}";
       let pendingMovePdfName = '';
+
+      function toggleFolderTree() {
+        const panel = document.querySelector('.folder-tree-panel');
+        const layout = document.querySelector('.index-layout');
+        const toggle = document.querySelector('.folder-tree-toggle');
+        if (!panel || !layout || !toggle) return;
+
+        const isHidden = panel.classList.toggle('hidden');
+        layout.classList.toggle('tree-hidden', isHidden);
+        toggle.textContent = isHidden ? '▶' : '◀';
+        toggle.title = isHidden ? 'フォルダパネルを開く' : 'フォルダパネルを閉じる';
+
+        try {
+          localStorage.setItem('ppt.folderTreeHidden', isHidden ? '1' : '0');
+        } catch (e) {
+          // ignore localStorage errors
+        }
+      }
+
+      window.addEventListener('DOMContentLoaded', () => {
+        try {
+          const hidden = localStorage.getItem('ppt.folderTreeHidden') === '1';
+          if (hidden) {
+            const panel = document.querySelector('.folder-tree-panel');
+            const layout = document.querySelector('.index-layout');
+            const toggle = document.querySelector('.folder-tree-toggle');
+            if (panel && layout && toggle) {
+              panel.classList.add('hidden');
+              layout.classList.add('tree-hidden');
+              toggle.textContent = '▶';
+              toggle.title = 'フォルダパネルを開く';
+            }
+          }
+        } catch (e) {
+          // ignore localStorage errors
+        }
+      });
 
       function setUploadStatus(message, isError = true) {
         if (!message) {
