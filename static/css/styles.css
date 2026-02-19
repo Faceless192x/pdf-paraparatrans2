@@ -522,13 +522,18 @@ table.tocTable td {
     display: flex;
     width: 100%;
     overflow: hidden;
+    gap: 10px;
+    padding: 8px 10px 12px;
 }
 
 
 .panel {
-    border: 1px solid #ccc;
+    border: 1px solid var(--border-strong);
     margin: 0px;
     padding: 0px;
+    background: var(--panel-bg);
+    border-radius: 10px;
+    box-shadow: var(--panel-shadow);
 }
 
 .hidden {
@@ -689,6 +694,8 @@ table.tocTable td {
     flex: 0 0 auto;
     touch-action: none;
     user-select: none;
+    background: var(--border);
+    border-radius: 999px;
 }
 
 .folder-nav {
@@ -867,8 +874,13 @@ header {
     display: flex;
     align-items: stretch;
     box-sizing: border-box;
-    border-bottom: 1px solid #ccc;
-    padding: 2px;
+    border: 1px solid var(--border-strong);
+    background: linear-gradient(120deg, var(--header-bg) 0%, var(--header-bg-alt) 100%);
+    color: var(--header-fg);
+    padding: 8px 10px;
+    margin: 8px 10px 0;
+    border-radius: 10px;
+    box-shadow: var(--panel-shadow);
 }
 
 .header-left {
@@ -877,6 +889,7 @@ header {
     justify-content: space-between;
     overflow: hidden;
     white-space: normal;
+    gap: 6px;
 }
 
 .basic-info,
@@ -886,7 +899,7 @@ header {
 
 .inline-block-margin {
     display: inline-block;
-    margin: 2px;
+    margin: 3px 4px;
 }
 
 .title-input {
@@ -921,7 +934,9 @@ header {
     font-size: 120%;
     width: 60px;
     text-align: center;
-    border: 2px solid;
+    border: 2px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--text-primary);
 }
 
 .trans_status_counts {
@@ -931,14 +946,23 @@ header {
     border-collapse: collapse;
     font-size: 80%;
     margin: 2px;
+    background: var(--surface);
 }
 
 .trans_status_counts td {
     padding: 0 5px;
 }
 
+.btn-step-extract,
+.btn-step-join,
+.btn-step-dict,
+.btn-step-transall,
+.btn-step-export {
+    background: color-mix(in srgb, var(--surface-strong) 92%, white 8%);
+}
+
 .btn-step-extract { border: 2px solid #e74c3c; }
-.btn-step-join    { border: 2px solid #ffeb3b; }
+.btn-step-join    { border: 2px solid #d8c21a; }
 .btn-step-dict    { border: 2px solid #3498db; }
 .btn-step-transall{ border: 2px solid #ff9800; font-weight: bold; }
 .btn-step-export  { border: 2px solid #2ecc71; }
