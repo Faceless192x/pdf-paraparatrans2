@@ -92,9 +92,9 @@ input[type="reset"]:disabled {
 .index-layout {
     flex: 1;
     display: flex;
-    gap: 12px;
+    gap: 8px;
     overflow: hidden;
-    padding: 8px 10px 12px;
+    padding: 6px 8px 8px;
     transition: gap 0.2s ease;
     position: relative;
 }
@@ -107,7 +107,7 @@ input[type="reset"]:disabled {
     width: 260px;
     min-width: 200px;
     border: 1px solid var(--border-strong);
-    padding: 10px;
+    padding: 8px;
     overflow: auto;
     background: var(--panel-bg);
     border-radius: 10px;
@@ -287,7 +287,7 @@ input[type="reset"]:disabled {
     background: var(--panel-bg);
     border: 1px solid var(--border-strong);
     border-radius: 12px;
-    padding: 10px 12px 14px;
+    padding: 8px 10px 10px;
     box-shadow: var(--panel-shadow);
 }
 
@@ -304,7 +304,7 @@ input[type="reset"]:disabled {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 14px;
+    padding: 8px 10px;
     border-bottom: 1px solid var(--border-strong);
     background: linear-gradient(120deg, var(--header-bg) 0%, var(--header-bg-alt) 100%);
     color: var(--header-fg);
@@ -313,7 +313,7 @@ input[type="reset"]:disabled {
 .app-title {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
 }
 
 .app-title h1 {
@@ -330,18 +330,18 @@ input[type="reset"]:disabled {
 .header-actions {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     flex-wrap: wrap;
 }
 
 .filter-bar {
-    padding: 8px 12px 6px;
+    padding: 6px 8px 4px;
 }
 
 .filter-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     flex-wrap: wrap;
 }
 
@@ -382,11 +382,6 @@ input[type="reset"]:disabled {
 
 .book-list a {
     color: var(--accent);
-}
-
-table.book-list th,
-table.book-list td {
-    border-color: var(--border);
 }
 
 a {
@@ -522,8 +517,8 @@ table.tocTable td {
     display: flex;
     width: 100%;
     overflow: hidden;
-    gap: 10px;
-    padding: 8px 10px 12px;
+    gap: 8px;
+    padding: 6px 8px 8px;
 }
 
 
@@ -702,11 +697,6 @@ table.tocTable td {
     margin: 8px 0;
 }
 
-.folder-breadcrumbs {
-    font-size: 0.95em;
-    margin-bottom: 4px;
-}
-
 .folder-breadcrumbs a {
     text-decoration: none;
 }
@@ -829,36 +819,6 @@ header {
     background: rgba(255, 255, 255, 0); /* 透明 */
     display: none; /* 初期は非表示 */
 }
-/* ===== Template-inline styles extracted to CSS ===== */
-.app-header {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 14px;
-}
-
-.app-header .app-title {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.app-header .app-title h1 {
-    margin: 0;
-}
-
-.app-header .header-actions {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
-}
-
-.app-icon {
-    height: 50px;
-    margin-right: 0;
-}
-
 @media (max-width: 720px) {
     .app-header {
         gap: 10px;
@@ -877,8 +837,8 @@ header {
     border: 1px solid var(--border-strong);
     background: linear-gradient(120deg, var(--header-bg) 0%, var(--header-bg-alt) 100%);
     color: var(--header-fg);
-    padding: 8px 10px;
-    margin: 8px 10px 0;
+    padding: 6px 8px;
+    margin: 6px 8px 0;
     border-radius: 10px;
     box-shadow: var(--panel-shadow);
 }
@@ -889,7 +849,7 @@ header {
     justify-content: space-between;
     overflow: hidden;
     white-space: normal;
-    gap: 6px;
+    gap: 4px;
 }
 
 .basic-info,
@@ -899,7 +859,7 @@ header {
 
 .inline-block-margin {
     display: inline-block;
-    margin: 3px 4px;
+    margin: 2px 3px;
 }
 
 .title-input {
