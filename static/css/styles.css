@@ -890,7 +890,30 @@ header {
 }
 
 .title-input {
-    width: 200px;
+    width: 320px;
+}
+
+.basic-info-filename-line {
+    min-width: 520px;
+}
+
+.basic-info-filename-value {
+    display: inline-block;
+    min-width: 360px;
+    max-width: 60vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+}
+
+.basic-info-update-line {
+    min-width: 180px;
+}
+
+#translateEngineStatus {
+    margin-left: 6px;
+    font-size: 85%;
 }
 
 .page-input {
@@ -929,8 +952,30 @@ header {
     width: 500px;         /* 初期幅 */
     flex: 0 0 auto;
     overflow: hidden;
-    position: relative;   /* オーバーレイ用 */
+    position: relative;
+    display: flex;
+    flex-direction: column;
     height: 100%;
+}
+
+.url-preview-toolbar {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.url-preview-toolbar__label {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+#urlImportButton {
+    margin-left: auto;
 }
 
 .url-preview-iframe {
@@ -940,7 +985,7 @@ header {
     transform: scale(0.75);
     transform-origin: 0 0;
     pointer-events: auto;
-    flex-shrink: 0;
+    flex: 1 1 auto;
 }
 
 .url-preview-message {

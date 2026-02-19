@@ -56,7 +56,13 @@ from modules.parapara_dict_create import dict_create
 # 対訳辞書の単語を翻訳
 from modules.parapara_dict_trans import dict_trans
 # 対訳辞書で置換
-from modules.parapara_dict_replacer import file_replace_with_dict
+from modules.parapara_dict_replacer import (
+    atomicsave_json,
+    file_replace_with_dict,
+    load_dictionary,
+    load_json,
+    replace_with_dict,
+)
 
 # joinフラグに従って src_joined/src_replaced を再構築（UIトグル対応）
 from modules.parapara_join_incremental import (
@@ -68,7 +74,12 @@ from modules.parapara_join_incremental import (
 
 from modules.parapara_symbolfont_rebuild import rebuild_src_text_in_file
 
-from modules.api_translate import translate_text
+from modules.api_translate import (
+    get_current_translator,
+    get_supported_translators,
+    set_current_translator,
+    translate_text,
+)
 from modules.parapara_trans import paraparatrans_json_file, recalc_trans_status_counts
 from modules.parapara_init import parapara_init  # parapara_initをインポート
 # スタイルによるblock_tag一括更新
@@ -100,6 +111,7 @@ from modules.parapara_url2json import (
     crawl_site,
     ensure_url_page_in_book,
     ensure_url_page_in_book_from_html,
+    fetch_html,
     get_site_profile,
     load_site_profiles,
     normalize_host,
@@ -209,6 +221,7 @@ URL_BOOK_JSON_SUFFIX = ".url.json"
 
 # 既存コード互換のため BASE_FOLDER は data/ を指す
 BASE_FOLDER = DATA_FOLDER
+SETTINGS_PATH = os.path.join(DATA_FOLDER, "paraparatrans.settings.json")
 
 DICT_PATH = os.path.join(CONFIG_FOLDER, "dict.txt")
 SIMBLE_DICT_PATH = os.path.join(CONFIG_FOLDER, "symbolfonts.txt")
@@ -251,6 +264,30 @@ def _paragraph_sort_key(paragraph: dict) -> tuple:
     except Exception:
         y0 = 0
     return (page_number, order, column_order, y0)
+
+
+def _load_app_settings() -> dict:
+    if not os.path.exists(SETTINGS_PATH):
+        return {"files": {}}
+    try:
+        return load_settings(SETTINGS_PATH)
+    except Exception:
+        return {"files": {}}
+
+
+def _save_app_settings(settings: dict) -> None:
+    save_settings(SETTINGS_PATH, settings, indent=2)
+
+
+def _sync_runtime_translator_from_settings() -> None:
+    settings = _load_app_settings()
+    desired = settings.get("translator")
+    if not desired:
+        return
+    try:
+        set_current_translator(desired)
+    except Exception as e:
+        app.logger.warning(f"translator setting ignored ({desired}): {str(e)}")
 
 
 def _iter_sorted_paragraphs(book_data: dict) -> list[dict]:
@@ -412,6 +449,7 @@ def _migrate_settings_to_data() -> None:
 
 
 _migrate_settings_to_data()
+_sync_runtime_translator_from_settings()
 
 # dict.txtのひな形
 DICT_TEMPLATE = """#英語\t#日本語\t#状態\t#出現回数
@@ -1683,6 +1721,84 @@ def import_url_book_html_api():
     return _corsify_response(resp)
 
 
+@app.route("/api/url_book/import_url", methods=["POST"])
+def import_url_book_url_api():
+    payload = request.get_json(silent=True) or {}
+    book_name = _normalize_pdf_name(payload.get("book_name") or "")
+    if not book_name:
+        book_name = _get_current_url_book()
+    if not book_name or not _is_url_book_name(book_name):
+        return jsonify({"status": "error", "message": "book_nameが不正です"}), 400
+
+    raw_url = (payload.get("url") or "").strip()
+    normalized = normalize_url(raw_url)
+    if not normalized:
+        return jsonify({"status": "error", "message": "URLが不正です"}), 400
+
+    force = bool(payload.get("force", True))
+
+    _, json_path = get_paths(book_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "URLブックが存在しません"}), 404
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            book_data = json.load(f)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"URLブックの読み込みに失敗しました: {str(e)}"}), 500
+
+    root_host = (book_data or {}).get("source_host") or normalize_host((book_data or {}).get("source_root_url") or "")
+    target_host = normalize_host(normalized)
+    if root_host and target_host and root_host != target_host:
+        return jsonify({"status": "error", "message": "別ドメインのURLはこのブックに追加できません"}), 400
+
+    profiles = load_site_profiles(CONFIG_FOLDER)
+    profile = get_site_profile(profiles, root_host)
+
+    try:
+        html_text = fetch_html(normalized)
+        page_number, page_data, added, updated = ensure_url_page_in_book_from_html(
+            book_data,
+            normalized,
+            html_text,
+            site_profile=profile,
+            force=force,
+        )
+        if added or updated:
+            save_url_book(json_path, book_data)
+    except Exception as e:
+        app.logger.exception("URL book import_url failed")
+        return jsonify({"status": "error", "message": f"URL取込に失敗しました: {str(e)}"}), 500
+
+    exists = (not added and not updated)
+    event = {
+        "id": uuid.uuid4().hex,
+        "book_name": book_name,
+        "kind": "import",
+        "page_number": page_number,
+        "page_count": book_data.get("page_count"),
+        "url": normalized,
+        "added": bool(added),
+        "updated": bool(updated),
+        "exists": bool(exists),
+        "created_at": int(time.time()),
+    }
+    _set_url_import_event(book_name, event)
+
+    return jsonify({
+        "status": "ok",
+        "page_number": page_number,
+        "page": page_data,
+        "page_count": book_data.get("page_count"),
+        "trans_status_counts": book_data.get("trans_status_counts"),
+        "title": book_data.get("title"),
+        "page_url_map": book_data.get("page_url_map") or {},
+        "added": bool(added),
+        "updated": bool(updated),
+        "exists": bool(exists),
+    }), 200
+
+
 @app.route("/api/url_book/import_event/<path:book_name>", methods=["GET"])
 def url_book_import_event_api(book_name: str):
     normalized = _normalize_pdf_name(book_name or "")
@@ -1873,6 +1989,9 @@ def translate_all_api(pdf_name):
     if not os.path.exists(json_path):
         return jsonify({"status": "error", "message": "JSONが存在しません"}), 400
     try:
+        # 翻訳前に必ず文書全体へ対訳置換を適用
+        _apply_dict_replace_for_range(pdf_name, json_path)
+
         _, stats = paraparatrans_json_file(json_path, 1, 9999)
 
         # settingsの該当PDF分だけ同期（PDFごとのjson_mtimeで追従）
@@ -1888,6 +2007,39 @@ def translate_all_api(pdf_name):
         return jsonify({"status": "error", "message": f"全翻訳エラー: {str(e)}"}), 500
 
 # API:短文翻訳
+@app.route("/api/translate_engine", methods=["GET", "POST"])
+def translate_engine_api():
+    if request.method == "GET":
+        return jsonify({
+            "status": "ok",
+            "engine": get_current_translator(),
+            "supported": get_supported_translators(),
+        }), 200
+
+    data = request.get_json(silent=True) or {}
+    requested = (data.get("engine") or "").strip().lower()
+    if not requested:
+        return jsonify({"status": "error", "message": "engineが指定されていません"}), 400
+
+    try:
+        active = set_current_translator(requested)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"翻訳エンジン切替エラー: {str(e)}"}), 400
+
+    settings = _load_app_settings()
+    settings["translator"] = active
+    try:
+        _save_app_settings(settings)
+    except Exception as e:
+        app.logger.warning(f"translator setting save failed: {str(e)}")
+
+    return jsonify({
+        "status": "ok",
+        "engine": active,
+        "supported": get_supported_translators(),
+    }), 200
+
+
 @app.route("/api/translate", methods=["POST"])
 def translate_api():
     data = request.get_json()
@@ -2171,6 +2323,85 @@ def dict_replace_page_api(pdf_name):
         return jsonify({"status": "error", "message": f"辞書適用中のエラー: {str(e)}"}), 500
     return jsonify({"status": "ok", "delta": delta}), 200
 
+
+@app.route("/api/dict_replace_paragraph/<path:pdf_name>", methods=["POST"])
+def dict_replace_paragraph_api(pdf_name):
+    data = request.get_json(silent=True) or {}
+    page_number = data.get("page_number", None)
+    paragraph_id = data.get("paragraph_id", None)
+
+    try:
+        page_number = int(page_number)
+    except Exception:
+        page_number = None
+
+    if not pdf_name or page_number is None or paragraph_id in (None, ""):
+        return jsonify({"status": "error", "message": "pdf_name, page_number, paragraph_id は必須です"}), 400
+
+    _, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "対象のJSONファイルが存在しません"}), 404
+
+    page_key = str(page_number)
+    paragraph_key = str(paragraph_id)
+
+    try:
+        dict_paths = dict_service.get_active_dict_paths(pdf_name)
+        merged_path = dict_service.merged_dict_file(dict_paths)
+        try:
+            dict_cs, dict_ci = load_dictionary(merged_path)
+        finally:
+            try:
+                os.remove(merged_path)
+            except OSError:
+                pass
+
+        book_data = load_json(json_path)
+        pages = (book_data or {}).get("pages", {}) or {}
+        page = pages.get(page_key)
+        if not isinstance(page, dict):
+            return jsonify({"status": "error", "message": f"ページが見つかりません: {page_number}"}), 404
+
+        paragraphs = (page or {}).get("paragraphs", {}) or {}
+        paragraph = paragraphs.get(paragraph_key)
+        if not isinstance(paragraph, dict):
+            for para in paragraphs.values():
+                if isinstance(para, dict) and str(para.get("id")) == paragraph_key:
+                    paragraph = para
+                    break
+
+        if not isinstance(paragraph, dict):
+            return jsonify({"status": "error", "message": f"段落が見つかりません: {paragraph_key}"}), 404
+
+        src_joined = paragraph.get("src_joined", "")
+        paragraph["src_replaced"] = replace_with_dict(src_joined, dict_cs, dict_ci)
+
+        atomicsave_json(json_path, book_data)
+
+        delta = {
+            "pages": {
+                page_key: page,
+            },
+            "trans_status_counts": (book_data or {}).get("trans_status_counts"),
+        }
+        return jsonify({"status": "ok", "delta": delta}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"段落辞書適用中のエラー: {str(e)}"}), 500
+
+
+def _apply_dict_replace_for_range(pdf_name: str, json_path: str, start_page: int | None = None, end_page: int | None = None):
+    dict_paths = dict_service.get_active_dict_paths(pdf_name)
+    merged_path = dict_service.merged_dict_file(dict_paths)
+    try:
+        if start_page is None or end_page is None:
+            return file_replace_with_dict(json_path, merged_path)
+        return file_replace_with_dict(json_path, merged_path, start_page, end_page)
+    finally:
+        try:
+            os.remove(merged_path)
+        except OSError:
+            pass
+
 @app.route("/api/paraparatrans/<path:pdf_name>", methods=["POST"])
 def paraparatrans_api(pdf_name):
     start_page = request.form.get("start_page", type=int)
@@ -2183,6 +2414,9 @@ def paraparatrans_api(pdf_name):
 
     print ("json_path:" + json_path + " start_page:" + str(start_page) + " end_page:" + str(end_page))
     try:
+        # 翻訳対象範囲に必ず対訳置換を適用してから翻訳する
+        _apply_dict_replace_for_range(pdf_name, json_path, start_page, end_page)
+
         updated_data, stats = paraparatrans_json_file(json_path, start_page, end_page)
 
         # 差分返却: 更新対象ページのみ返す（クライアント側で bookData にマージして全体再取得を避ける）

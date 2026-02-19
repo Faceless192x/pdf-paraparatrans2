@@ -34,6 +34,8 @@
               <button type="button" data-href="{{ url_for('index', dir=index_dir) }}" onclick="window.location.href=this.dataset.href" data-help-id="一覧画面に戻る">戻る</button>
               Title: <input type="text" id="titleInput" value="{{ book_data.title|e }}" class="title-input">
               <button id="saveOrderButton" data-help-id="表題と構造を保存">保存</button>
+            </span>
+            <span class="inline-block-margin basic-info-filename-line">
               {% set display_name = pdf_name %}
               {% if display_name.startswith('url/') %}
                 {% set display_name = display_name[4:] %}
@@ -41,7 +43,31 @@
               {% if '/' in display_name %}
                 {% set display_name = display_name.split('/')[-1] %}
               {% endif %}
-              FileName: {{ display_name }} / Update: {{ updated_date }}
+              FileName: <span class="basic-info-filename-value">{{ display_name }}</span>
+            </span>
+            <span class="inline-block-margin basic-info-update-line">
+              Update: {{ updated_date }}
+            </span>
+            <span class="inline-block-margin">
+              <button id="openLogButton" onclick="showLog()" data-help-id="ログを開く">Log</button>
+              <span id="toggleHotkeyInput" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local;default:false" data-help-id="ショートカット入力の表示/非表示" style="display:none">KeyHUD</span>
+              <button id="openHotKeyButton" onclick="HotkeyMapper.showHelpWindow()" data-help-id="ホットキーマッパーを開く">HotKey</button>
+              <button id="show-full-help">Help</button>
+            </span>
+            <br class="basic-info-break">
+            <span class="inline-block-margin">
+              <table class="trans_status_counts">
+                <tr>
+                  <th>none</th>
+                  <td id="countNone">0</td>
+                  <th>auto</th>
+                  <td id="countAuto">0</td>
+                  <th>draft</th>
+                  <td id="countDraft">0</td>
+                  <th>fixed</th>
+                  <td id="countFixed">0</td>
+                </tr>
+              </table>
             </span>
             <span class="inline-block-margin">
               <button onclick="extractParagraphs()" class="btn-step btn-step-extract" data-help-id="パラグラフの抽出">1.抽出</button>
@@ -51,7 +77,7 @@
               <button onclick="dictTrans()" hidden data-help-id="辞書の翻訳">(辞書翻訳)</button>
               <button onclick="dictReplaceAll()" class="btn-step btn-step-dict" data-help-id="すべてのページを対訳置換">3.全対訳置換</button>
               <button onclick="transAllPages()" class="btn-step btn-step-transall" data-help-id="すべてのページを翻訳">4.全翻訳</button>
-              <button id="alignTransBySrcJoinedButton" class="btn-step btn-step-transall" data-help-id="同一連結文の訳揃え">(訳揃え)</button>
+              <button id="alignTransBySrcJoinedButton" data-help-id="同一連結文の訳揃え">(訳揃え)</button>
               <button onclick="fetchBookData()" hidden data-help-id="ブックデータのリロード">リロード</button>
               <button id="renderButton" hidden data-help-id="HTMLのレンダリング">レンダリング</button>
             </span>
@@ -76,19 +102,6 @@
             </span>
           </div>
           <div class="controls">
-            <table class="trans_status_counts">
-              <tr>
-                <th>none</th>
-                <td id="countNone">0</td>
-                <th>auto</th>
-                <td id="countAuto">0</td>
-                <th>draft</th>
-                <td id="countDraft">0</td>
-                <th>fixed</th>
-                <td id="countFixed">0</td>
-              </tr>
-            </table>
-
             <span class="inline-block-margin">
               <span id="toggleTocPanel" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local;default:true" data-help-id="目次パネルの表示/非表示">目次</span>
               <span id="togglePdfPanel" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local;default:true" data-help-id="PDFパネルの表示/非表示">PDF</span>
@@ -116,11 +129,17 @@
 
             <button id="pageDictReplaceButton" class="btn-step btn-step-dict" data-help-id="ページ対訳置換">ページ対訳置換</button>
             <button id="pageTransButton" class="btn-step btn-step-transall" data-help-id="ページの翻訳">ページ翻訳</button>
+            <span class="inline-block-margin">
+              <select id="dataExportTranslator">
+                <option value="google">Google</option>
+                <option value="deepl">DeepL</option>
+                <option value="google_v3">Google v3</option>
+              </select>
+              <button type="button" onclick="saveTranslationEngineFromDialog()">保存</button>
+              <span id="currentTranslateEngine">(読み込み中)</span>
+              <span id="translateEngineStatus"></span>
+            </span>
             <button id="openDictButton" data-help-id="辞書登録">辞書登録</button>
-            <button id="openLogButton" onclick="showLog()" data-help-id="ログを開く">Log</button>
-            <span id="toggleHotkeyInput" class="auto-toggle" data-auto-toggle="appearance:checkbox;storage:local;default:false" data-help-id="ショートカット入力の表示/非表示" style="display:none">KeyHUD</span>
-            <button id="openHotKeyButton" onclick="HotkeyMapper.showHelpWindow()" data-help-id="ホットキーマッパーを開く">HotKey</button>
-            <button id="show-full-help">Help</button>
           </div>
         </div>
       </div>
@@ -157,6 +176,14 @@
         </div>
 
         <div id="urlPreviewPanel" class="panel flex-panel pdf-panel" style="display:none">
+          <div id="urlPreviewZoomControls" class="url-preview-toolbar" style="display:none">
+            <span class="url-preview-toolbar__label">URL拡大</span>
+            <button id="urlZoomOutButton" type="button" title="縮小">－</button>
+            <span id="urlZoomValue">100%</span>
+            <button id="urlZoomInButton" type="button" title="拡大">＋</button>
+            <button id="urlZoomResetButton" type="button" title="100%に戻す">100%</button>
+            <button id="urlImportButton" class="btn-step btn-step-extract" type="button" onclick="importCurrentUrlPage()" title="現在のURLを取り込む">取込</button>
+          </div>
           <iframe id="urlPreviewIframe" class="url-preview-iframe" sandbox="allow-same-origin allow-scripts allow-popups allow-forms"></iframe>
           <div class="url-preview-message" style="display:none; padding: 20px; text-align: center; color: #666;">
             このサイトはフレーム内での表示を許可していません

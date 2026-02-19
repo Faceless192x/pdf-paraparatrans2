@@ -1,6 +1,5 @@
 const STORAGE_KEY = "paraparatrans_capture_settings";
 const MENU_ID = "paraparatrans_capture_page";
-const MENU_ID_RECAP = "paraparatrans_capture_page_force";
 const MENU_ID_INCLUDE = "paraparatrans_rule_include";
 const MENU_ID_ADD = "paraparatrans_rule_add";
 const MENU_ID_EXCLUDE = "paraparatrans_rule_exclude";
@@ -360,12 +359,7 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: MENU_ID,
-      title: "ParaParaTrans: Capture page",
-      contexts: ["page", "frame"],
-    });
-    chrome.contextMenus.create({
-      id: MENU_ID_RECAP,
-      title: "ParaParaTrans: 再取得",
+      title: "ParaParaTrans: 取込",
       contexts: ["page", "frame"],
     });
     chrome.contextMenus.create({
@@ -394,10 +388,6 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   });
 
   if (info.menuItemId === MENU_ID) {
-    handleCapture(info, tab);
-    return;
-  }
-  if (info.menuItemId === MENU_ID_RECAP) {
     handleCapture(info, tab, true);
     return;
   }
@@ -412,4 +402,23 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === MENU_ID_EXCLUDE) {
     handleRuleUpdate(info, tab, "exclude");
   }
+});
+
+chrome.runtime.onMessage.addListener((message, sender) => {
+  if (!message || message.type !== "ppt-capture-request") {
+    return;
+  }
+
+  const tab = sender && sender.tab;
+  if (!tab || typeof tab.id !== "number") {
+    setBadge("ERR", true);
+    return;
+  }
+
+  const info = {
+    menuItemId: MENU_ID,
+    frameId: typeof sender.frameId === "number" ? sender.frameId : undefined,
+  };
+  const force = message.force !== false;
+  handleCapture(info, tab, force);
 });

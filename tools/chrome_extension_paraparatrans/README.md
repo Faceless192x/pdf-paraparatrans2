@@ -18,8 +18,7 @@ This extension sends the current page HTML to a ParaParaTrans URL book via `http
 5. (Optional) Set `Book name` if you don't want to use the current open book.
 6. Use one of the capture methods:
 	- Extension popup: **Send current page**.
-	- Right click inside the page/iframe: **ParaParaTrans: Capture page**.
-	- Right click inside the page/iframe: **ParaParaTrans: 再取得**.
+	- Right click inside the page/iframe: **ParaParaTrans: 取込**（既存ページは再取込）.
 	- Right click for rules:
 	  - **ParaParaTrans: この階層以下を取得**
 	  - **ParaParaTrans: この要素を取得**

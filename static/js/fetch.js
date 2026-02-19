@@ -205,6 +205,37 @@ async function navigateUrlBook(targetUrl) {
     }
 }
 
+async function importCurrentUrlPage() {
+    if (!bookData || bookData.source_type !== 'url') return false;
+    if (!pdfName) return false;
+
+    const iframe = document.getElementById('urlPreviewIframe');
+    if (!iframe || !iframe.contentWindow) {
+        alert('URLパネルが利用できません');
+        return false;
+    }
+
+    const importButton = document.getElementById('urlImportButton');
+    if (importButton) importButton.disabled = true;
+    try {
+        iframe.contentWindow.postMessage({
+            type: 'ppt-capture-request',
+            force: true,
+        }, '*');
+
+        setTimeout(() => {
+            if (importButton) importButton.disabled = false;
+        }, 1200);
+        return true;
+    } catch (e) {
+        console.error('importCurrentUrlPage failed:', e);
+        alert('取込に失敗しました。拡張機能が有効か確認してください。');
+        return false;
+    } finally {
+        // re-enable is handled by timeout for asynchronous extension flow
+    }
+}
+
 function findPageNumberByUrl(targetUrl) {
     if (!bookData || !bookData.page_url_map) return null;
     const url = String(targetUrl || '').trim();
@@ -1151,7 +1182,93 @@ function openDataExportDialog() {
     if (!dialog) return;
     dialog.style.display = 'flex';
     updateDataExportFieldState();
+    reloadTranslationEngineSelection();
     reloadDictSelection();
+}
+
+
+function formatTranslateEngineLabel(engine) {
+    const value = String(engine || '').toLowerCase();
+    if (value === 'deepl') return 'DeepL';
+    if (value === 'google_v3') return 'Google v3';
+    if (value === 'google') return 'Google';
+    return value || '-';
+}
+
+
+function updateCurrentTranslateEngineLabel(engine) {
+    const label = document.getElementById('currentTranslateEngine');
+    if (!label) return;
+    label.textContent = formatTranslateEngineLabel(engine);
+}
+
+
+function setTranslateEngineStatus(message, isError = false) {
+    const status = document.getElementById('translateEngineStatus');
+    if (!status) return;
+    status.textContent = message || '';
+    status.style.color = isError ? '#b00020' : '#0a7a0a';
+}
+
+
+async function reloadTranslationEngineSelection() {
+    const select = document.getElementById('dataExportTranslator');
+    if (!select) return;
+    setTranslateEngineStatus('読み込み中...', false);
+    try {
+        const response = await fetch('/api/translate_engine');
+        const data = await response.json();
+        if (!response.ok || data.status !== 'ok') {
+            throw new Error(data.message || `翻訳エンジンの取得に失敗しました (${response.status})`);
+        }
+        if (Array.isArray(data.supported) && data.supported.length > 0) {
+            const options = Array.from(select.options).map((option) => option.value);
+            const supported = data.supported.filter((item) => options.includes(item));
+            if (supported.length > 0 && !supported.includes(select.value)) {
+                select.value = supported[0];
+            }
+        }
+        if (data.engine) {
+            select.value = data.engine;
+        }
+        updateCurrentTranslateEngineLabel(data.engine || select.value);
+        setTranslateEngineStatus(`現在: ${select.options[select.selectedIndex]?.text || select.value}`, false);
+    } catch (error) {
+        console.error('translate engine load error:', error);
+        updateCurrentTranslateEngineLabel('取得失敗');
+        setTranslateEngineStatus(String(error), true);
+    }
+}
+
+
+async function saveTranslationEngineFromDialog() {
+    const select = document.getElementById('dataExportTranslator');
+    if (!select) return;
+
+    setTranslateEngineStatus('保存中...', false);
+    try {
+        const response = await fetch('/api/translate_engine', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                engine: select.value,
+            }),
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== 'ok') {
+            throw new Error(data.message || `翻訳エンジン保存に失敗しました (${response.status})`);
+        }
+        if (data.engine) {
+            select.value = data.engine;
+        }
+        updateCurrentTranslateEngineLabel(data.engine || select.value);
+        setTranslateEngineStatus(`保存しました: ${select.options[select.selectedIndex]?.text || select.value}`, false);
+    } catch (error) {
+        console.error('translate engine save error:', error);
+        setTranslateEngineStatus(String(error), true);
+    }
 }
 
 
@@ -1536,6 +1653,7 @@ document.addEventListener('DOMContentLoaded', function () {
         input.addEventListener('change', updateDataExportFieldState);
     });
     updateDataExportFieldState();
+    reloadTranslationEngineSelection();
 });
 
 
@@ -1619,7 +1737,33 @@ async function updateParagraphs(sendParagraphs, title = null) {
 
 async function transParagraph(paragraph, divSrc) {
     try {
-        const textToTranslate = (paragraph?.src_replaced ?? '');
+        const pageNum = Number(paragraph?.page_number || currentPage || 1);
+        const replaceResponse = await fetch(`/api/dict_replace_paragraph/${encodePdfNamePath(pdfName)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                page_number: pageNum,
+                paragraph_id: String(paragraph?.id ?? ''),
+            })
+        });
+        const replaceData = await replaceResponse.json();
+        if (!replaceResponse.ok || replaceData.status !== 'ok') {
+            throw new Error(replaceData.message || `翻訳前の対訳置換に失敗しました (${replaceResponse.status})`);
+        }
+        applyBookDelta(replaceData.delta);
+
+        const paragraphId = String(paragraph?.id ?? '');
+        const latestParagraph = bookData?.pages?.[String(pageNum)]?.paragraphs?.[paragraphId] || paragraph;
+        if (divSrc?.querySelector) {
+            const replacedNode = divSrc.querySelector('.src-replaced');
+            if (replacedNode && latestParagraph?.src_replaced !== undefined) {
+                replacedNode.innerHTML = latestParagraph.src_replaced;
+            }
+        }
+
+        const textToTranslate = (latestParagraph?.src_replaced ?? '');
         const response = await fetch('/api/translate', {
             method: 'POST',
             headers: {
@@ -1630,18 +1774,23 @@ async function transParagraph(paragraph, divSrc) {
         const data = await response.json();
         console.log("翻訳結果:", data.translated_text);
         if (data.status === "ok") {
-            paragraph.trans_auto = data.translated_text;
-            paragraph.trans_text = data.translated_text;
-            paragraph.trans_status = "auto";
-            divSrc.querySelector('.trans-auto').innerHTML = paragraph.trans_auto;
-            divSrc.querySelector('.trans-text').innerHTML = paragraph.trans_text;
-            let autoRadio = divSrc.querySelector(`input[name='status-${paragraph.id}'][value='auto']`);
-            updateEditUiBackground(divSrc, paragraph.trans_status);
+            latestParagraph.trans_auto = data.translated_text;
+            latestParagraph.trans_text = data.translated_text;
+            latestParagraph.trans_status = "auto";
+            if (paragraph !== latestParagraph && paragraph) {
+                paragraph.trans_auto = data.translated_text;
+                paragraph.trans_text = data.translated_text;
+                paragraph.trans_status = "auto";
+            }
+            divSrc.querySelector('.trans-auto').innerHTML = latestParagraph.trans_auto;
+            divSrc.querySelector('.trans-text').innerHTML = latestParagraph.trans_text;
+            let autoRadio = divSrc.querySelector(`input[name='status-${latestParagraph.id}'][value='auto']`);
+            updateEditUiBackground(divSrc, latestParagraph.trans_status);
             if (autoRadio) { autoRadio.checked = true; }
 
             // ページ翻訳などで再読込された際に「未保存の訳」が英語に戻らないよう、ここで永続化する
             if (typeof saveParagraphData === 'function') {
-                await saveParagraphData(paragraph);
+                await saveParagraphData(latestParagraph);
             } else {
                 console.warn('saveParagraphData is not available; translation will not be persisted.');
             }

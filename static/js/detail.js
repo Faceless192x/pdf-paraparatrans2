@@ -3,6 +3,161 @@ pdfName = document.body.dataset.pdfName;
 bookData = {};
 currentPage = 1;
 
+const URL_PREVIEW_ZOOM_STORAGE_KEY = 'ppt.urlPreviewZoom';
+let urlPreviewZoom = 0.75;
+let urlPreviewCurrentUrl = '';
+let urlPreviewUrlWatchTimer = null;
+
+function normalizeUrlForImportCompare(raw) {
+    const text = String(raw || '').trim();
+    if (!text) return '';
+    try {
+        const parsed = new URL(text);
+        if (parsed.pathname !== '/' && parsed.pathname.endsWith('/')) {
+            parsed.pathname = parsed.pathname.slice(0, -1);
+        }
+        parsed.hash = '';
+        return parsed.toString();
+    } catch (_) {
+        return text;
+    }
+}
+
+function clampUrlPreviewZoom(value) {
+    const zoom = Number(value);
+    if (!Number.isFinite(zoom)) return 1.0;
+    return Math.min(2.0, Math.max(0.25, zoom));
+}
+
+function applyUrlPreviewZoom() {
+    const iframe = document.getElementById('urlPreviewIframe');
+    const valueEl = document.getElementById('urlZoomValue');
+    const zoom = clampUrlPreviewZoom(urlPreviewZoom);
+    urlPreviewZoom = zoom;
+
+    if (iframe) {
+        const percent = (100 / zoom).toFixed(2);
+        iframe.style.width = `${percent}%`;
+        iframe.style.height = `${percent}%`;
+        iframe.style.transform = `scale(${zoom})`;
+        iframe.style.transformOrigin = '0 0';
+    }
+    if (valueEl) {
+        valueEl.textContent = `${Math.round(zoom * 100)}%`;
+    }
+}
+
+function setUrlPreviewZoom(value) {
+    urlPreviewZoom = clampUrlPreviewZoom(value);
+    try {
+        localStorage.setItem(URL_PREVIEW_ZOOM_STORAGE_KEY, String(urlPreviewZoom));
+    } catch (_) {
+        // ignore storage errors
+    }
+    applyUrlPreviewZoom();
+}
+
+function changeUrlPreviewZoom(delta) {
+    setUrlPreviewZoom(urlPreviewZoom + delta);
+}
+
+function resetUrlPreviewZoom() {
+    setUrlPreviewZoom(1.0);
+}
+
+function loadUrlPreviewZoom() {
+    try {
+        const raw = localStorage.getItem(URL_PREVIEW_ZOOM_STORAGE_KEY);
+        if (!raw) return;
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed)) {
+            urlPreviewZoom = clampUrlPreviewZoom(parsed);
+        }
+    } catch (_) {
+        // ignore storage errors
+    }
+}
+
+function initUrlPreviewZoomControls() {
+    loadUrlPreviewZoom();
+    applyUrlPreviewZoom();
+
+    const zoomInButton = document.getElementById('urlZoomInButton');
+    const zoomOutButton = document.getElementById('urlZoomOutButton');
+    const zoomResetButton = document.getElementById('urlZoomResetButton');
+
+    if (zoomInButton && !zoomInButton.dataset.bound) {
+        zoomInButton.dataset.bound = '1';
+        zoomInButton.addEventListener('click', () => changeUrlPreviewZoom(0.1));
+    }
+    if (zoomOutButton && !zoomOutButton.dataset.bound) {
+        zoomOutButton.dataset.bound = '1';
+        zoomOutButton.addEventListener('click', () => changeUrlPreviewZoom(-0.1));
+    }
+    if (zoomResetButton && !zoomResetButton.dataset.bound) {
+        zoomResetButton.dataset.bound = '1';
+        zoomResetButton.addEventListener('click', () => resetUrlPreviewZoom());
+    }
+}
+
+function requestCurrentUrlFromPreviewFrame() {
+    if (!isUrlBook()) return;
+    const iframe = document.getElementById('urlPreviewIframe');
+    if (!iframe || !iframe.contentWindow) return;
+    iframe.contentWindow.postMessage({ type: 'ppt-capture-peek-url' }, '*');
+    iframe.contentWindow.postMessage({ type: 'ppt-url-bridge-enable', ttlMs: 5000 }, '*');
+}
+
+function startUrlPreviewUrlWatch() {
+    stopUrlPreviewUrlWatch();
+    if (!isUrlBook()) return;
+    urlPreviewUrlWatchTimer = setInterval(() => {
+        const panel = document.getElementById('urlPreviewPanel');
+        if (!panel || panel.style.display === 'none') return;
+        requestCurrentUrlFromPreviewFrame();
+    }, 800);
+}
+
+function stopUrlPreviewUrlWatch() {
+    if (urlPreviewUrlWatchTimer) {
+        clearInterval(urlPreviewUrlWatchTimer);
+        urlPreviewUrlWatchTimer = null;
+    }
+}
+
+function updateUrlImportButtonLabel(pageNum = currentPage) {
+    const importButton = document.getElementById('urlImportButton');
+    if (!importButton) return;
+    if (!isUrlBook()) {
+        importButton.textContent = '取込';
+        importButton.disabled = true;
+        return;
+    }
+
+    const pageKey = String(pageNum || currentPage || 1);
+    const fallbackUrl = String(bookData?.pages?.[pageKey]?.url || bookData?.page_url_map?.[pageKey] || '').trim();
+    const pageUrl = normalizeUrlForImportCompare(urlPreviewCurrentUrl || fallbackUrl);
+    if (!pageUrl) {
+        importButton.textContent = '取込';
+        importButton.disabled = true;
+        return;
+    }
+
+    const urlToPage = bookData?.url_to_page || {};
+    let mappedPage = '';
+    for (const [urlKey, pageValue] of Object.entries(urlToPage)) {
+        if (normalizeUrlForImportCompare(urlKey) === pageUrl) {
+            mappedPage = String(pageValue || '');
+            break;
+        }
+    }
+    const pageMapHasUrl = Object.values(bookData?.page_url_map || {}).some((url) => normalizeUrlForImportCompare(url) === pageUrl);
+    const exists = (mappedPage !== '' || pageMapHasUrl);
+
+    importButton.textContent = exists ? '再取込' : '取込';
+    importButton.disabled = false;
+}
+
 function isUrlBook() {
     const bodyType = document.body?.dataset?.bookType;
     if (bodyType === 'url') return true;
@@ -18,6 +173,7 @@ function applyBookTypeUi() {
     const resizer1 = document.getElementById('resizer1');
     const togglePdf = document.getElementById('togglePdfPanel');
     const toggleUrl = document.getElementById('toggleUrlPanel');
+    const zoomControls = document.getElementById('urlPreviewZoomControls');
     
     if (!isUrlBook()) {
         if (addUrlButton) addUrlButton.style.display = 'none';
@@ -28,6 +184,9 @@ function applyBookTypeUi() {
         if (resizer1) resizer1.style.display = 'block';
         if (togglePdf) togglePdf.style.display = 'inline-block';
         if (toggleUrl) toggleUrl.style.display = 'none';
+        if (zoomControls) zoomControls.style.display = 'none';
+        stopUrlPreviewUrlWatch();
+        updateUrlImportButtonLabel();
         return;
     }
 
@@ -40,6 +199,9 @@ function applyBookTypeUi() {
     if (resizer2) resizer2.style.display = 'block';
     if (togglePdf) togglePdf.style.display = 'none';
     if (toggleUrl) toggleUrl.style.display = 'inline-block';
+    if (zoomControls) zoomControls.style.display = 'flex';
+    startUrlPreviewUrlWatch();
+    updateUrlImportButtonLabel();
     if (extractButton) {
         extractButton.disabled = true;
         extractButton.title = 'URLブックは抽出済みです';
@@ -337,6 +499,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('pageDictReplaceButton').addEventListener('click', dictReplacePage);
     document.getElementById('pageTransButton').addEventListener('click', transPage);
     document.getElementById('alignTransBySrcJoinedButton').addEventListener('click', alignTransBySrcJoined);
+    initUrlPreviewZoomControls();
     // 辞書登録ボタン
     document.getElementById('openDictButton').addEventListener('click', () => {
         // DictPopup.show() は dict.js で定義されている
@@ -371,6 +534,38 @@ document.addEventListener('DOMContentLoaded', function() {
         const targetPage = clampPage(page);
         if (targetPage === currentPage) return;
         await jumpToPage(targetPage, { updateUrl: false });
+    });
+
+    window.addEventListener('message', (event) => {
+        const data = event?.data;
+        if (!data || data.type !== 'ppt-capture-current-url') return;
+        const iframe = document.getElementById('urlPreviewIframe');
+        if (!iframe || event.source !== iframe.contentWindow) return;
+        const currentUrl = normalizeUrlForImportCompare(data.url);
+        if (!currentUrl) return;
+        urlPreviewCurrentUrl = currentUrl;
+        updateUrlImportButtonLabel(currentPage);
+    });
+
+    window.addEventListener('message', async (event) => {
+        const data = event?.data;
+        if (!data || data.type !== 'ppt-url-preview-open-url') return;
+        if (!isUrlBook()) return;
+
+        const targetUrl = normalizeUrlForImportCompare(data.url);
+        if (!targetUrl) return;
+
+        try {
+            if (typeof navigateUrlBook === 'function') {
+                await navigateUrlBook(targetUrl);
+            }
+        } catch (e) {
+            console.warn('url preview bridge navigate failed:', e);
+        }
+    });
+
+    window.addEventListener('beforeunload', () => {
+        stopUrlPreviewUrlWatch();
     });
 });
 
@@ -667,6 +862,7 @@ function updateUrlPreview(pageNum) {
 
     const pageKey = String(pageNum);
     const pageUrl = bookData?.pages?.[pageKey]?.url || bookData?.page_url_map?.[pageKey];
+    updateUrlImportButtonLabel(pageNum);
     
     if (!pageUrl) {
         if (messageDiv) {
@@ -679,7 +875,10 @@ function updateUrlPreview(pageNum) {
 
     iframe.src = pageUrl;
     iframe.style.display = 'block';
+    urlPreviewCurrentUrl = normalizeUrlForImportCompare(pageUrl);
+    applyUrlPreviewZoom();
     if (messageDiv) messageDiv.style.display = 'none';
+    setTimeout(requestCurrentUrlFromPreviewFrame, 200);
 
     // iframe読み込みエラー検出（X-Frame-Options等）
     iframe.onerror = () => {

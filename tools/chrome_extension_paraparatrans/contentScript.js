@@ -76,6 +76,66 @@ if (!window.__pptContextListenerAttached) {
   window.__pptContextListenerAttached = true;
 }
 
+window.__pptUrlBridgeUntil = 0;
+
+function isUrlBridgeEnabled() {
+  return Date.now() <= Number(window.__pptUrlBridgeUntil || 0);
+}
+
+function enableUrlBridge(ttlMs = 4000) {
+  const ttl = Number(ttlMs) || 4000;
+  window.__pptUrlBridgeUntil = Date.now() + Math.max(1000, ttl);
+}
+
+function forwardBridgeEnableToChildFrames(ttlMs = 4000) {
+  const iframes = Array.from(document.querySelectorAll("iframe"));
+  for (const frame of iframes) {
+    try {
+      if (frame && frame.contentWindow) {
+        frame.contentWindow.postMessage({ type: "ppt-url-bridge-enable", ttlMs }, "*");
+      }
+    } catch (_) {
+      // ignore cross-origin access issues
+    }
+  }
+}
+
+function findAnchorElement(target) {
+  let node = target;
+  while (node) {
+    if (node.tagName && String(node.tagName).toLowerCase() === "a") {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function handleBridgeLinkClick(event) {
+  if (!isUrlBridgeEnabled()) return;
+  const anchor = findAnchorElement(event.target);
+  if (!anchor || !anchor.href) return;
+
+  const target = String(anchor.getAttribute("target") || "").toLowerCase();
+  if (target !== "_top" && target !== "_parent") return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  window.top.postMessage(
+    {
+      type: "ppt-url-preview-open-url",
+      url: anchor.href,
+    },
+    "*"
+  );
+}
+
+if (!window.__pptBridgeClickAttached) {
+  window.addEventListener("click", handleBridgeLinkClick, true);
+  window.__pptBridgeClickAttached = true;
+}
+
 function isParaParaTransPage() {
   const origin = window.location.origin || "";
   return origin.startsWith("http://localhost:5077") || origin.startsWith("http://127.0.0.1:5077");
@@ -86,4 +146,34 @@ chrome.runtime.onMessage.addListener((message) => {
   if (window !== window.top) return;
   if (!isParaParaTransPage()) return;
   window.postMessage({ type: "ppt-refresh", kind: message.kind || "import" }, "*");
+});
+
+window.addEventListener("message", (event) => {
+  const data = event && event.data;
+  if (!data || data.type !== "ppt-capture-request") return;
+
+  const force = data.force !== false;
+  chrome.runtime.sendMessage({
+    type: "ppt-capture-request",
+    force,
+  });
+});
+
+window.addEventListener("message", (event) => {
+  const data = event && event.data;
+  if (!data || data.type !== "ppt-capture-peek-url") return;
+
+  const url = window.location.href || "";
+  window.top.postMessage({
+    type: "ppt-capture-current-url",
+    url,
+  }, "*");
+});
+
+window.addEventListener("message", (event) => {
+  const data = event && event.data;
+  if (!data || data.type !== "ppt-url-bridge-enable") return;
+  const ttlMs = Number(data.ttlMs || 4000);
+  enableUrlBridge(ttlMs);
+  forwardBridgeEnableToChildFrames(ttlMs);
 });
