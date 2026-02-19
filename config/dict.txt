@@ -377,7 +377,7 @@ Stoneleapers	Stoneleapers	9	0
 Stoneslinger	Stoneslinger	9	0
 Storm Season	嵐の季	0	0
 Stormbringer	Stormbringer	9	0
-Stormwalkers	Stormwalkers	9	0
+Stormwalkers	ストームウォーカー	1	4
 Stravulstead	Stravulstead	9	0
 Strongrunner	Strongrunner	9	0
 Surkenirnero	Surkenirnero	9	0
@@ -6308,7 +6308,7 @@ Elven	Elven	9	0
 Empey	Empey	9	0
 Eneal	Eneal	9	2
 Enent	Enent	9	0
-Enhyl	Enhyl	9	0
+Enhyl	エンヒル	1	1
 Enjos	Enjos	9	0
 Enlor	Enlor	9	0
 Enmal	Enmal	9	0
@@ -6321,7 +6321,7 @@ Erron	Erron	9	0
 Eschi	Eschi	9	0
 Eskan	Eskan	9	0
 Esrol	Esrol	9	0
-Estal	Estal	9	0
+Estal	エスタル	1	3
 Estau	Estau	9	0
 Eston	Eston	9	0
 Evaeo	Evaeo	9	0
@@ -6393,7 +6393,7 @@ Hazia	Hazia	9	0
 Hegua	Hegua	9	0
 Helby	Helby	9	0
 Helel	Helel	9	0
-Heler	Heler	9	0
+Heler	ヘラー	1	8
 Helie	Helie	9	0
 Henso	Henso	9	0
 Heort	ヒョルト	0	0
@@ -7457,3 +7457,4 @@ Ranged, Temporal, Nonstackable	範囲、瞬間、複合不可	1	0
 Dwarfs	ドワーフ達	0	0
 dwarf	ドワーフ	0	0
 mistress race troll	女王種トロウル	0	0
+Middle Sea Empire	中部海洋帝国	1	0

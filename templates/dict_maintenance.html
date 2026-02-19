@@ -8,38 +8,60 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/dict_maintenance.css') }}">
 </head>
 <body>
+  <div class="app-header">
+    <div class="app-title">
+      <a href="{{ url_for('index') }}" style="display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--header-fg);">
+        <img src="{{ url_for('static', filename='paraparatrans.svg') }}" alt="Icon" class="app-icon">
+        <h1 style="margin: 0;">対訳辞書メンテナンス</h1>
+      </a>
+    </div>
+  </div>
+
   <div class="dict-maintenance">
-    <div class="dict-maintenance__header">
-      <div class="dict-maintenance__title">対訳辞書メンテナンス</div>
-      <div class="dict-maintenance__actions">
-        <button type="button" id="dictReloadButton">再読み込み</button>
-        <button type="button" id="dictAddRowButton">行を追加</button>
-        <button type="button" id="dictSaveButton" class="btn-step btn-step-export">保存</button>
-        <a class="dict-maintenance__back" href="{{ url_for('index') }}">一覧に戻る</a>
-      </div>
-    </div>
 
     <div class="dict-maintenance__toolbar">
-      <label for="dictFileSelect">辞書</label>
-      <select id="dictFileSelect"></select>
-      <button type="button" id="dictOpenButton">開く</button>
-      <button type="button" id="dictCreateBookButton">固有辞書を作成</button>
-      <label for="dictFilterInput">フィルタ</label>
-      <input id="dictFilterInput" type="text" placeholder="原語/訳語で検索">
-      <label for="dictStatusFilter">状態</label>
-      <select id="dictStatusFilter"></select>
-      <div id="dictRowCount" class="dict-maintenance__count"></div>
-    </div>
-
-    <div class="dict-maintenance__toolbar">
-      <label><input type="checkbox" id="dictSelectAll"> 全選択</label>
-      <label for="dictCompareSelect">比較辞書</label>
-      <select id="dictCompareSelect"></select>
-      <label for="dictTargetSelect">移動/複写先</label>
-      <select id="dictTargetSelect"></select>
-      <button type="button" id="dictMoveButton">移動</button>
-      <button type="button" id="dictCopyButton">複写</button>
-      <button type="button" id="dictDeleteSelectedButton">削除</button>
+      <table class="dict-control-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>辞書</th>
+            <th>操作</th>
+            <th>0</th>
+            <th>1</th>
+            <th>5</th>
+            <th>6</th>
+            <th>7</th>
+            <th>8</th>
+            <th>9</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="dict-control-label">編集辞書</td>
+            <td><select id="dictFileSelect"></select></td>
+            <td><button type="button" id="dictOpenButton">読込</button></td>
+            <td id="dictStatusCount0">0</td>
+            <td id="dictStatusCount1">0</td>
+            <td id="dictStatusCount5">0</td>
+            <td id="dictStatusCount6">0</td>
+            <td id="dictStatusCount7">0</td>
+            <td id="dictStatusCount8">0</td>
+            <td id="dictStatusCount9">0</td>
+          </tr>
+          <tr>
+            <td class="dict-control-label">比較辞書</td>
+            <td><select id="dictCompareSelect"></select></td>
+            <td><button type="button" id="dictCompareButton">比較</button></td>
+            <td id="dictCompareStatusCount0">0</td>
+            <td id="dictCompareStatusCount1">0</td>
+            <td id="dictCompareStatusCount5">0</td>
+            <td id="dictCompareStatusCount6">0</td>
+            <td id="dictCompareStatusCount7">0</td>
+            <td id="dictCompareStatusCount8">0</td>
+            <td id="dictCompareStatusCount9">0</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <div id="dictStatus" class="dict-maintenance__status"></div>
@@ -48,14 +70,44 @@
       <table class="dict-maintenance__table">
         <thead>
           <tr>
-            <th></th>
-            <th>#</th>
-            <th>原語</th>
+            <th rowspan="2"><input type="checkbox" id="dictSelectAll"></th>
+            <th colspan="4">
+              <span class="dict-table-header">編集辞書</span>
+              <label><input type="checkbox" id="dictFilterStatus0"> 0</label>
+              <label><input type="checkbox" id="dictFilterStatus1"> 1</label>
+              <label><input type="checkbox" id="dictFilterStatus5"> 5</label>
+              <label><input type="checkbox" id="dictFilterStatus6"> 6</label>
+              <label><input type="checkbox" id="dictFilterStatus7"> 7</label>
+              <label><input type="checkbox" id="dictFilterStatus8"> 8</label>
+              <label><input type="checkbox" id="dictFilterStatus9"> 9</label>
+              <span class="dict-filter-separator">比較辞書に：</span>
+              <label><input type="checkbox" id="dictCompareMatchExists"> あり</label>
+              <label><input type="checkbox" id="dictCompareMatchNoEntry"> なし</label>
+              <button type="button" id="dictDeleteSelectedButton">削除</button>
+              <button type="button" id="dictAddRowButton">行追加</button>
+              <button type="button" id="dictSaveButton" class="btn-step btn-step-export">保存</button>
+              <button type="button" id="dictAutoTranslateButton">自動翻訳</button>
+            </th>
+            <th colspan="3">
+              <span class="dict-table-header">比較辞書</span>
+              <label><input type="checkbox" id="dictCompareFilterStatus0"> 0</label>
+              <label><input type="checkbox" id="dictCompareFilterStatus1"> 1</label>
+              <label><input type="checkbox" id="dictCompareFilterStatus5"> 5</label>
+              <label><input type="checkbox" id="dictCompareFilterStatus6"> 6</label>
+              <label><input type="checkbox" id="dictCompareFilterStatus7"> 7</label>
+              <label><input type="checkbox" id="dictCompareFilterStatus8"> 8</label>
+              <label><input type="checkbox" id="dictCompareFilterStatus9"> 9</label>
+              <button type="button" id="dictCopyToCompareButton">複写</button>
+            </th>
+          </tr>
+          <tr>
+            <th>単語</th>
             <th>訳語</th>
             <th>状態</th>
-            <th>比較</th>
-            <th>出現回数</th>
-            <th>操作</th>
+            <th>回数</th>
+            <th>訳語</th>
+            <th>状態</th>
+            <th>回数</th>
           </tr>
         </thead>
         <tbody id="dictTableBody"></tbody>

@@ -1,58 +1,67 @@
 .dict-maintenance {
-    min-height: 100vh;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: var(--page-bg);
+    color: var(--text-primary);
+    overflow: hidden;
 }
 
 html,
 body {
-    height: auto;
-    overflow: auto;
-}
-
-.dict-maintenance {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.dict-maintenance__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-}
-
-.dict-maintenance__title {
-    font-size: 1.2rem;
-    font-weight: bold;
-}
-
-.dict-maintenance__actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.dict-maintenance__back {
-    text-decoration: none;
-    padding: 4px 8px;
-    border: 1px solid #aaa;
-    border-radius: 4px;
-    color: inherit;
-    background: #f3f3f3;
+    height: 100%;
+    overflow: hidden;
 }
 
 .dict-maintenance__toolbar {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    background: var(--panel-bg);
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-strong);
+    border-left: none;
+    border-right: none;
 }
 
-.dict-maintenance__toolbar select {
-    min-width: 220px;
+.dict-control-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.dict-control-table th,
+.dict-control-table td {
+    border: 1px solid var(--border);
+    padding: 8px;
+    text-align: center;
+}
+
+.dict-control-table thead th {
+    background: var(--table-header-bg);
+    color: var(--table-header-fg);
+    font-weight: bold;
+}
+
+.dict-control-table tbody td {
+    background: var(--surface);
+    color: var(--text-primary);
+}
+
+.dict-control-table .dict-control-label {
+    font-weight: bold;
+    text-align: left;
+}
+
+.dict-control-table select {
+    width: 100%;
+    min-width: 250px;
+}
+
+.dict-control-table button {
+    white-space: nowrap;
+    padding: 4px 12px;
 }
 
 .dict-maintenance__toolbar button {
@@ -61,48 +70,107 @@ body {
 
 .dict-maintenance__count {
     margin-left: auto;
-    color: #555;
+    color: var(--text-muted);
 }
 
 .dict-maintenance__status {
     min-height: 1.2em;
     color: #0a7a0a;
     word-break: break-word;
+    padding: 8px 12px;
+    background: var(--panel-bg);
 }
 
 .dict-maintenance__table-wrap {
     flex: 1;
     min-height: 0;
     overflow: auto;
-    border: 1px solid #ccc;
-    border-radius: 6px;
+    border: none;
+    border-radius: 0;
+    padding: 0 12px 12px 12px;
+    background: var(--page-bg);
 }
 
 .dict-maintenance__table {
     width: 100%;
     border-collapse: collapse;
+    border-spacing: 0;
     min-width: 680px;
+    background: var(--surface);
+}
+
+.dict-maintenance__table thead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--table-header-bg);
 }
 
 .dict-maintenance__table th:first-child,
 .dict-maintenance__table td:first-child {
     width: 32px;
     text-align: center;
+    vertical-align: middle;
+}
+
+.dict-maintenance__table th:first-child input[type="checkbox"] {
+    cursor: pointer;
 }
 
 .dict-maintenance__table th,
 .dict-maintenance__table td {
-    border-bottom: 1px solid #ddd;
+    border-bottom: 1px solid var(--border);
     padding: 6px 8px;
     text-align: left;
     vertical-align: middle;
+    color: var(--text-primary);
 }
 
 .dict-maintenance__table th {
-    background: #f6f6f6;
-    position: sticky;
-    top: 0;
-    z-index: 1;
+    background: var(--table-header-bg);
+    color: var(--table-header-fg);
+    font-weight: bold;
+}
+
+.dict-maintenance__table tbody tr {
+    background: var(--surface);
+}
+
+.dict-maintenance__table tbody tr:nth-child(even) {
+    background: var(--row-alt);
+}
+
+.dict-maintenance__table tbody td {
+    background: inherit;
+}
+
+/* テーブルヘッダー内のタイトルとフィルタ */
+.dict-table-header {
+    font-size: 1.1em;
+    font-weight: bold;
+    margin-right: 16px;
+}
+
+.dict-maintenance__table thead th label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    margin-right: 8px;
+    font-size: 0.9em;
+    font-weight: normal;
+}
+
+.dict-maintenance__table thead th button {
+    font-size: 0.9em;
+    padding: 4px 12px;
+    margin-left: 8px;
+}
+
+.dict-filter-separator {
+    margin-left: 8px;
+    margin-right: 8px;
+    font-weight: bold;
 }
 
 .dict-maintenance__input {
@@ -117,11 +185,11 @@ body {
 
 .dict-maintenance__compare {
     font-size: 0.9em;
-    color: #444;
+    color: var(--text-muted);
 }
 
 .dict-maintenance__compare.is-empty {
-    color: #888;
+    color: var(--text-muted);
 }
 
 .dict-maintenance__delete {
@@ -129,33 +197,47 @@ body {
 }
 
 @media (prefers-color-scheme: dark) {
-    .dict-maintenance__back {
-        background: #222;
-        border-color: #444;
+    .dict-maintenance__toolbar {
+        background: var(--panel-bg);
+        color: var(--text-primary);
+        border-bottom-color: var(--border-strong);
     }
 
-    .dict-maintenance__count {
-        color: #bbb;
+    .dict-control-table th {
+        background: var(--table-header-bg);
+        color: var(--table-header-fg);
+        border-color: var(--border-strong);
+    }
+
+    .dict-control-table td {
+        background: var(--surface);
+        color: var(--text-primary);
+        border-color: var(--border-strong);
     }
 
     .dict-maintenance__table-wrap {
-        border-color: #444;
+        border-color: var(--border-strong);
+    }
+
+    .dict-maintenance__table thead {
+        background: var(--table-header-bg);
     }
 
     .dict-maintenance__table th {
-        background: #1f1f1f;
+        background: var(--table-header-bg);
+        color: var(--table-header-fg);
     }
 
     .dict-maintenance__table th,
     .dict-maintenance__table td {
-        border-color: #333;
+        border-color: var(--border);
     }
 
     .dict-maintenance__compare {
-        color: #bbb;
+        color: var(--text-muted);
     }
 
     .dict-maintenance__compare.is-empty {
-        color: #666;
+        color: var(--text-muted);
     }
 }

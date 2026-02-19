@@ -1155,9 +1155,25 @@ function openDataExportDialog() {
 }
 
 
+function buildDictMaintenanceUrl(dictPath, comparePath) {
+    const params = new URLSearchParams();
+    if (dictPath) {
+        params.set('dict_path', dictPath);
+    }
+    if (comparePath) {
+        params.set('compare_path', comparePath);
+    }
+    if (window.pdfName) {
+        params.set('pdf_name', window.pdfName);
+    }
+    const suffix = params.toString();
+    return suffix ? `/dict_maintenance?${suffix}` : '/dict_maintenance';
+}
+
+
 function openDictMaintenance() {
-    const pdfNameParam = window.pdfName ? `?pdf_name=${encodeURIComponent(window.pdfName)}` : '';
-    window.open(`/dict_maintenance${pdfNameParam}`, '_blank', 'noopener');
+    const url = buildDictMaintenanceUrl('', '');
+    window.open(url, '_blank', 'noopener');
 }
 
 function openDictMaintenanceForPath(dictPath) {
@@ -1165,9 +1181,39 @@ function openDictMaintenanceForPath(dictPath) {
         openDictMaintenance();
         return;
     }
-    const pdfNameParam = window.pdfName ? `&pdf_name=${encodeURIComponent(window.pdfName)}` : '';
-    const url = `/dict_maintenance?dict_path=${encodeURIComponent(dictPath)}${pdfNameParam}`;
+    const url = buildDictMaintenanceUrl(dictPath, '');
     window.open(url, '_blank', 'noopener');
+}
+
+function openDictMaintenanceForPaths(dictPath, comparePath) {
+    const url = buildDictMaintenanceUrl(dictPath, comparePath);
+    window.open(url, '_blank', 'noopener');
+}
+
+async function createBookDictFromDialog() {
+    if (!window.pdfName) {
+        alert("固有辞書の対象ブックが指定されていません。");
+        return;
+    }
+    if (!confirm("固有辞書を作成しますか?")) return;
+    try {
+        const response = await fetch(`/api/dict/create_book/${encodeURIComponent(window.pdfName)}`, {
+            method: "POST",
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== "ok") {
+            throw new Error(data.message || `作成に失敗しました (${response.status})`);
+        }
+        alert(`固有辞書を作成しました: ${data.dict_path || ""}`);
+        // 新規作成した辞書で dict_maintenance を開く
+        const dictPath = data.dict_path;
+        if (dictPath) {
+            openDictMaintenanceForPath(dictPath);
+        }
+    } catch (error) {
+        console.error("create book dict error:", error);
+        alert(`エラー: ${String(error)}`);
+    }
 }
 
 const dictSelectionState = {
@@ -1192,13 +1238,22 @@ function getDictSelectionItems() {
             label: item.label || item.path,
         });
     });
-    if (dictSelectionState.bookDict?.path) {
+    if (dictSelectionState.bookDict?.path && dictSelectionState.bookDict?.exists) {
         items.push({
             path: dictSelectionState.bookDict.path,
             label: dictSelectionState.bookDict.label || dictSelectionState.bookDict.path,
         });
     }
     return items;
+}
+
+function getDictTxtPath() {
+    const match = dictSelectionState.configDicts.find((item) => {
+        const label = (item?.label || '').toLowerCase();
+        const path = (item?.path || '').toLowerCase();
+        return label === 'dict.txt' || path.endsWith('/dict.txt') || path === 'dict.txt';
+    });
+    return match?.path || '';
 }
 
 function moveSelectedDict(path, delta) {
@@ -1236,10 +1291,9 @@ function renderDictSelection() {
     }
 
     const selectedSet = new Set(dictSelectionState.selectedPaths);
-    const selectedItems = dictSelectionState.selectedPaths.map((path) => {
-        const item = items.find((entry) => entry.path === path);
-        return item || { path, label: path };
-    });
+    const selectedItems = dictSelectionState.selectedPaths
+        .map((path) => items.find((entry) => entry.path === path))
+        .filter((item) => item);
     const unselectedItems = items.filter((item) => !selectedSet.has(item.path));
 
     selectedItems.forEach((item, index) => {
@@ -1278,7 +1332,15 @@ function renderDictSelection() {
         const editButton = document.createElement('button');
         editButton.type = 'button';
         editButton.textContent = '編集';
-        editButton.addEventListener('click', () => openDictMaintenanceForPath(item.path));
+        editButton.addEventListener('click', () => {
+            const dictTxtPath = getDictTxtPath();
+            const bookDictPath = dictSelectionState.bookDict?.exists
+                ? dictSelectionState.bookDict.path
+                : '';
+            const isBaseDict = dictTxtPath && item.path === dictTxtPath;
+            const comparePath = isBaseDict ? bookDictPath : dictTxtPath;
+            openDictMaintenanceForPaths(item.path, comparePath);
+        });
 
         row.appendChild(checkbox);
         row.appendChild(label);
@@ -1305,7 +1367,15 @@ function renderDictSelection() {
         const editButton = document.createElement('button');
         editButton.type = 'button';
         editButton.textContent = '編集';
-        editButton.addEventListener('click', () => openDictMaintenanceForPath(item.path));
+        editButton.addEventListener('click', () => {
+            const dictTxtPath = getDictTxtPath();
+            const bookDictPath = dictSelectionState.bookDict?.exists
+                ? dictSelectionState.bookDict.path
+                : '';
+            const isBaseDict = dictTxtPath && item.path === dictTxtPath;
+            const comparePath = isBaseDict ? bookDictPath : dictTxtPath;
+            openDictMaintenanceForPaths(item.path, comparePath);
+        });
 
         row.appendChild(checkbox);
         row.appendChild(label);

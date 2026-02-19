@@ -17,7 +17,13 @@ const state = {
     comparePath: "",
     compareMap: {},
     pdfName: "",
-    statusFilter: "all",
+    // 編集辞書のOR条件フィルタ
+    filterStatuses: new Set(), // チェックされた状態番号 (0,1,5,6,7,8,9)
+    // 比較辞書フィルタ（□あり □なし）
+    compareMatchExists: false,
+    compareMatchNoEntry: false,
+    // 比較辞書のOR条件フィルタ
+    compareFilterStatuses: new Set(), // チェックされた状態番号 (0,1,5,6,7,8,9)
 };
 
 function $(id) {
@@ -35,17 +41,75 @@ function normalizeFilter(value) {
     return (value || "").toLowerCase().trim();
 }
 
+function updateStatusCounts() {
+    // 編集辞書の状態件数を計算
+    const counts = {0: 0, 1: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0};
+    state.entries.forEach(entry => {
+        const status = entry.status ?? 0;
+        if (counts.hasOwnProperty(status)) {
+            counts[status]++;
+        }
+    });
+    
+    // 編集辞書の件数を表示
+    [0, 1, 5, 6, 7, 8, 9].forEach(status => {
+        const cell = $(`dictStatusCount${status}`);
+        if (cell) cell.textContent = counts[status];
+    });
+    
+    // 比較辞書の状態件数を計算
+    const compareCounts = {0: 0, 1: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0};
+    Object.values(state.compareMap).forEach(entry => {
+        const status = entry.status ?? 0;
+        if (compareCounts.hasOwnProperty(status)) {
+            compareCounts[status]++;
+        }
+    });
+    
+    // 比較辞書の件数を表示
+    [0, 1, 5, 6, 7, 8, 9].forEach(status => {
+        const cell = $(`dictCompareStatusCount${status}`);
+        if (cell) cell.textContent = compareCounts[status];
+    });
+}
+
 function matchesFilter(entry) {
-    const target = `${entry.original_word} ${entry.translated_word}`.toLowerCase();
-    if (!target.includes(state.filter)) return false;
-    if (state.statusFilter === "all") return true;
-    return String(entry.status ?? "") === state.statusFilter;
+    const entryStatus = entry.status ?? 0;
+    
+    // 編集辞書のOR条件フィルタ（□0-9）
+    if (state.filterStatuses.size > 0) {
+        if (!state.filterStatuses.has(entryStatus)) {
+            return false;
+        }
+    }
+    
+    // 比較辞書フィルタ（□あり □なし）
+    const compareValue = state.compareMap[entry.original_word];
+    // 両方チェックまたは両方未チェック → フィルタなし
+    // 「あり」のみチェック → 比較辞書にある項目のみ
+    // 「なし」のみチェック → 比較辞書にない項目のみ
+    if (state.compareMatchExists && !state.compareMatchNoEntry) {
+        if (!compareValue) return false;
+    } else if (!state.compareMatchExists && state.compareMatchNoEntry) {
+        if (compareValue) return false;
+    }
+    
+    // 比較辞書のOR条件フィルタ（□0-9）
+    if (state.compareFilterStatuses && state.compareFilterStatuses.size > 0 && compareValue) {
+        const compareStatus = compareValue.status ?? 0;
+        if (!state.compareFilterStatuses.has(compareStatus)) {
+            return false;
+        }
+    }
+    
+    return true;
 }
 
 function renderRow(entry, index, displayIndex) {
     const tr = document.createElement("tr");
     tr.dataset.index = String(index);
 
+    // チェックボックス
     const selectCell = document.createElement("td");
     const selectBox = document.createElement("input");
     selectBox.type = "checkbox";
@@ -60,9 +124,7 @@ function renderRow(entry, index, displayIndex) {
     });
     selectCell.appendChild(selectBox);
 
-    const idxCell = document.createElement("td");
-    idxCell.textContent = String(displayIndex);
-
+    // 編集辞書: 単語
     const originalCell = document.createElement("td");
     const originalInput = document.createElement("input");
     originalInput.className = "dict-maintenance__input";
@@ -70,10 +132,10 @@ function renderRow(entry, index, displayIndex) {
     originalInput.value = entry.original_word || "";
     originalInput.addEventListener("input", () => {
         entry.original_word = originalInput.value;
-        updateCompareCell();
     });
     originalCell.appendChild(originalInput);
 
+    // 編集辞書: 訳語
     const translatedCell = document.createElement("td");
     const translatedInput = document.createElement("input");
     translatedInput.className = "dict-maintenance__input";
@@ -84,6 +146,7 @@ function renderRow(entry, index, displayIndex) {
     });
     translatedCell.appendChild(translatedInput);
 
+    // 編集辞書: 状態
     const statusCell = document.createElement("td");
     const statusSelect = document.createElement("select");
     statusOptions.forEach((option) => {
@@ -98,20 +161,7 @@ function renderRow(entry, index, displayIndex) {
     });
     statusCell.appendChild(statusSelect);
 
-    const compareCell = document.createElement("td");
-    compareCell.className = "dict-maintenance__compare";
-    function updateCompareCell() {
-        const compareValue = state.compareMap[entry.original_word];
-        if (compareValue) {
-            compareCell.textContent = `${compareValue.translated_word} (${compareValue.status_text})`;
-            compareCell.classList.remove("is-empty");
-        } else {
-            compareCell.textContent = "-";
-            compareCell.classList.add("is-empty");
-        }
-    }
-    updateCompareCell();
-
+    // 編集辞書: 回数
     const countCell = document.createElement("td");
     const countInput = document.createElement("input");
     countInput.className = "dict-maintenance__count-input";
@@ -120,28 +170,42 @@ function renderRow(entry, index, displayIndex) {
     countInput.disabled = true;
     countCell.appendChild(countInput);
 
-    const actionCell = document.createElement("td");
-    const deleteButton = document.createElement("button");
-    deleteButton.className = "dict-maintenance__delete";
-    deleteButton.type = "button";
-    deleteButton.textContent = "削除";
-    deleteButton.addEventListener("click", () => {
-        if (!confirm("この行を削除しますか?")) return;
-        state.entries.splice(index, 1);
-        state.selectedIndexes.delete(index);
-        state.selectedIndexes = new Set([...state.selectedIndexes].map((i) => (i > index ? i - 1 : i)));
-        renderTable();
-    });
-    actionCell.appendChild(deleteButton);
+    // 比較辞書: 訳語
+    const compareTranslatedCell = document.createElement("td");
+    const compareValue = state.compareMap[entry.original_word];
+    if (compareValue) {
+        compareTranslatedCell.textContent = compareValue.translated_word || "-";
+    } else {
+        compareTranslatedCell.textContent = "-";
+        compareTranslatedCell.style.color = "#999";
+    }
+
+    // 比較辞書: 状態
+    const compareStatusCell = document.createElement("td");
+    if (compareValue) {
+        compareStatusCell.textContent = compareValue.status_text || String(compareValue.status ?? "");
+    } else {
+        compareStatusCell.textContent = "-";
+        compareStatusCell.style.color = "#999";
+    }
+
+    // 比較辞書: 回数
+    const compareCountCell = document.createElement("td");
+    if (compareValue) {
+        compareCountCell.textContent = String(compareValue.count ?? 0);
+    } else {
+        compareCountCell.textContent = "-";
+        compareCountCell.style.color = "#999";
+    }
 
     tr.appendChild(selectCell);
-    tr.appendChild(idxCell);
     tr.appendChild(originalCell);
     tr.appendChild(translatedCell);
     tr.appendChild(statusCell);
-    tr.appendChild(compareCell);
     tr.appendChild(countCell);
-    tr.appendChild(actionCell);
+    tr.appendChild(compareTranslatedCell);
+    tr.appendChild(compareStatusCell);
+    tr.appendChild(compareCountCell);
 
     return tr;
 }
@@ -164,6 +228,7 @@ function renderTable() {
     }
 
     updateSelectAllState();
+    updateStatusCounts();
 }
 
 function updateSelectAllState() {
@@ -261,33 +326,63 @@ function addRow() {
 }
 
 function attachEvents() {
-    const filterInput = $("dictFilterInput");
-    const statusFilter = $("dictStatusFilter");
-    const reloadButton = $("dictReloadButton");
-    const addRowButton = $("dictAddRowButton");
-    const saveButton = $("dictSaveButton");
     const selectAll = $("dictSelectAll");
     const dictFileSelect = $("dictFileSelect");
     const dictOpenButton = $("dictOpenButton");
-    const dictCreateBookButton = $("dictCreateBookButton");
-    const moveButton = $("dictMoveButton");
-    const copyButton = $("dictCopyButton");
-    const deleteSelectedButton = $("dictDeleteSelectedButton");
     const compareSelect = $("dictCompareSelect");
+    const dictCompareButton = $("dictCompareButton");
+    const addRowButton = $("dictAddRowButton");
+    const saveButton = $("dictSaveButton");
+    const deleteSelectedButton = $("dictDeleteSelectedButton");
+    const dictCopyToCompareButton = $("dictCopyToCompareButton");
+    const dictAutoTranslateButton = $("dictAutoTranslateButton");
 
-    if (filterInput) {
-        filterInput.addEventListener("input", () => {
-            state.filter = normalizeFilter(filterInput.value);
+    // 編集辞書のOR条件フィルタ (□0-9)
+    [0, 1, 5, 6, 7, 8, 9].forEach(status => {
+        const checkbox = $(`dictFilterStatus${status}`);
+        if (checkbox) {
+            checkbox.addEventListener("change", () => {
+                if (checkbox.checked) {
+                    state.filterStatuses.add(status);
+                } else {
+                    state.filterStatuses.delete(status);
+                }
+                renderTable();
+            });
+        }
+    });
+
+    // 比較辞書のOR条件フィルタ (□0-9)
+    [0, 1, 5, 6, 7, 8, 9].forEach(status => {
+        const checkbox = $(`dictCompareFilterStatus${status}`);
+        if (checkbox) {
+            checkbox.addEventListener("change", () => {
+                if (checkbox.checked) {
+                    state.compareFilterStatuses.add(status);
+                } else {
+                    state.compareFilterStatuses.delete(status);
+                }
+                renderTable();
+            });
+        }
+    });
+
+    // 比較辞書フィルタ（□あり □なし）
+    const compareMatchExists = $("dictCompareMatchExists");
+    const compareMatchNoEntry = $("dictCompareMatchNoEntry");
+    if (compareMatchExists) {
+        compareMatchExists.addEventListener("change", () => {
+            state.compareMatchExists = compareMatchExists.checked;
             renderTable();
         });
     }
-    if (statusFilter) {
-        statusFilter.addEventListener("change", () => {
-            state.statusFilter = statusFilter.value || "all";
+    if (compareMatchNoEntry) {
+        compareMatchNoEntry.addEventListener("change", () => {
+            state.compareMatchNoEntry = compareMatchNoEntry.checked;
             renderTable();
         });
     }
-    reloadButton?.addEventListener("click", fetchEntries);
+
     addRowButton?.addEventListener("click", addRow);
     saveButton?.addEventListener("click", saveEntries);
     selectAll?.addEventListener("change", () => toggleSelectAll(selectAll.checked));
@@ -298,67 +393,32 @@ function attachEvents() {
             fetchEntries();
         }
     });
-    dictCreateBookButton?.addEventListener("click", createBookDict);
+    dictCompareButton?.addEventListener("click", () => {
+        const target = compareSelect?.value;
+        if (target) {
+            state.comparePath = target;
+            fetchCompareMap();
+        }
+    });
     compareSelect?.addEventListener("change", () => {
         state.comparePath = compareSelect.value || "";
-        fetchCompareMap();
     });
-    moveButton?.addEventListener("click", () => transferSelected("move"));
-    copyButton?.addEventListener("click", () => transferSelected("copy"));
+    dictCopyToCompareButton?.addEventListener("click", () => transferSelected("copy"));
     deleteSelectedButton?.addEventListener("click", () => transferSelected("delete"));
+    dictAutoTranslateButton?.addEventListener("click", () => autoTranslate());
 }
 
 document.addEventListener("DOMContentLoaded", () => {
     const params = new URLSearchParams(window.location.search);
     state.dictPath = params.get("dict_path") || "";
+    state.comparePath = params.get("compare_path") || "";
     state.pdfName = params.get("pdf_name") || "";
     attachEvents();
-    initStatusFilter();
     loadDictCatalog();
 });
 
-function initStatusFilter() {
-    const statusFilter = $("dictStatusFilter");
-    if (!statusFilter) return;
-    statusFilter.innerHTML = "";
-    const allOption = document.createElement("option");
-    allOption.value = "all";
-    allOption.textContent = "すべて";
-    statusFilter.appendChild(allOption);
-    statusOptions.forEach((option) => {
-        const opt = document.createElement("option");
-        opt.value = String(option.value);
-        opt.textContent = option.text;
-        statusFilter.appendChild(opt);
-    });
-    statusFilter.value = state.statusFilter;
-}
-
-async function createBookDict() {
-    if (!state.pdfName) {
-        alert("固有辞書の対象ブックが指定されていません。");
-        return;
-    }
-    if (!confirm("固有辞書を作成しますか?")) return;
-    setStatus("固有辞書を作成中...", false);
-    try {
-        const response = await fetch(`/api/dict/create_book/${encodeURIComponent(state.pdfName)}`, {
-            method: "POST",
-        });
-        const data = await response.json();
-        if (!response.ok || data.status !== "ok") {
-            throw new Error(data.message || `作成に失敗しました (${response.status})`);
-        }
-        setStatus(`固有辞書を作成しました: ${data.dict_path || ""}`, false);
-        state.dictPath = data.dict_path || state.dictPath;
-        await loadDictCatalog();
-        if (state.dictPath) {
-            fetchEntries();
-        }
-    } catch (error) {
-        console.error("dict create book error:", error);
-        setStatus(String(error), true);
-    }
+function autoTranslate() {
+    alert("自動翻訳機能は未実装です。");
 }
 
 async function loadDictCatalog() {
@@ -369,13 +429,21 @@ async function loadDictCatalog() {
             throw new Error(data.message || `辞書一覧の取得に失敗しました (${response.status})`);
         }
         state.dictCatalog = Array.isArray(data.dicts) ? data.dicts : [];
-        renderDictSelects();
         if (!state.dictPath) {
             state.dictPath = data.default_path || state.dictPath;
         }
         if (!state.comparePath && state.dictCatalog.length > 0) {
             const fallback = state.dictCatalog.find((item) => item.path !== state.dictPath);
             state.comparePath = fallback?.path || state.dictCatalog[0]?.path || "";
+        }
+        renderDictSelects();
+        const dictFileSelect = $("dictFileSelect");
+        const compareSelect = $("dictCompareSelect");
+        if (dictFileSelect?.value) {
+            state.dictPath = dictFileSelect.value;
+        }
+        if (compareSelect?.value) {
+            state.comparePath = compareSelect.value;
         }
         if (state.dictPath) {
             fetchEntries();
@@ -391,12 +459,10 @@ async function loadDictCatalog() {
 
 function renderDictSelects() {
     const dictFileSelect = $("dictFileSelect");
-    const targetSelect = $("dictTargetSelect");
     const compareSelect = $("dictCompareSelect");
-    if (!dictFileSelect || !targetSelect || !compareSelect) return;
+    if (!dictFileSelect || !compareSelect) return;
 
     dictFileSelect.innerHTML = "";
-    targetSelect.innerHTML = "";
     compareSelect.innerHTML = "";
 
     state.dictCatalog.forEach((item) => {
@@ -405,11 +471,6 @@ function renderDictSelects() {
         option.value = item.path;
         option.textContent = item.label || item.path;
         dictFileSelect.appendChild(option);
-
-        const targetOption = document.createElement("option");
-        targetOption.value = item.path;
-        targetOption.textContent = item.label || item.path;
-        targetSelect.appendChild(targetOption);
 
         const compareOption = document.createElement("option");
         compareOption.value = item.path;
@@ -464,10 +525,10 @@ async function transferSelected(action) {
         return;
     }
 
-    const targetSelect = $("dictTargetSelect");
-    const targetPath = targetSelect?.value || "";
+    // 移動/複写先は比較辞書を使用
+    const targetPath = state.comparePath;
     if ((action === "move" || action === "copy") && !targetPath) {
-        alert("移動/複写先を選択してください。");
+        alert("比較辞書を選択してください。");
         return;
     }
     if (action === "move" && targetPath === state.dictPath) {
