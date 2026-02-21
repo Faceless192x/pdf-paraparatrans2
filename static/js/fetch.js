@@ -1007,6 +1007,9 @@ async function joinParagraphs() {
     msg += "\n\nよろしいですか？";
     if (!confirm(msg)) return;
 
+    // カーソルを砂時計に変更
+    const originalCursor = document.body.style.cursor;
+    document.body.style.cursor = 'wait';
 
     await saveCurrentPageOrder(); // 順序を保存してから翻訳 (saveOrderもasyncにする必要あり)
     try {
@@ -1035,6 +1038,9 @@ async function joinParagraphs() {
     } catch (error) {
         console.error("autoTagging error:", error);
         alert("連結文結合中にエラーが発生しました");
+    } finally {
+        // カーソルを元に戻す
+        document.body.style.cursor = originalCursor || 'auto';
     }
 }
 

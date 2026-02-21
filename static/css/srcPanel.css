@@ -3,6 +3,38 @@
     font-weight: bold;
 }
 
+.markup-tools {
+    align-items: center;
+    gap: 4px;
+}
+
+.markup-tools button {
+    min-width: 26px;
+    height: 26px;
+    padding: 0;
+    line-height: 1;
+    font-size: 14px;
+}
+
+.markup-tools__label {
+    font-size: 90%;
+    opacity: 0.9;
+}
+
+.ppt-markup {
+    border-radius: 2px;
+}
+
+.ppt-markup-highlight {
+    background-color: rgba(255, 235, 59, 0.45);
+}
+
+.ppt-markup-underline {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 2px;
+}
+
 .paragraph-struct {
     color: #888;
     font-size: 90%;
@@ -124,23 +156,22 @@
 .editing .src-text, .editing .trans-text, .editing .comment-text {
     border: 1px solid #000;
 }
-.src-text {
-    border-left: 4px solid #e74c3c;
-}
-.src-joined {
-    border-left: 4px solid #ffeb3b; /* 黄色系の色 */
-}
-.src-replaced {
-    border-left: 4px solid #3498db;
-}
-.trans-auto {
-    border-left: 4px solid #f39c12;
-}
-.trans-text {
-    border-left: 4px solid #2ecc71;
-}
+/* コメント列は常に編集可能なので、編集時のスタイルを常に適用 */
 .comment-text {
     border-left: 4px solid #9b59b6;
+    border: 2px solid #4f46e5;
+    background: #1e293b;
+    color: #e5e7eb;
+}
+@media (prefers-color-scheme: light) {
+    .comment-text {
+        border: 3px solid #000;
+        background: #1e1e1e;
+        color: #e0e0e0;
+    }
+}
+.src-text {
+    border-left: 4px solid #e74c3c;
 }
 .block-tag-header {
     color: #ccc;
@@ -210,11 +241,13 @@
     font-family: monospace;
     font-weight: bold;
     background-color: var(--tr-bg);
+    color: var(--tr-fg);
 }
 .block-tag-th {
     font-family: monospace;
     font-weight: bold;
     background-color: var(--th-bg);
+    color: var(--th-fg);
 }
 
 .paragraph-box.block-tag-li .src-html,
@@ -261,9 +294,9 @@
     .editing .src-text, 
     .editing .trans-text,
     .editing .comment-text {
-        border: 3px solid #000; /* 編集時の枠線 */
-        background: #fefbe9; /* 編集時の背景色 */
-        color: #000; /* 編集時の文字色 */
+        border: 2px solid #4f46e5; /* 編集時の枠線（明るめ） */
+        background: #1e293b; /* 編集時の背景色（ダークモード向き） */
+        color: #e5e7eb; /* 編集時の文字色 */
     }
     .edit-ui {
         color: #fff; /* 編集時の文字色 */

@@ -3,6 +3,344 @@ let selectedParagraphs = new Set(); // 選択されたパラグラフのIDを格
 let currentParagraphIndex = 0;
 //ページが編集されたことを表す変数
 let isPageEdited = false;
+let pendingMarkupSelection = null;
+let pendingMarkupParagraphContext = null;
+
+const MARKUP_COLUMN_CLASS_TO_KEY = {
+    'src-text': 'src_text',
+    'src-joined': 'src_joined',
+    'src-replaced': 'src_replaced',
+    'trans-auto': 'trans_auto',
+    'trans-text': 'trans_text',
+    'comment-text': 'comment',
+};
+
+const MARKUP_TARGET_COLUMN_SELECTOR = '.src-text, .src-joined, .src-replaced, .trans-auto, .trans-text, .comment-text';
+
+function generateMarkupId() {
+    return `mu_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getMarkupToolsContainer() {
+    return document.getElementById('markupTools');
+}
+
+function clearPendingMarkupSelection() {
+    pendingMarkupSelection = null;
+    pendingMarkupParagraphContext = null;
+}
+
+function showMarkupTools() {
+    const tools = getMarkupToolsContainer();
+    if (tools) tools.style.display = 'inline-flex';
+}
+
+function getColumnClassName(columnElement) {
+    if (!columnElement) return null;
+    for (const className of Object.keys(MARKUP_COLUMN_CLASS_TO_KEY)) {
+        if (columnElement.classList.contains(className)) {
+            return className;
+        }
+    }
+    return null;
+}
+
+function findTextOffsetInElement(rootEl, targetNode, targetOffset) {
+    if (!rootEl || !targetNode) return null;
+    let offset = 0;
+    const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+        if (node === targetNode) {
+            return offset + Math.min(targetOffset, node.nodeValue.length);
+        }
+        offset += node.nodeValue.length;
+    }
+    return null;
+}
+
+function getSelectionInfoForMarkup(selection) {
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+    const range = selection.getRangeAt(0);
+    const startNode = range.startContainer;
+    const endNode = range.endContainer;
+    if (!startNode || !endNode) return null;
+
+    const startElement = startNode.nodeType === Node.ELEMENT_NODE ? startNode : startNode.parentElement;
+    const endElement = endNode.nodeType === Node.ELEMENT_NODE ? endNode : endNode.parentElement;
+    if (!startElement || !endElement) return null;
+
+    const startColumn = startElement.closest(MARKUP_TARGET_COLUMN_SELECTOR);
+    const endColumn = endElement.closest(MARKUP_TARGET_COLUMN_SELECTOR);
+    if (!startColumn || !endColumn || startColumn !== endColumn) return null;
+
+    const paragraphBox = startColumn.closest('.paragraph-box');
+    if (!paragraphBox) return null;
+
+    const paragraphId = String((paragraphBox.id || '').replace('paragraph-', ''));
+    if (!paragraphId) return null;
+
+    const columnClassName = getColumnClassName(startColumn);
+    if (!columnClassName) return null;
+
+    const columnKey = MARKUP_COLUMN_CLASS_TO_KEY[columnClassName];
+    if (!columnKey) return null;
+
+    const start = findTextOffsetInElement(startColumn, range.startContainer, range.startOffset);
+    const end = findTextOffsetInElement(startColumn, range.endContainer, range.endOffset);
+    if (start == null || end == null) return null;
+
+    const rangeStart = Math.min(start, end);
+    const rangeEnd = Math.max(start, end);
+    if (rangeStart === rangeEnd) return null;
+
+    return {
+        pageNumber: String(currentPage),
+        paragraphId,
+        columnClassName,
+        columnKey,
+        start: rangeStart,
+        end: rangeEnd,
+    };
+}
+
+function getParagraphContextForMarkup(selection) {
+    if (!selection || selection.rangeCount === 0) return null;
+    const range = selection.getRangeAt(0);
+    const startNode = range.startContainer;
+    if (!startNode) return null;
+
+    const startElement = startNode.nodeType === Node.ELEMENT_NODE ? startNode : startNode.parentElement;
+    if (!startElement) return null;
+
+    const paragraphBox = startElement.closest('.paragraph-box');
+    if (!paragraphBox) return null;
+
+    const paragraphId = String((paragraphBox.id || '').replace('paragraph-', ''));
+    if (!paragraphId) return null;
+
+    return {
+        pageNumber: String(currentPage),
+        paragraphId,
+    };
+}
+
+function removeExistingMarkupDecorations(columnElement) {
+    if (!columnElement) return;
+    const nodes = Array.from(columnElement.querySelectorAll('span.ppt-markup'));
+    nodes.forEach((node) => {
+        const parent = node.parentNode;
+        while (node.firstChild) {
+            parent.insertBefore(node.firstChild, node);
+        }
+        parent.removeChild(node);
+    });
+}
+
+function createRangeByTextOffsets(rootEl, start, end) {
+    if (!rootEl || start >= end) return null;
+    let cursor = 0;
+    let startNode = null;
+    let endNode = null;
+    let startOffsetInNode = 0;
+    let endOffsetInNode = 0;
+
+    const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+        const textLength = node.nodeValue.length;
+        const nodeStart = cursor;
+        const nodeEnd = cursor + textLength;
+
+        if (!startNode && start >= nodeStart && start <= nodeEnd) {
+            startNode = node;
+            startOffsetInNode = Math.min(start - nodeStart, textLength);
+        }
+        if (!endNode && end >= nodeStart && end <= nodeEnd) {
+            endNode = node;
+            endOffsetInNode = Math.min(end - nodeStart, textLength);
+            break;
+        }
+
+        cursor = nodeEnd;
+    }
+
+    if (!startNode || !endNode) return null;
+    const range = document.createRange();
+    range.setStart(startNode, startOffsetInNode);
+    range.setEnd(endNode, endOffsetInNode);
+    if (range.collapsed) return null;
+    return range;
+}
+
+function applySingleMarkup(columnElement, markup) {
+    if (!columnElement || !markup) return;
+    const start = Number(markup.start);
+    const end = Number(markup.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) return;
+
+    const range = createRangeByTextOffsets(columnElement, start, end);
+    if (!range) return;
+
+    const span = document.createElement('span');
+    span.classList.add('ppt-markup');
+    if (markup.type === 'underline') {
+        span.classList.add('ppt-markup-underline');
+    } else {
+        span.classList.add('ppt-markup-highlight');
+    }
+    if (markup.id) {
+        span.dataset.markupId = String(markup.id);
+    }
+
+    const fragment = range.extractContents();
+    span.appendChild(fragment);
+    range.insertNode(span);
+}
+
+function applyParagraphMarkup(paragraphDiv, paragraphDict) {
+    if (!paragraphDiv || !paragraphDict) return;
+    const markups = Array.isArray(paragraphDict.markup) ? paragraphDict.markup : [];
+    paragraphDiv.querySelectorAll(MARKUP_TARGET_COLUMN_SELECTOR).forEach(removeExistingMarkupDecorations);
+    if (markups.length === 0) return;
+
+    const grouped = {};
+    markups.forEach((item) => {
+        if (!item || !item.column) return;
+        if (!grouped[item.column]) grouped[item.column] = [];
+        grouped[item.column].push(item);
+    });
+
+    Object.entries(grouped).forEach(([columnKey, entries]) => {
+        const className = Object.keys(MARKUP_COLUMN_CLASS_TO_KEY).find((k) => MARKUP_COLUMN_CLASS_TO_KEY[k] === columnKey);
+        if (!className) return;
+        const columnElement = paragraphDiv.querySelector(`.${className}`);
+        if (!columnElement) return;
+
+        entries
+            .slice()
+            .sort((a, b) => Number(b.start) - Number(a.start) || Number(b.end) - Number(a.end))
+            .forEach((item) => applySingleMarkup(columnElement, item));
+    });
+}
+
+async function addMarkupToCurrentSelection(markupType) {
+    if (!pendingMarkupSelection) return;
+    const selection = pendingMarkupSelection;
+
+    if (selection.pageNumber !== String(currentPage)) {
+        clearPendingMarkupSelection();
+        return;
+    }
+
+    const paragraphDict = bookData?.pages?.[currentPage]?.paragraphs?.[selection.paragraphId];
+    if (!paragraphDict) {
+        clearPendingMarkupSelection();
+        return;
+    }
+
+    if (!Array.isArray(paragraphDict.markup)) {
+        paragraphDict.markup = [];
+    }
+
+    const markupTypeKey = markupType === 'underline' ? 'underline' : 'highlight';
+    const start = Number(selection.start);
+    const end = Number(selection.end);
+    const columnKey = selection.columnKey;
+
+    const overlaps = paragraphDict.markup.filter((item) => {
+        if (!item || item.column !== columnKey || item.type !== markupTypeKey) return false;
+        const mStart = Number(item.start);
+        const mEnd = Number(item.end);
+        if (!Number.isFinite(mStart) || !Number.isFinite(mEnd)) return false;
+        return start < mEnd && end > mStart;
+    });
+
+    if (overlaps.length > 0) {
+        paragraphDict.markup = paragraphDict.markup.filter((item) => !overlaps.includes(item));
+    } else {
+        paragraphDict.markup.push({
+            id: generateMarkupId(),
+            column: columnKey,
+            start,
+            end,
+            type: markupTypeKey,
+        });
+    }
+
+    const paragraphDiv = document.getElementById(`paragraph-${selection.paragraphId}`);
+    if (paragraphDiv) {
+        applyParagraphMarkup(paragraphDiv, paragraphDict);
+    }
+
+    await saveParagraphData(paragraphDict);
+
+    const browserSelection = window.getSelection();
+    if (browserSelection) {
+        browserSelection.removeAllRanges();
+    }
+    clearPendingMarkupSelection();
+}
+
+async function clearParagraphMarkup() {
+    const context = pendingMarkupParagraphContext || getParagraphContextForMarkup(window.getSelection());
+    if (!context) return;
+    if (context.pageNumber !== String(currentPage)) return;
+
+    const paragraphDict = bookData?.pages?.[currentPage]?.paragraphs?.[context.paragraphId];
+    if (!paragraphDict || !Array.isArray(paragraphDict.markup) || paragraphDict.markup.length === 0) return;
+
+    paragraphDict.markup = [];
+    const paragraphDiv = document.getElementById(`paragraph-${context.paragraphId}`);
+    if (paragraphDiv) {
+        applyParagraphMarkup(paragraphDiv, paragraphDict);
+    }
+    await saveParagraphData(paragraphDict);
+}
+
+function refreshPendingMarkupSelection() {
+    const selection = window.getSelection();
+    const selectionInfo = getSelectionInfoForMarkup(selection);
+    pendingMarkupSelection = selectionInfo;
+    pendingMarkupParagraphContext = getParagraphContextForMarkup(selection);
+
+    if (!selectionInfo && !pendingMarkupParagraphContext) {
+        clearPendingMarkupSelection();
+        return;
+    }
+    showMarkupTools();
+}
+
+function initMarkupTools() {
+    const highlightButton = document.getElementById('markupHighlightButton');
+    const underlineButton = document.getElementById('markupUnderlineButton');
+    const clearParagraphButton = document.getElementById('markupClearParagraphButton');
+    if (!highlightButton || !underlineButton || !clearParagraphButton) return;
+
+    highlightButton.addEventListener('click', async () => {
+        await addMarkupToCurrentSelection('highlight');
+    });
+    underlineButton.addEventListener('click', async () => {
+        await addMarkupToCurrentSelection('underline');
+    });
+    clearParagraphButton.addEventListener('click', async () => {
+        await clearParagraphMarkup();
+    });
+
+    document.addEventListener('selectionchange', () => {
+        refreshPendingMarkupSelection();
+    });
+
+    document.addEventListener('mousedown', (event) => {
+        const tools = getMarkupToolsContainer();
+        if (!tools) return;
+        if (tools.contains(event.target)) return;
+        const inSrcPanel = !!event.target.closest('#srcPanel');
+        if (!inSrcPanel) {
+            clearPendingMarkupSelection();
+        }
+    });
+}
 
 // 非編集表示用: テキスト中のURLを自動リンク化
 const URL_PATTERN = /\b((?:https?:\/\/|www\.)[^\s<]+[^\s<\)\]\}>,\.!?;:"'])/gi;
@@ -143,24 +481,42 @@ function onTransButtonClick(event, paragraph, divSrc) {
 
 async function onSaveButtonClick(event, paragraph, divSrc, srcText, transText, blockTagSelect, blockTagSpan) {
     // たぶん関数内がいろいろ無駄なことになっているのであとでリファクタリング
+    const commentText = divSrc.querySelector('.comment-text');
+    
     divSrc.classList.remove('editing');
     srcText.contentEditable = false;
     transText.contentEditable = false;
+    // コメント列は常に編集可能な状態を保つ（contentEditable = true のまま）
+    // commentText.contentEditable = false; // ← 実行しない
+    
     divSrc.querySelector('.edit-ui').style.display = 'none';
     $("#srcParagraphs").sortable("enable");
     divSrc.style.cursor = '';
 
     const id = paragraph.id;
     const selectedStatus = divSrc.querySelector(`input[name='status-${id}']:checked`);
-    const commentText = divSrc.querySelector('.comment-text');
 
     paragraphDict = bookData["pages"][currentPage]["paragraphs"][id];
     if (paragraphDict) {
+        const srcTextChanged = paragraph.src_text !== srcText.innerHTML;
+        
         paragraphDict.src_text = srcText.innerHTML;
         paragraphDict.trans_text = transText.innerHTML;
         paragraphDict.comment = commentText ? commentText.innerHTML : (paragraphDict.comment ?? "");
         paragraphDict.block_tag = blockTagSelect.value;
         paragraphDict.trans_status = selectedStatus ? selectedStatus.value : paragraphDict.trans_status;
+
+        // src_text が変更された場合、src_joined と src_replaced を src_text の値でセット
+        if (srcTextChanged) {
+            paragraphDict.src_joined = srcText.innerHTML;
+            paragraphDict.src_replaced = srcText.innerHTML;
+            
+            // ブラウザ上の表示もすぐに更新
+            const srcJoinedEl = divSrc.querySelector('.src-joined');
+            const srcReplacedEl = divSrc.querySelector('.src-replaced');
+            if (srcJoinedEl) srcJoinedEl.innerHTML = srcText.innerHTML;
+            if (srcReplacedEl) srcReplacedEl.innerHTML = srcText.innerHTML;
+        }
 
         const joinCheckbox = divSrc.querySelector('.join-checkbox');
         const joinOn = !!joinCheckbox?.checked;
@@ -196,6 +552,7 @@ async function onSaveButtonClick(event, paragraph, divSrc, srcText, transText, b
 
         // 非編集表示に戻った後、URLをリンク化
         linkifyParagraphBox(divSrc);
+        applyParagraphMarkup(divSrc, paragraphDict);
     } catch (error) {
         console.error('Error saving paragraph:', error);
         alert('データ保存中にエラーが発生しました。詳細はコンソールを確認してください。');
@@ -360,6 +717,7 @@ function renderParagraphs(options = {}) {
 
         // 非編集表示のURLをリンク化（編集ボックス内は対象外）
         linkifyParagraphBox(divSrc);
+        applyParagraphMarkup(divSrc, p);
 
         // イベントリスナーの登録
         let editButton = divSrc.querySelector('.edit-button');
@@ -399,6 +757,30 @@ function renderParagraphs(options = {}) {
         styleUpdateButton.addEventListener('click', (e) => onStyleUpdateButtonClick(e, p, divSrc)); // 追加
         saveButton.addEventListener('click', (e) => onSaveButtonClick(e, p, divSrc, srcText, transText, blockTagSelect, blockTagSpan));
         resetTranslationButton.addEventListener('click', (e) => resetTranslation(p)); // 追加
+
+        // コメント列を常に直接編集可能に設定
+        let commentText = divSrc.querySelector('.comment-text');
+        if (commentText) {
+            commentText.contentEditable = true;
+            commentText.addEventListener('blur', async () => {
+                // コメント内容が変更されている場合、自動保存
+                const newComment = commentText.innerHTML;
+                if (p.comment !== newComment) {
+                    p.comment = newComment;
+                    paragraphDict = bookData["pages"][currentPage]["paragraphs"][p.id];
+                    if (paragraphDict) {
+                        paragraphDict.comment = newComment;
+                        try {
+                            await saveParagraphData(paragraphDict);
+                            commentText.dataset.original = newComment;
+                        } catch (error) {
+                            console.error('Error saving comment:', error);
+                            // エラー時は表示を戻す（自動的に重要でないため）
+                        }
+                    }
+                }
+            });
+        }
 
         // ラジオボタンの変更イベントリスナーを追加
         addRadioChangeListener(divSrc, p);
@@ -549,7 +931,8 @@ async function saveParagraphData(paragraphDict) {
                 comment: paragraphDict.comment ?? "",
                 trans_status: paragraphDict.trans_status,
                 block_tag: paragraphDict.block_tag,
-                join: paragraphDict.join === 1 ? 1 : 0
+                join: paragraphDict.join === 1 ? 1 : 0,
+                markup: Array.isArray(paragraphDict.markup) ? paragraphDict.markup : []
             })
         });
         const data = await response.json(); // await を追加
@@ -1043,6 +1426,11 @@ async function toggleJoinForSelected() {
     if (sendParagraphs.length === 0) return;
 
     isPageEdited = true; // ページが編集されたことを示すフラグを立てる
+    
+    // カーソルを砂時計に変更
+    const originalCursor = document.body.style.cursor;
+    document.body.style.cursor = 'wait';
+    
     try {
         // join 変更はサーバ側で src_joined を再計算し、必要に応じて再読込が走る。
         // このとき、未保存の order/group 変更があると巻き戻るので、ページ全体を保存してから反映する。
@@ -1054,6 +1442,9 @@ async function toggleJoinForSelected() {
     } catch (e) {
         console.error('toggleJoinForSelected: updateParagraphs failed', e);
         alert('join保存中にエラーが発生しました（詳細はコンソールを確認してください）');
+    } finally {
+        // カーソルを元に戻す
+        document.body.style.cursor = originalCursor || 'auto';
     }
 }
 
@@ -1123,12 +1514,16 @@ function cancelEditUI(divSrc) {
         transText.innerHTML = transText.dataset.original;
     }
     if (commentText) {
-        commentText.contentEditable = false;
-        commentText.innerHTML = commentText.dataset.original ?? '';
+        // コメント列は常に編集可能な状態を保つ（contentEditableはtrueのまま）
+        // commentText.contentEditable = false; // ← 実行しない
+        // commentText.innerHTML の復元もしない
     }
 
     // 非編集表示に戻った後、URLをリンク化
     linkifyParagraphBox(divSrc);
+    const idStr = (divSrc.id || '').replace('paragraph-', '');
+    const paragraphDict = bookData?.pages?.[currentPage]?.paragraphs?.[idStr];
+    applyParagraphMarkup(divSrc, paragraphDict);
     // if (editButton) editButton.style.visibility = 'visible';
     $("#srcParagraphs").sortable("enable");
     divSrc.style.cursor = '';
@@ -1402,3 +1797,7 @@ async function resetTranslationForSelected() {
         }
     }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    initMarkupTools();
+});

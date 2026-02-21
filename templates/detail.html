@@ -100,6 +100,20 @@
               >ルール</button>
               <input id="docStructureFileInput" type="file" accept=".json" style="display:none" onchange="importDocStructureFile(this.files)">
             </span>
+            <span class="inline-block-margin">
+              <select id="dataExportTranslator">
+                <option value="google">Google</option>
+                <option value="deepl">DeepL</option>
+                <option value="google_v3">Google v3</option>
+              </select>
+              <button type="button" onclick="saveTranslationEngineFromDialog()">保存</button>
+            </span>
+            <span class="inline-block-margin src-font-controls" data-help-id="srcPanel本文のフォントサイズ変更">
+              <span class="src-font-controls__label">本文</span>
+              <button id="srcFontDecreaseButton" type="button" title="本文フォントを縮小">A-</button>
+              <span id="srcFontSizeValue">100%</span>
+              <button id="srcFontIncreaseButton" type="button" title="本文フォントを拡大">A+</button>
+            </span>
           </div>
           <div class="controls">
             <span class="inline-block-margin">
@@ -129,23 +143,12 @@
 
             <button id="pageDictReplaceButton" class="btn-step btn-step-dict" data-help-id="ページ対訳置換">ページ対訳置換</button>
             <button id="pageTransButton" class="btn-step btn-step-transall" data-help-id="ページの翻訳">ページ翻訳</button>
-            <span class="inline-block-margin">
-              <select id="dataExportTranslator">
-                <option value="google">Google</option>
-                <option value="deepl">DeepL</option>
-                <option value="google_v3">Google v3</option>
-              </select>
-              <button type="button" onclick="saveTranslationEngineFromDialog()">保存</button>
-              <span id="currentTranslateEngine">(読み込み中)</span>
-              <span id="translateEngineStatus"></span>
-            </span>
             <button id="openDictButton" data-help-id="辞書登録">辞書登録</button>
-            <span class="inline-block-margin src-font-controls" data-help-id="srcPanel本文のフォントサイズ変更">
-              <span class="src-font-controls__label">本文</span>
-              <button id="srcFontDecreaseButton" type="button" title="本文フォントを縮小">A-</button>
-              <span id="srcFontSizeValue">100%</span>
-              <button id="srcFontIncreaseButton" type="button" title="本文フォントを拡大">A+</button>
-              <button id="srcFontResetButton" type="button" title="本文フォントを100%に戻す">100%</button>
+            <span id="markupTools" class="inline-block-margin markup-tools" style="display:inline-flex" data-help-id="選択文字列をマークアップ">
+              <span class="markup-tools__label" title="Markup" aria-label="Markup">✎</span>
+              <button id="markupHighlightButton" type="button" title="選択範囲をハイライト" aria-label="選択範囲をハイライト">🖍</button>
+              <button id="markupUnderlineButton" type="button" title="選択範囲にアンダーライン" aria-label="選択範囲にアンダーライン">U̲</button>
+              <button id="markupClearParagraphButton" type="button" title="段落のマークアップをすべて削除" aria-label="段落のマークアップをすべて削除">🧹</button>
             </span>
           </div>
         </div>

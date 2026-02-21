@@ -2929,6 +2929,7 @@ def update_paragraph_api(pdf_name):
     new_status = data["trans_status"]
     new_block_tag = data["block_tag"]
     new_join = data.get("join")
+    new_markup = data.get("markup")
 
     print("update_paragraph_api:" + json.dumps(data, indent=2, ensure_ascii=False))
 
@@ -2962,6 +2963,8 @@ def update_paragraph_api(pdf_name):
         paragraph["comment"] = new_comment
     paragraph["trans_status"] = new_status
     paragraph["block_tag"] = new_block_tag
+    if isinstance(new_markup, list):
+        paragraph["markup"] = new_markup
 
     join_changed = False
     if new_join is not None:
