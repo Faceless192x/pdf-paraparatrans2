@@ -161,7 +161,80 @@ def _run_hotkey_checks(page) -> None:
     )
 
 
-def _run_ui_checks(base_url: str, pdf_name: str, headless: bool, hotkey_only: bool) -> None:
+def _run_dict_auto_translate_selected_checks(base_url: str, page) -> None:
+    payload_capture = {"payload": None}
+    list_entries = [
+        {"original_word": "Rune", "translated_word": "", "status": 9, "count": 1},
+        {"original_word": "Glorantha", "translated_word": "", "status": 9, "count": 1},
+    ]
+
+    page.route(
+        "**/api/dict/catalog",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "status": "ok",
+                    "dicts": [{"path": "config/dict.txt", "label": "dict.txt"}],
+                    "default_path": "config/dict.txt",
+                }
+            ),
+        ),
+    )
+    page.route(
+        "**/api/dict/list**",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "status": "ok",
+                    "entries": list_entries,
+                    "dict_path": "config/dict.txt",
+                }
+            ),
+        ),
+    )
+    page.route(
+        "**/api/dict/compare**",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "ok", "entries": {}, "dict_path": "config/dict.txt"}),
+        ),
+    )
+
+    def _handle_auto_translate(route):
+        raw = route.request.post_data or "{}"
+        payload_capture["payload"] = json.loads(raw)
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "ok", "message": "自動翻訳を実行しました (1 件)", "count": 1}),
+        )
+
+    page.route("**/api/dict/auto_translate", _handle_auto_translate)
+
+    page.goto(f"{base_url}/dict_maintenance", wait_until="networkidle")
+    page.locator("#dictTableBody tr").first.wait_for(timeout=10000)
+
+    page.locator("#dictTableBody tr").nth(0).locator("input[type='checkbox']").check()
+    page.locator("#dictAutoTranslateButton").click()
+
+    deadline = time.time() + 5
+    while payload_capture["payload"] is None and time.time() < deadline:
+        time.sleep(0.05)
+
+    payload = payload_capture["payload"]
+    _assert(payload is not None, "auto translate API payload was not captured")
+    _assert(payload.get("dict_path") == "config/dict.txt", "dict_path mismatch")
+    entries = payload.get("entries") or []
+    _assert(len(entries) == 1, f"selected-only payload expected 1 entry, got {len(entries)}")
+    _assert(entries[0].get("original_word") == "Rune", "selected entry mismatch")
+
+
+def _run_ui_checks(base_url: str, pdf_name: str, headless: bool, hotkey_only: bool, dict_auto_translate_only: bool) -> None:
     encoded = urllib.parse.quote(pdf_name, safe="/")
     detail_path = f"/detail/{encoded}"
     folder = ""
@@ -171,6 +244,11 @@ def _run_ui_checks(base_url: str, pdf_name: str, headless: bool, hotkey_only: bo
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=headless)
         page = browser.new_page()
+
+        if dict_auto_translate_only:
+            _run_dict_auto_translate_selected_checks(base_url, page)
+            browser.close()
+            return
 
         page.goto(base_url, wait_until="networkidle")
         link = page.locator(f'a[href*="{detail_path}"]')
@@ -257,6 +335,11 @@ def main() -> int:
         action="store_true",
         help="Run only the hotkey HUD checks.",
     )
+    parser.add_argument(
+        "--dict-auto-translate-only",
+        action="store_true",
+        help="Run only dict maintenance selected auto-translate checks.",
+    )
 
     args = parser.parse_args()
     if not args.base_url:
@@ -277,6 +360,7 @@ def main() -> int:
             args.pdf_name,
             headless=args.headless,
             hotkey_only=args.hotkey_only,
+            dict_auto_translate_only=args.dict_auto_translate_only,
         )
     except BaseException as exc:
         error = exc

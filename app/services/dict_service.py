@@ -245,6 +245,51 @@ class DictService:
             }
         return entries, self._relpath_from_abs(dict_abs)
 
+    def auto_translate_selected(
+        self,
+        dict_path: Optional[str],
+        entries: List[Dict[str, object]],
+        translate_entries_fn: Callable[[List[Dict[str, object]]], List[Dict[str, object]]],
+    ) -> Tuple[str, int]:
+        if dict_path:
+            dict_abs = self._resolve_rel_path(dict_path)
+        else:
+            dict_abs = self.dict_path
+
+        self.ensure_dict_file(dict_abs)
+        if not isinstance(entries, list) or not entries:
+            raise ValueError("entries が空です")
+
+        translated_entries = translate_entries_fn(entries)
+        if not translated_entries:
+            raise ValueError("翻訳対象の entries がありません")
+
+        dict_data = load_dict(dict_abs)
+        dict_map = {item[0]: item for item in dict_data}
+
+        for entry in translated_entries:
+            key = str(entry.get("original_word") or "").strip()
+            if not key:
+                continue
+            translated_word = str(entry.get("translated_word") or "")
+            try:
+                status = int(entry.get("status", 8))
+            except (TypeError, ValueError):
+                status = 8
+            count = 0
+            if key in dict_map and len(dict_map[key]) > 3:
+                count = dict_map[key][3]
+            else:
+                try:
+                    count = int(entry.get("count", 0))
+                except (TypeError, ValueError):
+                    count = 0
+
+            dict_map[key] = [key, translated_word, status, max(0, count)]
+
+        save_dict(dict_abs, list(dict_map.values()))
+        return self._relpath_from_abs(dict_abs), len(translated_entries)
+
     def create_book_dict(
         self,
         pdf_name: str,

@@ -138,6 +138,42 @@ def translate_text(text: str, source: str = "en", target: str = "ja") -> str:
     return data["translations"][0]["translatedText"]
 
 
+def translate_texts(texts: list[str], source: str = "en", target: str = "ja") -> list[str]:
+    if not texts:
+        return []
+
+    access_token = get_access_token()
+
+    if DEBUG_TOKEN_PREFIX:
+        print(f"Access Token Prefix: {access_token[:20]}...")
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json; charset=utf-8",
+        "x-goog-user-project": QUOTA_PROJECT_ID,
+    }
+
+    body = {
+        "contents": list(texts),
+        "mimeType": "text/html",
+        "sourceLanguageCode": source,
+        "targetLanguageCode": target,
+    }
+
+    if GLOSSARY_ID:
+        glossary_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/glossaries/{GLOSSARY_ID}"
+        body["glossaryConfig"] = {"glossary": glossary_name}
+
+    resp = requests.post(TRANSLATE_ENDPOINT, headers=headers, data=json.dumps(body))
+    if resp.status_code != 200:
+        raise RuntimeError(f"Translate API error: {resp.status_code} {resp.text}")
+
+    data = resp.json()
+    if "glossaryTranslations" in data and data["glossaryTranslations"]:
+        return [item.get("translatedText", "") for item in data["glossaryTranslations"]]
+    return [item.get("translatedText", "") for item in data.get("translations", [])]
+
+
 if __name__ == "__main__":
     html_text = "google:<p>Hello <strong>ParaParaTrans</strong>!</p>"
     print(translate_text(html_text))

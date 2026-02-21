@@ -91,6 +91,39 @@ def translate_text(text, source="EN", target="JA", translator=None):
     translator_func = _resolve_translator_func(selected)
     return translator_func(text, source, target)
 
+
+def _resolve_translate_texts_func(translator_name):
+    if translator_name == "deepl":
+        try:
+            from .api_translate_deepl import translate_texts as translate_texts_env  # type: ignore
+        except Exception:
+            from api_translate_deepl import translate_texts as translate_texts_env  # type: ignore
+        return translate_texts_env
+
+    if translator_name == "google_v3":
+        try:
+            from .api_translate_google_v3 import translate_texts as translate_texts_env  # type: ignore
+        except Exception:
+            from api_translate_google_v3 import translate_texts as translate_texts_env  # type: ignore
+        return translate_texts_env
+
+    try:
+        from .api_translate_google import translate_texts as translate_texts_env  # type: ignore
+    except Exception:
+        from api_translate_google import translate_texts as translate_texts_env  # type: ignore
+    return translate_texts_env
+
+
+def translate_texts(texts, source="EN", target="JA", translator=None):
+    selected = get_current_translator() if translator is None else _normalize_translator(translator)
+    if not isinstance(texts, list):
+        raise ValueError("texts must be a list")
+    if not texts:
+        return []
+
+    translate_texts_func = _resolve_translate_texts_func(selected)
+    return translate_texts_func(texts, source, target)
+
 if __name__ == "__main__":
     html_text = "<p>Hello <strong>ParaParaTrans</strong>!</p>"
     translated_text, status_code = translate_text(html_text)

@@ -4,7 +4,9 @@ bookData = {};
 currentPage = 1;
 
 const URL_PREVIEW_ZOOM_STORAGE_KEY = 'ppt.urlPreviewZoom';
+const SRC_PANEL_FONT_SCALE_STORAGE_KEY = 'ppt.srcPanelFontScale';
 let urlPreviewZoom = 0.75;
+let srcPanelFontScale = 1.0;
 let urlPreviewCurrentUrl = '';
 let urlPreviewUrlWatchTimer = null;
 
@@ -97,6 +99,79 @@ function initUrlPreviewZoomControls() {
     if (zoomResetButton && !zoomResetButton.dataset.bound) {
         zoomResetButton.dataset.bound = '1';
         zoomResetButton.addEventListener('click', () => resetUrlPreviewZoom());
+    }
+}
+
+function clampSrcPanelFontScale(value) {
+    const scale = Number(value);
+    if (!Number.isFinite(scale)) return 1.0;
+    return Math.min(2.0, Math.max(0.7, scale));
+}
+
+function applySrcPanelFontScale() {
+    const srcPanel = document.getElementById('srcPanel');
+    const valueEl = document.getElementById('srcFontSizeValue');
+    const scale = clampSrcPanelFontScale(srcPanelFontScale);
+    srcPanelFontScale = scale;
+
+    if (srcPanel) {
+        srcPanel.style.setProperty('--src-panel-font-scale', String(scale));
+    }
+    if (valueEl) {
+        valueEl.textContent = `${Math.round(scale * 100)}%`;
+    }
+}
+
+function setSrcPanelFontScale(value) {
+    srcPanelFontScale = clampSrcPanelFontScale(value);
+    try {
+        localStorage.setItem(SRC_PANEL_FONT_SCALE_STORAGE_KEY, String(srcPanelFontScale));
+    } catch (_) {
+        // ignore storage errors
+    }
+    applySrcPanelFontScale();
+}
+
+function changeSrcPanelFontScale(delta) {
+    setSrcPanelFontScale(srcPanelFontScale + delta);
+}
+
+function resetSrcPanelFontScale() {
+    setSrcPanelFontScale(1.0);
+}
+
+function loadSrcPanelFontScale() {
+    try {
+        const raw = localStorage.getItem(SRC_PANEL_FONT_SCALE_STORAGE_KEY);
+        if (!raw) return;
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed)) {
+            srcPanelFontScale = clampSrcPanelFontScale(parsed);
+        }
+    } catch (_) {
+        // ignore storage errors
+    }
+}
+
+function initSrcPanelFontControls() {
+    loadSrcPanelFontScale();
+    applySrcPanelFontScale();
+
+    const increaseButton = document.getElementById('srcFontIncreaseButton');
+    const decreaseButton = document.getElementById('srcFontDecreaseButton');
+    const resetButton = document.getElementById('srcFontResetButton');
+
+    if (increaseButton && !increaseButton.dataset.bound) {
+        increaseButton.dataset.bound = '1';
+        increaseButton.addEventListener('click', () => changeSrcPanelFontScale(0.1));
+    }
+    if (decreaseButton && !decreaseButton.dataset.bound) {
+        decreaseButton.dataset.bound = '1';
+        decreaseButton.addEventListener('click', () => changeSrcPanelFontScale(-0.1));
+    }
+    if (resetButton && !resetButton.dataset.bound) {
+        resetButton.dataset.bound = '1';
+        resetButton.addEventListener('click', () => resetSrcPanelFontScale());
     }
 }
 
@@ -500,6 +575,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('pageTransButton').addEventListener('click', transPage);
     document.getElementById('alignTransBySrcJoinedButton').addEventListener('click', alignTransBySrcJoined);
     initUrlPreviewZoomControls();
+    initSrcPanelFontControls();
     // 辞書登録ボタン
     document.getElementById('openDictButton').addEventListener('click', () => {
         // DictPopup.show() は dict.js で定義されている

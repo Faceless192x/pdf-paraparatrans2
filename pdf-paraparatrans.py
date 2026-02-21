@@ -55,6 +55,7 @@ from modules.parapara_join_flags import join_flags_in_file
 from modules.parapara_dict_create import dict_create
 # 対訳辞書の単語を翻訳
 from modules.parapara_dict_trans import dict_trans
+from modules.parapara_dict_trans_array import translate_dict_entries
 # 対訳辞書で置換
 from modules.parapara_dict_replacer import (
     atomicsave_json,
@@ -3197,6 +3198,28 @@ def dict_compare_api():
         return jsonify({"status": "error", "message": "dict_path が不正です"}), 400
 
     return jsonify({"status": "ok", "entries": entries, "dict_path": dict_rel}), 200
+
+
+@app.route("/api/dict/auto_translate", methods=["POST"])
+def dict_auto_translate_api():
+    payload = request.get_json(silent=True) or {}
+    dict_path = payload.get("dict_path") or ""
+    entries = payload.get("entries")
+    if not isinstance(entries, list):
+        return jsonify({"status": "error", "message": "entries が配列ではありません"}), 400
+    try:
+        dict_rel, count = dict_service.auto_translate_selected(
+            dict_path or None,
+            entries,
+            translate_dict_entries,
+        )
+    except ValueError:
+        return jsonify({"status": "error", "message": "dict_path または entries が不正です"}), 400
+    except Exception as e:
+        app.logger.error(f"辞書自動翻訳エラー: {str(e)}")
+        return jsonify({"status": "error", "message": f"辞書自動翻訳エラー: {str(e)}"}), 500
+
+    return jsonify({"status": "ok", "message": f"自動翻訳を実行しました ({count} 件)", "dict_path": dict_rel, "count": count}), 200
 
 
 @app.route("/api/dict/create_book/<path:pdf_name>", methods=["POST"])

@@ -517,8 +517,8 @@ table.tocTable td {
     display: flex;
     width: 100%;
     overflow: hidden;
-    gap: 8px;
-    padding: 6px 8px 8px;
+    gap: 4px;
+    padding: 4px 4px 4px;
 }
 
 
@@ -754,7 +754,6 @@ table.tocTable td {
     display: none;
     white-space: pre-wrap;
 }
-}
 
 .resizer-row {
     height: 6px;
@@ -837,8 +836,8 @@ header {
     border: 1px solid var(--border-strong);
     background: linear-gradient(120deg, var(--header-bg) 0%, var(--header-bg-alt) 100%);
     color: var(--header-fg);
-    padding: 6px 8px;
-    margin: 6px 8px 0;
+    padding: 4px 8px;
+    margin: 4px 4px 0;
     border-radius: 10px;
     box-shadow: var(--panel-shadow);
 }
@@ -860,6 +859,23 @@ header {
 .inline-block-margin {
     display: inline-block;
     margin: 2px 3px;
+}
+
+.src-font-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    vertical-align: middle;
+}
+
+.src-font-controls__label {
+    font-size: 85%;
+}
+
+#srcFontSizeValue {
+    min-width: 46px;
+    text-align: center;
+    font-size: 85%;
 }
 
 .title-input {

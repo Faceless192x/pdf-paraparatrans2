@@ -418,7 +418,50 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function autoTranslate() {
-    alert("自動翻訳機能は未実装です。");
+    if (!state.dictPath) {
+        alert("編集辞書を選択してください。");
+        return;
+    }
+
+    const selected = getSelectedEntries();
+    if (!selected.length) {
+        alert("自動翻訳する行を選択してください。");
+        return;
+    }
+
+    const entries = selected.map((item) => ({
+        original_word: (item.entry?.original_word || "").trim(),
+        translated_word: (item.entry?.translated_word || "").trim(),
+        status: item.entry?.status ?? 0,
+        count: item.entry?.count ?? 0,
+    })).filter((item) => item.original_word);
+
+    if (!entries.length) {
+        alert("選択行に有効な単語がありません。");
+        return;
+    }
+
+    setStatus("自動翻訳を実行中...", false);
+    fetch("/api/dict/auto_translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dict_path: state.dictPath, entries }),
+    })
+        .then(async (response) => {
+            const data = await response.json();
+            if (!response.ok || data.status !== "ok") {
+                throw new Error(data.message || `自動翻訳に失敗しました (${response.status})`);
+            }
+            setStatus(data.message || "自動翻訳を実行しました", false);
+            await fetchEntries();
+            if (state.comparePath && state.comparePath === state.dictPath) {
+                await fetchCompareMap();
+            }
+        })
+        .catch((error) => {
+            console.error("dict auto translate error:", error);
+            setStatus(String(error), true);
+        });
 }
 
 async function loadDictCatalog() {

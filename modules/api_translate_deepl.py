@@ -29,6 +29,28 @@ def translate_text(text, source="EN", target="JA"):
     except deepl.exceptions.DeepLException as e:
         raise Exception(f"DeepL API Error: {str(e)}")
 
+
+def translate_texts(texts, source="EN", target="JA"):
+    if not texts:
+        return []
+
+    prepared = [str(text).replace("【", "<p>").replace("】", "</p>") for text in texts]
+    try:
+        results = translator.translate_text(
+            prepared,
+            source_lang=source,
+            target_lang=target,
+            tag_handling="html",
+            ignore_tags="p"
+        )
+
+        if not isinstance(results, list):
+            results = [results]
+
+        return [item.text.replace("<p>", "【").replace("</p>", "】") for item in results]
+    except deepl.exceptions.DeepLException as e:
+        raise Exception(f"DeepL API Error: {str(e)}")
+
 if __name__ == "__main__":
     html_text = "deepl:<p>Hello <strong>ParaParaTrans</strong>!</p>"
     translated_text = translate_text(html_text)

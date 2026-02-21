@@ -193,6 +193,55 @@ def translate_text(text: str, source: str = "en", target: str = "ja") -> str:
     data = resp.json()
     return data["data"]["translations"][0]["translatedText"]
 
+
+def translate_texts(texts: list[str], source: str = "en", target: str = "ja") -> list[str]:
+    if not texts:
+        return []
+
+    body = {
+        "q": list(texts),
+        "source": source,
+        "target": target,
+        "format": "html",
+    }
+
+    if GOOGLE_API_KEY:
+        params = {
+            "key": GOOGLE_API_KEY,
+        }
+        resp = requests.post(
+            TRANSLATE_ENDPOINT_V2,
+            params=params,
+            data=json.dumps(body),
+            headers={"Content-Type": "application/json; charset=utf-8"},
+        )
+    else:
+        access_token = get_access_token()
+
+        if DEBUG_TOKEN_PREFIX:
+            print(f"Access Token Prefix: {access_token[:20]}...")
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json; charset=utf-8",
+        }
+
+        if QUOTA_PROJECT_ID:
+            headers["x-goog-user-project"] = QUOTA_PROJECT_ID
+
+        resp = requests.post(
+            TRANSLATE_ENDPOINT_V2,
+            headers=headers,
+            data=json.dumps(body),
+        )
+
+    if resp.status_code != 200:
+        raise RuntimeError(f"Translate API error: {resp.status_code} {resp.text}")
+
+    data = resp.json()
+    translations = data.get("data", {}).get("translations", [])
+    return [item.get("translatedText", "") for item in translations]
+
 if __name__ == "__main__":
     html_text = "google:<p>Hello <strong>ParaParaTrans</strong>!</p>"
     print(translate_text(html_text))

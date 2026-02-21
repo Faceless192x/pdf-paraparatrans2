@@ -92,6 +92,21 @@
     word-break: break-word;
     padding: 5px;
 }
+
+#srcPanel {
+    --src-panel-font-scale: 1;
+}
+
+#srcPanel .paragraph-box.block-tag-p .src-html,
+#srcPanel .paragraph-box.block-tag-p .src-text,
+#srcPanel .paragraph-box.block-tag-p .src-joined,
+#srcPanel .paragraph-box.block-tag-p .src-replaced,
+#srcPanel .paragraph-box.block-tag-p .trans-auto,
+#srcPanel .paragraph-box.block-tag-p .trans-text,
+#srcPanel .paragraph-box.block-tag-p .comment-text {
+    font-size: calc(1em * var(--src-panel-font-scale));
+}
+
 .edit-ui {
     display: none;
     position: absolute;
