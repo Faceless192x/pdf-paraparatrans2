@@ -2956,7 +2956,13 @@ def update_paragraph_api(pdf_name):
         except Exception:
             can_delta = False
 
-    paragraph["src_text"] = new_src_text
+    old_src_text = "" if paragraph.get("src_text") is None else str(paragraph.get("src_text"))
+    new_src_text_norm = "" if new_src_text is None else str(new_src_text)
+
+    paragraph["src_text"] = new_src_text_norm
+    if old_src_text != new_src_text_norm:
+        paragraph["src_joined"] = new_src_text_norm
+        paragraph["src_replaced"] = new_src_text_norm
     paragraph["trans_auto"] = new_trans_auto
     paragraph["trans_text"] = new_trans_text
     if new_comment is not None:

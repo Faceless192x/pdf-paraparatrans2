@@ -1573,21 +1573,11 @@ function getSelectedExportFields() {
 
 
 function updateDataExportFieldState() {
-    const inputs = document.querySelectorAll('.data-export-field');
     const selected = getSelectedExportFields();
-    const isLimitReached = selected.length >= 2;
-
-    inputs.forEach((input) => {
-        if (!input.checked) {
-            input.disabled = isLimitReached;
-        } else {
-            input.disabled = false;
-        }
-    });
 
     const hint = document.getElementById('dataExportFieldHint');
     if (hint) {
-        hint.textContent = `2つまで選択できます。現在 ${selected.length} / 2`;
+        hint.textContent = `出力時に1〜2件でチェックしてください。現在 ${selected.length} 件選択中`;
     }
 }
 
