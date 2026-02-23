@@ -1142,6 +1142,12 @@ function getSelectedParagraphsOnlyInOrder() {
     return Array.from(document.querySelectorAll('.paragraph-box.selected'));
 }
 
+function getSelectedParagraphIdsOnlyInOrder() {
+    return getSelectedParagraphsOnlyInOrder()
+        .map((div) => String((div.id || '').replace('paragraph-', '')).trim())
+        .filter((id) => id.length > 0);
+}
+
 // 移動系で使う：複数選択時に「選択のみ」を対象にし、カレントが選択外なら巻き込まない。
 // 選択が無い場合のみカレントを対象にする。
 function getSelectedOrCurrentParagraphsInOrder() {
@@ -1446,6 +1452,24 @@ async function toggleJoinForSelected() {
         // カーソルを元に戻す
         document.body.style.cursor = originalCursor || 'auto';
     }
+}
+
+async function reextractTableFromSelection() {
+    const selectedIds = getSelectedParagraphIdsOnlyInOrder();
+    if (selectedIds.length < 2) {
+        alert('表再抽出は2行以上選択してください。');
+        return;
+    }
+
+    if (typeof reextractTableFromSelectedLines !== 'function') {
+        console.warn('reextractTableFromSelectedLines が見つかりません（fetch.js の読み込みを確認してください）');
+        return;
+    }
+
+    const msg = `選択した${selectedIds.length}行を1テーブルとして再抽出します。よろしいですか？`;
+    if (!confirm(msg)) return;
+
+    await reextractTableFromSelectedLines(selectedIds);
 }
 
 function toggleEditUICurrent() {

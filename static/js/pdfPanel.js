@@ -1,6 +1,7 @@
 // static/js/pdfPanel.js に追加
 
 let currentHighlightLayer = null; // 現在のハイライト要素を保持する変数
+let currentHighlightPageNumber = null; // ハイライトが表示されているページ番号
 
 function pdfPanelDebugLog(...args) {
     // `window.PDF_PANEL_DEBUG = true` でデバッグログを有効化
@@ -14,6 +15,7 @@ function clearHighlights() {
         currentHighlightLayer.remove();
         currentHighlightLayer = null;
     }
+    currentHighlightPageNumber = null;
 }
 
 function getPdfViewerApp() {
@@ -89,8 +91,18 @@ function highlightRectsOnPage(pageNumber, rects) {
     const pdfViewer = iframe.contentWindow.PDFViewerApplication.pdfViewer;
     const pdfDocument = iframe.contentWindow.PDFViewerApplication.pdfDocument; // pdfDocument も確認した方が良いかも
 
-    // 既存のハイライトをクリア
-    clearHighlights();
+    // ページ番号が変わった場合のみ既存のハイライトをクリア
+    if (currentHighlightPageNumber !== null && currentHighlightPageNumber !== pageNumber) {
+        clearHighlights();
+    }
+    
+    // 同じページで再度呼ばれた場合は既存をクリアして再描画
+    if (currentHighlightPageNumber === pageNumber) {
+        clearHighlights();
+    }
+    
+    // 現在のページ番号を保存
+    currentHighlightPageNumber = pageNumber;
 
     const pageIndex = Math.max(0, (parseInt(pageNumber, 10) || 1) - 1);
     const pageView = pdfViewer.getPageView(pageIndex);

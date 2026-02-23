@@ -835,6 +835,11 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
     console.log("currentPage " + currentPage);
     console.log("pageInput.value" + document.getElementById("pageInput").value);
 
+    // ページが変わる場合はハイライトをクリア
+    if (targetPage !== currentPage && typeof clearHighlights === 'function') {
+        clearHighlights();
+    }
+
     // 同一ページ指定の場合は、通常はURL同期のみ。
     // ただしデータ更新後などは forceRender で再描画する。
     if (targetPage === currentPage) {

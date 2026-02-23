@@ -1147,6 +1147,135 @@ async function joinParagraphs() {
     }
 }
 
+async function reextractTableFromSelectedLines(paragraphIds) {
+    const ids = Array.isArray(paragraphIds)
+        ? paragraphIds.map((id) => String(id || '').trim()).filter((id) => id.length > 0)
+        : [];
+
+    if (ids.length < 2) {
+        alert('表再抽出は2行以上選択してください。');
+        return;
+    }
+
+    const originalCursor = document.body.style.cursor;
+    document.body.style.cursor = 'wait';
+
+    try {
+        const suggestResponse = await fetch(`/api/table_grid_suggest/${encodePdfNamePath(pdfName)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                current_page: currentPage,
+                paragraph_ids: ids,
+            })
+        });
+
+        const suggestData = await suggestResponse.json();
+        if (suggestData.status !== 'ok') {
+            alert(`表グリッド推測エラー: ${suggestData.message || 'unknown'}`);
+            return;
+        }
+
+        const previewRects = Array.isArray(suggestData.preview_cell_rects) ? suggestData.preview_cell_rects : [];
+        if (previewRects.length > 0 && typeof highlightRectsOnPage === 'function') {
+            highlightRectsOnPage(currentPage, previewRects);
+        }
+
+        const guessedRows = Number(suggestData.rows) > 0 ? Number(suggestData.rows) : 1;
+        const guessedCols = Number(suggestData.cols) > 0 ? Number(suggestData.cols) : 1;
+        const headerText = String(suggestData.header_text || '').trim();
+
+        const promptMessage = headerText
+            ? `推測グリッド: ${guessedRows}×${guessedCols}\nヘッダ行: ${headerText}\n\nカンマ区切りで列を分割するか、行,列を入力してください（例: Weapon,Damage,Price または 9,11）`
+            : `推測グリッド: ${guessedRows}×${guessedCols}\n行,列 を入力してください（例: 9,11）`;
+        
+        const defaultValue = headerText || `${guessedRows},${guessedCols}`;
+        
+        const input = prompt(promptMessage, defaultValue);
+        if (input == null) {
+            if (typeof clearHighlights === 'function') {
+                clearHighlights();
+            }
+            return;
+        }
+
+        let rows = guessedRows;
+        let cols = guessedCols;
+        let finalHeaderText = null;
+
+        const trimmedInput = String(input).trim();
+        
+        // カンマが含まれているかチェック
+        if (trimmedInput.includes(',')) {
+            const hasNumbers = /^\d+\s*,\s*\d+$/.test(trimmedInput);
+            
+            if (hasNumbers) {
+                // 数値,数値の形式 → 行,列として処理
+                const parts = trimmedInput.split(',').map((v) => Number(v.trim()));
+                rows = Number.isFinite(parts[0]) && parts[0] > 0 ? Math.floor(parts[0]) : guessedRows;
+                cols = Number.isFinite(parts[1]) && parts[1] > 0 ? Math.floor(parts[1]) : guessedCols;
+            } else {
+                // テキスト,テキストの形式 → ヘッダテキストとして処理
+                finalHeaderText = trimmedInput;
+                // 列数はカンマの数+1
+                const segmentCount = trimmedInput.split(',').filter(s => s.trim()).length;
+                cols = segmentCount > 0 ? segmentCount : guessedCols;
+                // 行数はデフォルト推測値を使用
+                rows = guessedRows;
+            }
+        } else if (/^\d+$/.test(trimmedInput)) {
+            // 数値のみ → 行数として処理
+            rows = Number(trimmedInput);
+            cols = guessedCols;
+        }
+
+        const response = await fetch(`/api/reextract_table_from_selection/${encodePdfNamePath(pdfName)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                current_page: currentPage,
+                paragraph_ids: ids,
+                rows,
+                cols,
+                header_text: finalHeaderText,
+            })
+        });
+
+        const data = await response.json();
+        if (data.status !== 'ok') {
+            alert(`表再抽出エラー: ${data.message || 'unknown'}`);
+            if (typeof clearHighlights === 'function') {
+                clearHighlights();
+            }
+            return;
+        }
+
+        const applied = applyBookDelta(data.delta);
+        if (applied) {
+            await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: true });
+        } else {
+            await fetchBookData();
+        }
+
+        if (typeof clearHighlights === 'function') {
+            clearHighlights();
+        }
+        alert(data.message || '表再抽出が完了しました');
+    } catch (error) {
+        console.error('reextractTableFromSelectedLines error:', error);
+        alert('表再抽出中にエラーが発生しました');
+        if (typeof clearHighlights === 'function') {
+            clearHighlights();
+        }
+    } finally {
+        document.body.style.cursor = originalCursor || 'auto';
+    }
+}
+
 async function dictCreate() {
     try {
         const response = await fetch(`/api/dict_create/${encodePdfNamePath(pdfName)}`, {

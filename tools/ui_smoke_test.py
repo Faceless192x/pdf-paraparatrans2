@@ -262,6 +262,81 @@ def _run_resume_page_checks(base_url: str, detail_path: str, page) -> None:
     )
 
 
+def _run_table_reextract_button_checks(page) -> None:
+    payload_capture = {"payload": None}
+    suggest_capture = {"called": False}
+
+    def _handle_suggest(route):
+        suggest_capture["called"] = True
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "status": "ok",
+                    "rows": 2,
+                    "cols": 3,
+                    "clip_rect": [0, 0, 100, 100],
+                    "preview_cell_rects": [
+                        [0, 0, 33, 50],
+                        [33, 0, 66, 50],
+                        [66, 0, 100, 50],
+                        [0, 50, 33, 100],
+                        [33, 50, 66, 100],
+                        [66, 50, 100, 100],
+                    ],
+                }
+            ),
+        )
+
+    page.route("**/api/table_grid_suggest/**", _handle_suggest)
+
+    def _handle_reextract(route):
+        raw = route.request.post_data or "{}"
+        payload_capture["payload"] = json.loads(raw)
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "ok", "message": "テーブル行を1件追加しました", "delta": None}),
+        )
+
+    page.route("**/api/reextract_table_from_selection/**", _handle_reextract)
+    def _on_dialog(dialog):
+        try:
+            if dialog.type == "prompt":
+                dialog.accept("2,3")
+            else:
+                dialog.accept()
+        except Exception:
+            pass
+
+    page.on("dialog", _on_dialog)
+
+    page.locator("#reextractTableButton").wait_for(timeout=10000)
+
+    boxes = page.locator("#srcParagraphs .paragraph-box")
+    boxes.first.wait_for(timeout=15000)
+    count = boxes.count()
+    _assert(count >= 2, f"table reextract test requires at least 2 paragraphs, got {count}")
+
+    page.evaluate(
+        "() => {"
+        "  const rows = Array.from(document.querySelectorAll('#srcParagraphs .paragraph-box'));"
+        "  rows.forEach((el) => el.classList.remove('selected'));"
+        "  if (rows[0]) rows[0].classList.add('selected');"
+        "  if (rows[1]) rows[1].classList.add('selected');"
+        "}"
+    )
+    page.locator("#reextractTableButton").click()
+
+    deadline = time.time() + 5
+    while (not suggest_capture["called"]) and time.time() < deadline:
+        time.sleep(0.05)
+
+    _assert(suggest_capture["called"], "table grid suggest API was not called")
+    page.wait_for_timeout(300)
+
+
 def _run_ui_checks(
     base_url: str,
     pdf_name: str,
@@ -269,6 +344,7 @@ def _run_ui_checks(
     hotkey_only: bool,
     dict_auto_translate_only: bool,
     resume_page_only: bool,
+    table_reextract_only: bool,
 ) -> None:
     encoded = urllib.parse.quote(pdf_name, safe="/")
     detail_path = f"/detail/{encoded}"
@@ -311,6 +387,11 @@ def _run_ui_checks(
 
         if resume_page_only:
             _run_resume_page_checks(base_url, detail_path, page)
+            browser.close()
+            return
+
+        if table_reextract_only:
+            _run_table_reextract_button_checks(page)
             browser.close()
             return
 
@@ -385,6 +466,11 @@ def main() -> int:
         action="store_true",
         help="Run only last-open-page resume checks.",
     )
+    parser.add_argument(
+        "--table-reextract-only",
+        action="store_true",
+        help="Run only selected-rows table reextract button checks.",
+    )
 
     args = parser.parse_args()
     if not args.base_url:
@@ -407,6 +493,7 @@ def main() -> int:
             hotkey_only=args.hotkey_only,
             dict_auto_translate_only=args.dict_auto_translate_only,
             resume_page_only=args.resume_page_only,
+            table_reextract_only=args.table_reextract_only,
         )
     except BaseException as exc:
         error = exc

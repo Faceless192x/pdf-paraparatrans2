@@ -29,6 +29,7 @@ from fitz import TOOLS  # TOOLS をインポート
 from typing import Union
 from parapara_blocks_to_paragraphs import block_to_paragraphs
 from header_footer import get_header_y1_footer_y0
+from parapara_table_reextract import append_markdown_table_rows_by_specs
 
 Block = Dict[str, Any] # ブロックを辞書形式で定義
 
@@ -489,7 +490,13 @@ def blocks_into_columns(pages_blocks: Dict[str, Any]) -> Dict[str, Any]:
         }
     return pages_columns_blocks
 
-def extract_paragraphs(pdf_path: str, output_json_path: str, header_y1:float = None, footer_y0: float = None ) -> None:
+def extract_paragraphs(
+    pdf_path: str,
+    output_json_path: str,
+    header_y1: float = None,
+    footer_y0: float = None,
+    table_specs_by_page: Dict[str, Any] = None,
+) -> None:
 
     # header_y1 と footeter_y0 が省略されたら、get_header_y1_footer_y0()を実行
     if header_y1 is None or footer_y0 is None:
@@ -580,6 +587,19 @@ def extract_paragraphs(pdf_path: str, output_json_path: str, header_y1:float = N
             paragraph["src_replaced"] = paragraph["src_text"]
             paragraph["trans_auto"] = paragraph["src_text"]
             paragraph["trans_text"] = paragraph["src_text"]
+
+        if table_specs_by_page:
+            page_specs = (
+                table_specs_by_page.get(str(page_number + 1))
+                or table_specs_by_page.get(page_number + 1)
+                or []
+            )
+            append_markdown_table_rows_by_specs(
+                page=page,
+                page_number=page_number + 1,
+                page_paragraphs=book["pages"][page_number + 1]["paragraphs"],
+                table_specs=page_specs,
+            )
 
     doc.close()
     atomicsave_json(output_json_path, book)
@@ -679,6 +699,12 @@ if __name__ == "__main__":
     parser.add_argument("input", help="Path to the input PDF file")
     parser.add_argument("--header", type=float, default=0.0, help="Y1 coordinate for the header area")
     parser.add_argument("--footer", type=float, default=float('inf'), help="Y0 coordinate for the footer area")
+    parser.add_argument(
+        "--table-specs",
+        type=str,
+        default="",
+        help="Path to JSON file: {\"1\": [{\"start_id\":\"...\",\"end_id\":\"...\",\"table_id\":\"t1\"}]}"
+    )
     args = parser.parse_args()
 
     input_path = args.input
@@ -688,8 +714,17 @@ if __name__ == "__main__":
 
     header_y1 = args.header
     footer_y0 = args.footer
+    table_specs_by_page = {}
+    if args.table_specs:
+        table_specs_by_page = load_json(args.table_specs)
 
     output_json_path = pathlib.Path(input_path).with_stem(pathlib.Path(input_path).stem).with_suffix(".json")
 
-    extract_paragraphs(input_path, output_json_path, header_y1=header_y1, footer_y0=footer_y0)
+    extract_paragraphs(
+        input_path,
+        output_json_path,
+        header_y1=header_y1,
+        footer_y0=footer_y0,
+        table_specs_by_page=table_specs_by_page,
+    )
     print(f"Bookdata saved to: {output_json_path}")

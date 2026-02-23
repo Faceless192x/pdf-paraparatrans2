@@ -9,6 +9,7 @@ import shutil
 import time
 import html
 import gzip
+import fitz
 # /api/book_toc 用の簡易キャッシュ（JSONのmtimeが変わらない限り再計算しない）
 from PyPDF2 import PdfReader, PdfWriter
 import uuid  # ファイル名の一意性を確保するために追加
@@ -74,6 +75,10 @@ from modules.parapara_join_incremental import (
 )
 
 from modules.parapara_symbolfont_rebuild import rebuild_src_text_in_file
+from modules.parapara_table_reextract import (
+    append_markdown_table_rows_from_selection,
+    suggest_table_shape_for_selection,
+)
 
 from modules.api_translate import (
     get_current_translator,
@@ -2862,6 +2867,168 @@ def auto_join_replaced_paragraphs_api(pdf_name):
             "delta": delta,
         }
     ), 200
+
+
+@app.route("/api/reextract_table_from_selection/<path:pdf_name>", methods=["POST"])
+def reextract_table_from_selection_api(pdf_name):
+    if _is_url_book_name(pdf_name):
+        return jsonify({"status": "error", "message": "URLブックは対象外です"}), 400
+
+    pdf_path, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
+    if not os.path.exists(pdf_path):
+        return jsonify({"status": "error", "message": "PDFファイルが存在しません"}), 404
+
+    data = request.get_json(silent=True) or {}
+    page_number = data.get("current_page") or data.get("page_number")
+    rows = data.get("rows")
+    cols = data.get("cols")
+    header_text = data.get("header_text")
+    paragraph_ids = data.get("paragraph_ids") or []
+
+    try:
+        page_number = int(page_number)
+    except Exception:
+        return jsonify({"status": "error", "message": "current_page が不正です"}), 400
+
+    if page_number <= 0:
+        return jsonify({"status": "error", "message": "current_page は1以上で指定してください"}), 400
+
+    if not isinstance(paragraph_ids, list):
+        return jsonify({"status": "error", "message": "paragraph_ids は配列で指定してください"}), 400
+
+    paragraph_ids = [str(pid).strip() for pid in paragraph_ids if str(pid).strip()]
+    if len(paragraph_ids) < 2:
+        return jsonify({"status": "error", "message": "2行以上選択してください"}), 400
+
+    page_key = str(page_number)
+
+    try:
+        book_data = load_json(json_path)
+        page_obj = (book_data.get("pages", {}) or {}).get(page_key)
+        if not isinstance(page_obj, dict):
+            return jsonify({"status": "error", "message": "対象ページが見つかりません"}), 404
+
+        page_paragraphs = page_obj.get("paragraphs", {}) or {}
+
+        available_ids = [pid for pid in paragraph_ids if pid in page_paragraphs]
+        if len(available_ids) < 2:
+            return jsonify({"status": "error", "message": "選択段落が見つかりません"}), 404
+
+        table_id = f"p{page_number}_{uuid.uuid4().hex[:8]}"
+
+        with fitz.open(pdf_path) as doc:
+            page_index = page_number - 1
+            if page_index < 0 or page_index >= len(doc):
+                return jsonify({"status": "error", "message": "対象ページ番号が範囲外です"}), 400
+
+            page = doc[page_index]
+            added = append_markdown_table_rows_from_selection(
+                page=page,
+                page_number=page_number,
+                page_paragraphs=page_paragraphs,
+                paragraph_ids=available_ids,
+                table_id=table_id,
+                rows=rows,
+                cols=cols,
+                header_text=header_text,
+            )
+
+        if added <= 0:
+            return jsonify({"status": "error", "message": "再抽出結果が0件でした"}), 200
+
+        recalc_trans_status_counts(book_data)
+        atomicsave_json(json_path, book_data)
+
+        delta = {
+            "pages": {page_key: (book_data.get("pages", {}) or {}).get(page_key)},
+            "trans_status_counts": book_data.get("trans_status_counts"),
+        }
+        return jsonify(
+            {
+                "status": "ok",
+                "message": f"テーブル行を{added}件追加しました",
+                "added": added,
+                "delta": delta,
+            }
+        ), 200
+    except Exception as e:
+        app.logger.error(f"table reextract error: {str(e)}")
+        return jsonify({"status": "error", "message": f"テーブル再抽出エラー: {str(e)}"}), 500
+
+
+@app.route("/api/table_grid_suggest/<path:pdf_name>", methods=["POST"])
+def table_grid_suggest_api(pdf_name):
+    if _is_url_book_name(pdf_name):
+        return jsonify({"status": "error", "message": "URLブックは対象外です"}), 400
+
+    pdf_path, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
+    if not os.path.exists(pdf_path):
+        return jsonify({"status": "error", "message": "PDFファイルが存在しません"}), 404
+
+    data = request.get_json(silent=True) or {}
+    page_number = data.get("current_page") or data.get("page_number")
+    paragraph_ids = data.get("paragraph_ids") or []
+
+    try:
+        page_number = int(page_number)
+    except Exception:
+        return jsonify({"status": "error", "message": "current_page が不正です"}), 400
+
+    if page_number <= 0:
+        return jsonify({"status": "error", "message": "current_page は1以上で指定してください"}), 400
+
+    if not isinstance(paragraph_ids, list):
+        return jsonify({"status": "error", "message": "paragraph_ids は配列で指定してください"}), 400
+
+    paragraph_ids = [str(pid).strip() for pid in paragraph_ids if str(pid).strip()]
+    if len(paragraph_ids) < 2:
+        return jsonify({"status": "error", "message": "2行以上選択してください"}), 400
+
+    page_key = str(page_number)
+
+    try:
+        book_data = load_json(json_path)
+        page_obj = (book_data.get("pages", {}) or {}).get(page_key)
+        if not isinstance(page_obj, dict):
+            return jsonify({"status": "error", "message": "対象ページが見つかりません"}), 404
+
+        page_paragraphs = page_obj.get("paragraphs", {}) or {}
+        available_ids = [pid for pid in paragraph_ids if pid in page_paragraphs]
+        if len(available_ids) < 2:
+            return jsonify({"status": "error", "message": "選択段落が見つかりません"}), 404
+
+        with fitz.open(pdf_path) as doc:
+            page_index = page_number - 1
+            if page_index < 0 or page_index >= len(doc):
+                return jsonify({"status": "error", "message": "対象ページ番号が範囲外です"}), 400
+
+            page = doc[page_index]
+            suggestion = suggest_table_shape_for_selection(
+                page=page,
+                page_paragraphs=page_paragraphs,
+                paragraph_ids=available_ids,
+            )
+
+        if not suggestion.get("ok"):
+            return jsonify({"status": "error", "message": suggestion.get("message") or "推測に失敗しました"}), 200
+
+        return jsonify(
+            {
+                "status": "ok",
+                "rows": suggestion.get("rows"),
+                "cols": suggestion.get("cols"),
+                "clip_rect": suggestion.get("clip_rect"),
+                "preview_cell_rects": suggestion.get("preview_cell_rects") or [],
+                "header_text": suggestion.get("header_text") or "",
+            }
+        ), 200
+    except Exception as e:
+        app.logger.error(f"table grid suggest error: {str(e)}")
+        return jsonify({"status": "error", "message": f"テーブルグリッド推測エラー: {str(e)}"}), 500
 
 @app.route("/api/dict_create/<path:pdf_name>", methods=["POST"])
 def dict_create_api(pdf_name):
