@@ -62,6 +62,98 @@ function clearPageCacheForSession() {
 
 let urlImportPollTimer = null;
 let lastUrlImportEventId = null;
+let lastOpenPageSaveTimer = null;
+let lastOpenPageSent = null;
+
+function normalizePageNumberForSave(pageNum) {
+    const page = parseInt(pageNum, 10);
+    if (!Number.isFinite(page) || page < 1) return null;
+
+    const max = parseInt(bookData?.page_count, 10);
+    if (Number.isFinite(max) && max > 0) {
+        return Math.min(Math.max(1, page), max);
+    }
+    return page;
+}
+
+function sendLastOpenedPage(pageNum) {
+    const normalized = normalizePageNumberForSave(pageNum);
+    if (!normalized || !pdfName) return Promise.resolve(false);
+    if (normalized === lastOpenPageSent) return Promise.resolve(true);
+
+    return fetch(`/api/update_last_page/${encodePdfNamePath(pdfName)}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ page_number: normalized }),
+        keepalive: true,
+    })
+        .then((response) => response.json().catch(() => ({})).then((payload) => ({ response, payload })))
+        .then(({ response, payload }) => {
+            if (!response.ok || payload?.status !== 'ok') {
+                console.warn('saveLastOpenedPage failed', {
+                    status: response.status,
+                    payload,
+                    page_number: normalized,
+                });
+                return false;
+            }
+            lastOpenPageSent = normalized;
+            if (bookData && typeof bookData === 'object') {
+                bookData.last_open_page = normalized;
+            }
+            return true;
+        })
+        .catch(() => false);
+}
+
+function saveLastOpenedPage(pageNum, { immediate = false } = {}) {
+    const normalized = normalizePageNumberForSave(pageNum);
+    if (!normalized) return;
+
+    if (immediate) {
+        if (lastOpenPageSaveTimer) {
+            clearTimeout(lastOpenPageSaveTimer);
+            lastOpenPageSaveTimer = null;
+        }
+        void sendLastOpenedPage(normalized);
+        return;
+    }
+
+    if (lastOpenPageSaveTimer) {
+        clearTimeout(lastOpenPageSaveTimer);
+    }
+    lastOpenPageSaveTimer = setTimeout(() => {
+        lastOpenPageSaveTimer = null;
+        void sendLastOpenedPage(normalized);
+    }, 400);
+}
+
+function saveLastOpenedPageImmediately(pageNum) {
+    const normalized = normalizePageNumberForSave(pageNum);
+    if (!normalized || !pdfName) return;
+    if (normalized === lastOpenPageSent) return;
+
+    if (navigator && typeof navigator.sendBeacon === 'function') {
+        try {
+            const url = `/api/update_last_page/${encodePdfNamePath(pdfName)}`;
+            const body = JSON.stringify({ page_number: normalized });
+            const blob = new Blob([body], { type: 'application/json' });
+            const ok = navigator.sendBeacon(url, blob);
+            if (ok) {
+                lastOpenPageSent = normalized;
+                if (bookData && typeof bookData === 'object') {
+                    bookData.last_open_page = normalized;
+                }
+                return;
+            }
+        } catch (_) {
+        }
+    }
+
+    saveLastOpenedPage(normalized, { immediate: true });
+}
 
 async function processUrlImportEvent(event) {
     if (!event || !event.id) return;
@@ -361,6 +453,14 @@ async function fetchBookData() {
         };
         bookData.__json_mtime = meta?.json_mtime ?? null;
 
+        const pageFromUrl = (typeof getPageFromUrl === 'function') ? getPageFromUrl() : null;
+        if (!pageFromUrl) {
+            const savedLastPage = parseInt(bookData?.last_open_page, 10);
+            if (Number.isFinite(savedLastPage) && savedLastPage >= 1) {
+                currentPage = savedLastPage;
+            }
+        }
+
         setCurrentUrlBook();
         startUrlImportPolling();
 
@@ -378,6 +478,9 @@ async function fetchBookData() {
         document.getElementById("titleInput").value = bookData.title;
         document.getElementById("pageCount").innerText = bookData.page_count;
         document.getElementById("pageInput").max = bookData.page_count;
+        if (typeof clampPage === 'function') {
+            currentPage = clampPage(currentPage);
+        }
 
         updateTransStatusCounts(bookData.trans_status_counts);
         updateBookStyles();

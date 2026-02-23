@@ -641,6 +641,9 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     window.addEventListener('beforeunload', () => {
+        if (typeof saveLastOpenedPageImmediately === 'function') {
+            saveLastOpenedPageImmediately(currentPage);
+        }
         stopUrlPreviewUrlWatch();
     });
 });
@@ -886,6 +889,9 @@ async function jumpToPage(pageNum, options = {}) { // async を追加
 
     // 保存後にページを移動する
     currentPage = targetPage;
+    if (typeof saveLastOpenedPage === 'function') {
+        saveLastOpenedPage(currentPage);
+    }
     document.getElementById("pageInput").value = currentPage;
 
     if (typeof ensurePageFresh === 'function') {
@@ -1207,6 +1213,9 @@ function initResizers() {
 async function saveForce() {
     isPageEdited = true;
     try {
+        if (typeof saveLastOpenedPage === 'function') {
+            saveLastOpenedPage(currentPage, { immediate: true });
+        }
         await saveCurrentPageOrder();
         await updateBookInfo();
     } catch (error) {

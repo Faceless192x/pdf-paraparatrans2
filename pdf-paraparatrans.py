@@ -715,6 +715,7 @@ def get_url_books() -> dict:
                     "pdf_name": pdf_name,
                     "title": (book_data or {}).get("title") or pdf_name,
                     "updated": updated_date,
+                    "last_open_page": (book_data or {}).get("last_open_page"),
                     "trans_status_counts": {
                         "none": trans_counts.get("none", 0),
                         "auto": trans_counts.get("auto", 0),
@@ -759,6 +760,7 @@ def get_url_books() -> dict:
                     "pdf_name": pdf_name,
                     "title": (book_data or {}).get("title") or pdf_name,
                     "updated": updated_date,
+                    "last_open_page": (book_data or {}).get("last_open_page"),
                     "trans_status_counts": {
                         "none": trans_counts.get("none", 0),
                         "auto": trans_counts.get("auto", 0),
@@ -911,6 +913,7 @@ def index():
         trans_counts = file_data.get("trans_status_counts", {})
         pdf_dict[pdf_name].update({
             "title": file_data.get("title", pdf_name),
+            "last_open_page": file_data.get("last_open_page"),
             "trans_status_counts": {
                 "none": trans_counts.get("none", 0),
                 "auto": trans_counts.get("auto", 0),
@@ -1336,11 +1339,23 @@ def get_book_meta(pdf_name):
     with open(json_path, "r", encoding="utf-8") as f:
         book_data = json.load(f)
 
+    last_open_page = book_data.get("last_open_page")
+    if not _is_url_book_name(pdf_name):
+        try:
+            settings = _load_app_settings()
+            files = (settings or {}).get("files", {}) or {}
+            settings_page = (files.get(pdf_name) or {}).get("last_open_page")
+            if settings_page is not None:
+                last_open_page = settings_page
+        except Exception:
+            pass
+
     meta = {
         "version": book_data.get("version"),
         "src_filename": book_data.get("src_filename"),
         "title": book_data.get("title"),
         "page_count": book_data.get("page_count"),
+        "last_open_page": last_open_page,
         "styles": book_data.get("styles") or {},
         "trans_status_counts": book_data.get("trans_status_counts") or {},
         "json_mtime": json_mtime,
@@ -1350,6 +1365,74 @@ def get_book_meta(pdf_name):
         "page_url_map": book_data.get("page_url_map") or {},
     }
     return jsonify({"status": "ok", "meta": meta})
+
+
+@app.route("/api/update_last_page/<path:pdf_name>", methods=["POST"])
+def update_last_page_api(pdf_name):
+    _, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONが存在しません"}), 404
+
+    data = request.get_json(silent=True) or {}
+    page_number = data.get("page_number")
+    try:
+        page_number = int(page_number)
+    except Exception:
+        return jsonify({"status": "error", "message": "page_number が不正です"}), 400
+
+    if page_number < 1:
+        return jsonify({"status": "error", "message": "page_number は1以上で指定してください"}), 400
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            book_data = json.load(f)
+
+        try:
+            page_count = int(book_data.get("page_count") or 0)
+        except Exception:
+            page_count = 0
+        if page_count > 0:
+            page_number = max(1, min(page_number, page_count))
+
+        if _is_url_book_name(pdf_name):
+            if book_data.get("last_open_page") == page_number:
+                return jsonify({"status": "ok", "changed": 0, "stored_in": "book_data"}), 200
+
+            book_data["last_open_page"] = page_number
+
+            temp_file = f"{json_path}.{uuid.uuid4().hex}.tmp"
+            try:
+                with open(temp_file, "w", encoding="utf-8") as f:
+                    json.dump(book_data, f, ensure_ascii=False, indent=2)
+                os.replace(temp_file, json_path)
+            except Exception:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                raise
+
+            return jsonify({"status": "ok", "changed": 1, "last_open_page": page_number, "stored_in": "book_data"}), 200
+
+        settings = _load_app_settings()
+        files = settings.get("files") or {}
+        file_entry = files.get(pdf_name)
+        if not isinstance(file_entry, dict):
+            file_entry = {}
+            files[pdf_name] = file_entry
+            settings["files"] = files
+
+        try:
+            prev_page = int(file_entry.get("last_open_page")) if file_entry.get("last_open_page") is not None else None
+        except Exception:
+            prev_page = None
+        if prev_page == page_number:
+            return jsonify({"status": "ok", "changed": 0, "stored_in": "settings"}), 200
+
+        file_entry["last_open_page"] = page_number
+        _save_app_settings(settings)
+
+        return jsonify({"status": "ok", "changed": 1, "last_open_page": page_number, "stored_in": "settings"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"最終ページ保存中にエラーが発生しました: {str(e)}"}), 500
 
 
 # API: 目次（見出し）情報のみ取得（初期ロード高速化用）

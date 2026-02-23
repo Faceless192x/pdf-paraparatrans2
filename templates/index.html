@@ -132,7 +132,12 @@
                     {% if '/' in display_name %}
                       {% set display_name = display_name.split('/')[-1] %}
                     {% endif %}
-                    <a href="{{ url_for('detail', pdf_name=pdf_name) }}">{{ display_name }}</a>
+                    {% set detail_href = url_for('detail', pdf_name=pdf_name) %}
+                    {% set resume_page = item.get('last_open_page') %}
+                    {% if resume_page is not none and (resume_page|int) > 0 %}
+                      {% set detail_href = detail_href ~ '?page=' ~ (resume_page|int) %}
+                    {% endif %}
+                    <a href="{{ detail_href }}">{{ display_name }}</a>
                   </td>
                   <td>{{ item.get('trans_status_counts', {}).get('none', 0) }}</td>
                   <td>{{ item.get('trans_status_counts', {}).get('auto', 0) }}</td>

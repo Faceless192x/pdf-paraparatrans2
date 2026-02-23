@@ -234,7 +234,42 @@ def _run_dict_auto_translate_selected_checks(base_url: str, page) -> None:
     _assert(entries[0].get("original_word") == "Rune", "selected entry mismatch")
 
 
-def _run_ui_checks(base_url: str, pdf_name: str, headless: bool, hotkey_only: bool, dict_auto_translate_only: bool) -> None:
+def _run_resume_page_checks(base_url: str, detail_path: str, page) -> None:
+    page.goto(f"{base_url}{detail_path}", wait_until="networkidle")
+    page.locator("#srcParagraphs .paragraph-box").first.wait_for(timeout=15000)
+
+    page_count_text = page.locator("#pageCount").inner_text().strip()
+    page_count = int(page_count_text)
+    _assert(page_count >= 2, f"resume-page test requires at least 2 pages, got {page_count}")
+
+    page.click("button:has-text('▶')")
+    page.wait_for_function(
+        "() => String(document.getElementById('pageInput')?.value || '') === '2'",
+        timeout=10000,
+    )
+    page.wait_for_timeout(900)
+
+    page.goto(base_url, wait_until="networkidle")
+    link = page.locator(f'a[href*="{detail_path}"]')
+    link.first.wait_for(timeout=15000)
+    link.first.click()
+
+    page.wait_for_url(f"**{detail_path}**", timeout=15000)
+    page.locator("#srcParagraphs .paragraph-box").first.wait_for(timeout=15000)
+    page.wait_for_function(
+        "() => String(document.getElementById('pageInput')?.value || '') === '2'",
+        timeout=15000,
+    )
+
+
+def _run_ui_checks(
+    base_url: str,
+    pdf_name: str,
+    headless: bool,
+    hotkey_only: bool,
+    dict_auto_translate_only: bool,
+    resume_page_only: bool,
+) -> None:
     encoded = urllib.parse.quote(pdf_name, safe="/")
     detail_path = f"/detail/{encoded}"
     folder = ""
@@ -271,6 +306,11 @@ def _run_ui_checks(base_url: str, pdf_name: str, headless: bool, hotkey_only: bo
 
         if hotkey_only:
             _run_hotkey_checks(page)
+            browser.close()
+            return
+
+        if resume_page_only:
+            _run_resume_page_checks(base_url, detail_path, page)
             browser.close()
             return
 
@@ -340,6 +380,11 @@ def main() -> int:
         action="store_true",
         help="Run only dict maintenance selected auto-translate checks.",
     )
+    parser.add_argument(
+        "--resume-page-only",
+        action="store_true",
+        help="Run only last-open-page resume checks.",
+    )
 
     args = parser.parse_args()
     if not args.base_url:
@@ -361,6 +406,7 @@ def main() -> int:
             headless=args.headless,
             hotkey_only=args.hotkey_only,
             dict_auto_translate_only=args.dict_auto_translate_only,
+            resume_page_only=args.resume_page_only,
         )
     except BaseException as exc:
         error = exc
