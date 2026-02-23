@@ -490,6 +490,97 @@ def blocks_into_columns(pages_blocks: Dict[str, Any]) -> Dict[str, Any]:
         }
     return pages_columns_blocks
 
+def extract_single_page(
+    page: fitz.Page,
+    page_number: int,
+    header_y1: float,
+    footer_y0: float,
+    table_specs: List[Any] = None,
+) -> Dict[str, Any]:
+    """
+    単一ページからパラグラフを抽出
+    
+    Returns:
+        {
+            "paragraphs": {paragraph_id: paragraph_dict, ...},
+            "styles": {style_key: style_value, ...}
+        }
+    """
+    page_dict = page.get_text("dict", flags=0)
+    blocks = page_dict.get("blocks", [])
+
+    # header_y1より上にあるブロックをheader_blokcsとして取り出す
+    header_blocks = sorted([blk for blk in blocks if "bbox" in blk and blk["bbox"][3] < header_y1], key=lambda b: (b["bbox"][1], b["bbox"][0]))
+    # footer_y0より下にあるブロックをfooter_blokcsとして取り出す
+    footer_blocks = sorted([blk for blk in blocks if "bbox" in blk and blk["bbox"][1] > footer_y0], key=lambda b: (b["bbox"][1], b["bbox"][0]))
+    # header_blocksとfooter_blocksを除外
+    body_blocks = [blk for blk in blocks if blk not in header_blocks and blk not in footer_blocks]
+
+    # 解析して列順まで行ったブロック配列を返す
+    columned_blocks = set_column_order_to_blocks(body_blocks)
+
+    #header_blocksにcolumn_orderを付与
+    for blk in header_blocks:
+        blk["column_order"] = 0
+    #footer_blocksにcolumn_orderを付与
+    for blk in footer_blocks:
+        blk["column_order"] = 999
+
+    columned_blocks = header_blocks + columned_blocks + footer_blocks
+
+    page_paragraphs = {}
+    page_styles = {}
+    
+    for blk in columned_blocks:
+        block_paragraphs_dict = block_to_paragraphs(blk)
+
+        # paragraphsからstyle_chars_dictを除去
+        # style_dictはstylesに追加する
+        for id, paragraph in block_paragraphs_dict.items():
+            paragraph["page_number"] = page_number
+            if paragraph.get("column_order") == 0:
+                paragraph["block_tag"] = "header"
+            if paragraph.get("column_order") == 999:
+                paragraph["block_tag"] = "footer"
+
+            style_chars_dict = paragraph.pop("style_chars_dict", {})
+            # style_chars_dictのKeysを元にスタイルを生成
+            for key, value in style_chars_dict.items():
+                font_name, font_size = key.rsplit("_", 1)
+                font_size_px = f"{int(font_size) / 10:.1f}px"
+                page_styles[key] = f"font-family: {font_name}; font-size: {font_size_px};"
+
+        # idをキーとする辞書block_paragraphs_dictの要素をpage_paragraphs_dictの要素として追加
+        page_paragraphs.update(block_paragraphs_dict)
+
+    # page_paragraphsをpage/column_order/y0/start_line_number順でソートして初期順序を付与
+    sorted_paragraphs = sorted(
+        page_paragraphs.values(),
+        key=lambda x: (int(x["page_number"]), int(x["column_order"]), int(x["column_order"]), float(x["bbox"][1]), x["id"])
+    )
+
+    # ソートされたリストを使って処理
+    for i, paragraph in enumerate(sorted_paragraphs):
+        paragraph["order"] = i + 1
+        paragraph["src_joined"] = paragraph["src_text"]
+        paragraph["src_replaced"] = paragraph["src_text"]
+        paragraph["trans_auto"] = paragraph["src_text"]
+        paragraph["trans_text"] = paragraph["src_text"]
+
+    if table_specs:
+        append_markdown_table_rows_by_specs(
+            page=page,
+            page_number=page_number,
+            page_paragraphs=page_paragraphs,
+            table_specs=table_specs,
+        )
+
+    return {
+        "paragraphs": page_paragraphs,
+        "styles": page_styles,
+    }
+
+
 def extract_paragraphs(
     pdf_path: str,
     output_json_path: str,
@@ -529,81 +620,122 @@ def extract_paragraphs(
 
     for page_number in range(len(doc)):
         page = doc[page_number]
-        page_dict = page.get_text("dict", flags=0)  # 辞書形式で取得
-        blocks = page_dict.get("blocks", []) # 'blocks' キーが存在しない場合も考慮
-
-         # header_y1より上にあるブロックをheader_blokcsとして取り出す
-        header_blocks = sorted([blk for blk in blocks if "bbox" in blk and blk["bbox"][3] < header_y1], key=lambda b: (b["bbox"][1], b["bbox"][0]))
-        # footer_y0より下にあるブロックをfooter_blokcsとして取り出す
-        footer_blocks = sorted([blk for blk in blocks if "bbox" in blk and blk["bbox"][1] > footer_y0], key=lambda b: (b["bbox"][1], b["bbox"][0]))
-        # header_blocksとfooter_blocksを除外
-        body_blocks = [blk for blk in blocks if blk not in header_blocks and blk not in footer_blocks]
-
-        # 解析して列順まで行ったブロック配列を返す
-        columned_blocks = set_column_order_to_blocks(body_blocks)
-
-        #header_blocksにcolumn_orderを付与
-        for blk in header_blocks:
-            blk["column_order"] = 0
-        #footer_blocksにcolumn_orderを付与
-        for blk in footer_blocks:
-            blk["column_order"] = 999
-
-        columned_blocks = header_blocks + columned_blocks + footer_blocks
-
-        book["pages"][page_number + 1] = {"paragraphs": {}}
-        for blk in columned_blocks:
-            block_paragraphs_dict = block_to_paragraphs(blk)
-
-            # paragraphsからstyle_chars_dictを除去
-            # style_dictはstylesに追加する
-            for id,paragraph in block_paragraphs_dict.items():
-                paragraph["page_number"] = page_number + 1
-                if paragraph.get("column_order") == 0:
-                    paragraph["block_tag"] = "header"
-                if paragraph.get("column_order") == 999:
-                    paragraph["block_tag"] = "footer"
-
-                style_chars_dict = paragraph.pop("style_chars_dict",{})
-                # style_chars_dictのKeysを元にスタイルを生成
-                for key, value in style_chars_dict.items():
-                    font_name, font_size = key.rsplit("_", 1)
-                    font_size_px = f"{int(font_size) / 10:.1f}px"
-                    book["styles"][key] = f"font-family: {font_name}; font-size: {font_size_px};"
-
-            # idをキーとする辞書block_paragraphs_dictの要素をpage_paragraphs_dictの要素として追加
-            book["pages"][page_number + 1]["paragraphs"].update(block_paragraphs_dict) 
-
-        # page_paragraphsをpage/column_order/y0/start_line_number順でソートして初期順序を付与
-        sorted_paragraphs = sorted(
-            book["pages"][page_number + 1]["paragraphs"].values(),
-            key=lambda x: (int(x["page_number"]), int(x["column_order"]), int(x["column_order"]), float(x["bbox"][1]), x["id"])
-        )
-
-        # ソートされたリストを使って処理
-        for i, paragraph in enumerate(sorted_paragraphs):
-            paragraph["order"] = i + 1
-            paragraph["src_joined"] = paragraph["src_text"]
-            paragraph["src_replaced"] = paragraph["src_text"]
-            paragraph["trans_auto"] = paragraph["src_text"]
-            paragraph["trans_text"] = paragraph["src_text"]
-
+        
+        page_specs = None
         if table_specs_by_page:
             page_specs = (
                 table_specs_by_page.get(str(page_number + 1))
                 or table_specs_by_page.get(page_number + 1)
                 or []
             )
-            append_markdown_table_rows_by_specs(
-                page=page,
-                page_number=page_number + 1,
-                page_paragraphs=book["pages"][page_number + 1]["paragraphs"],
-                table_specs=page_specs,
-            )
+        
+        page_data = extract_single_page(
+            page=page,
+            page_number=page_number + 1,
+            header_y1=header_y1,
+            footer_y0=footer_y0,
+            table_specs=page_specs,
+        )
+        
+        book["pages"][page_number + 1] = {"paragraphs": page_data["paragraphs"]}
+        book["styles"].update(page_data["styles"])
 
     doc.close()
     atomicsave_json(output_json_path, book)
     print(f"Converted columns saved to: {output_json_path}")
+
+
+def reextract_page(
+    pdf_path: str,
+    json_path: str,
+    page_number: int,
+    table_specs: List[Any] = None,
+) -> None:
+    """
+    既存のJSONファイルから指定ページを再抽出して置き換える
+    
+    Args:
+        pdf_path: PDFファイルのパス
+        json_path: 既存のJSONファイルのパス
+        page_number: 再抽出するページ番号（1-indexed）
+        table_specs: テーブル抽出仕様（オプション）
+    """
+    if not pathlib.Path(pdf_path).is_file():
+        raise FileNotFoundError(f"{pdf_path} not found")
+    if not pathlib.Path(json_path).is_file():
+        raise FileNotFoundError(f"{json_path} not found")
+    
+    # 既存JSONを読み込み
+    book_data = load_json(json_path)
+    
+    # header_y1, footer_y0を取得
+    header_y1 = book_data.get("header_y1")
+    footer_y0 = book_data.get("footer_y0")
+    
+    if header_y1 is None or footer_y0 is None:
+        # JSONに値がない場合は再計算
+        header_y1, footer_y0 = get_header_y1_footer_y0(pdf_path)
+        book_data["header_y1"] = header_y1
+        book_data["footer_y0"] = footer_y0
+    
+    # PDFを開く
+    doc = fitz.open(pdf_path)
+    TOOLS.set_small_glyph_heights(True)
+    
+    page_index = page_number - 1
+    if page_index < 0 or page_index >= len(doc):
+        doc.close()
+        raise ValueError(f"Page number {page_number} is out of range (1-{len(doc)})")
+    
+    page = doc[page_index]
+    
+    # 単一ページを抽出
+    page_data = extract_single_page(
+        page=page,
+        page_number=page_number,
+        header_y1=header_y1,
+        footer_y0=footer_y0,
+        table_specs=table_specs,
+    )
+    
+    doc.close()
+    
+    # ページデータをマージ（既存の翻訳・ステータスを保持）
+    page_key = str(page_number)
+    if page_key not in book_data["pages"]:
+        book_data["pages"][page_key] = {"paragraphs": {}}
+    
+    existing_paragraphs = book_data["pages"][page_key].get("paragraphs", {})
+    new_paragraphs = page_data["paragraphs"]
+    
+    merged_paragraphs = {}
+    for para_id, new_para in new_paragraphs.items():
+        if para_id in existing_paragraphs:
+            # 既存のパラグラフが存在する場合：ユーザー編集情報を保持
+            old_para = existing_paragraphs[para_id]
+            # 新しい抽出結果のベースに既存の翻訳情報をマージ
+            merged_para = new_para.copy()
+            # ユーザーが編集した可能性のあるフィールドを保持
+            merged_para["trans_text"] = old_para.get("trans_text", new_para.get("trans_text", ""))
+            merged_para["comment"] = old_para.get("comment", "")
+            merged_para["trans_status"] = old_para.get("trans_status", "none")
+            merged_para["block_tag"] = old_para.get("block_tag", new_para.get("block_tag", "p"))
+            merged_para["modified_at"] = old_para.get("modified_at", "")
+            merged_para["join"] = old_para.get("join", 0)
+            merged_para["group_id"] = old_para.get("group_id") if "group_id" in old_para else None
+            # src_replaced, trans_auto は新しい抽出結果を優先（辞書適用が必要）
+            merged_paragraphs[para_id] = merged_para
+        else:
+            # 新規パラグラフ
+            merged_paragraphs[para_id] = new_para
+    
+    book_data["pages"][page_key]["paragraphs"] = merged_paragraphs
+    book_data["styles"].update(page_data["styles"])
+    
+    # 保存
+    atomicsave_json(json_path, book_data)
+    print(f"Page {page_number} re-extracted and merged to: {json_path}")
+
 
 
 

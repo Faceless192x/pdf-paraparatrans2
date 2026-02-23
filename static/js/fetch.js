@@ -468,11 +468,11 @@ async function fetchBookData() {
             applyBookTypeUi();
         }
 
-        // 抽出済みのPDFの場合、抽出ボタンを無効化
+        // 抽出ボタンは常に有効（既存PDFの場合はページ再抽出として動作）
         const extractButton = document.querySelector('.btn-step-extract');
         if (extractButton && !isUrlBook()) {
-            extractButton.disabled = true;
-            extractButton.title = '抽出済みです';
+            extractButton.disabled = false;
+            extractButton.title = 'クリックでこのページを再抽出します';
         }
 
         document.getElementById("titleInput").value = bookData.title;
@@ -587,6 +587,14 @@ function markAllPagesStale() {
     bookData.__stale_token = Date.now();
     bookData.__page_fresh_token = bookData.__page_fresh_token || {};
     bookData.__toc_stale = true;
+    clearPageCacheForSession();
+}
+
+function markPageStale(pageNum) {
+    // 特定のページをstaleにする
+    if (!bookData) return;
+    bookData.__page_fresh_token = bookData.__page_fresh_token || {};
+    delete bookData.__page_fresh_token[String(pageNum)];
     clearPageCacheForSession();
 }
 
@@ -928,20 +936,48 @@ function formatTranslationStatsMessage(title, stats) {
 }
 
 async function extractParagraphs(auto = false){
-    if(!auto && !confirm("PDFを解析してJSONを新規生成します。よろしいですか？")) return;
+    // bookData が存在する = 既存JSONあり
+    const hasExistingData = bookData && bookData.pages;
+    
+    let message;
+    if (hasExistingData) {
+        // 既存JSONがある場合：現在のページを再抽出
+        message = `このページ（${currentPage}ページ）を再抽出します。\n\n原文と構造情報は更新されますが、翻訳やタグ指定は保持されます。\n\nよろしいですか？`;
+    } else {
+        // 新規抽出
+        message = "PDFを解析してJSONを新規生成します。よろしいですか？";
+    }
+    
+    if(!auto && !confirm(message)) return;
     showLog();
 
-    let form = new FormData();
     try {
+        const body = hasExistingData 
+            ? JSON.stringify({ current_page: currentPage })
+            : JSON.stringify({});
+        
         const response = await fetch(`/api/extract_paragraphs/${encodePdfNamePath(pdfName)}`, {
             method: "POST",
-            body: form
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: body
         });
         const res = await response.json();
         if(res.status === "ok"){
-            if (!auto) alert("パラグラフ抽出完了");
-            location.reload(); // リロード前にfetchBookDataを呼ぶ意味は薄い
-            // await fetchBookData(); // 必要ならリロード後に実行されるようにする
+            if (!auto) {
+                alert(res.message || "パラグラフ抽出完了");
+            }
+            
+            if (hasExistingData) {
+                // ページ再抽出の場合：ブックデータを再読み込みして現在のページをリロード
+                markPageStale(currentPage);
+                await fetchBookData();
+                await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: false });
+            } else {
+                // 新規抽出の場合：ページ全体をリロード
+                location.reload();
+            }
         } else {
             alert(res.message);
         }
@@ -1024,6 +1060,69 @@ async function rebuildSrcTextFromHtml() {
     } catch (error) {
         console.error("rebuildSrcTextFromHtml error:", error);
         alert("シンボル置換中にエラーが発生しました");
+    }
+}
+
+async function deleteSelectedParagraphs() {
+    if (typeof getSelectedParagraphsInOrder !== 'function') {
+        alert("選択機能が利用できません");
+        return;
+    }
+
+    const selected = getSelectedParagraphsInOrder();
+    if (!selected || selected.length === 0) {
+        alert("削除するパラグラフを選択してください");
+        return;
+    }
+
+    const message = `選択した${selected.length}個のパラグラフを削除します。\n\nこの操作は取り消せません。\n\nよろしいですか？`;
+    if (!confirm(message)) return;
+
+    try {
+        // DOM要素から id を取得し、bookData から paragraph を取得
+        const paragraphs = selected
+            .map(div => {
+                const id = div.id.replace('paragraph-', '');
+                const p = bookData?.pages?.[currentPage]?.paragraphs?.[id];
+                if (!p) {
+                    console.warn(`Paragraph with ID ${id} not found`);
+                    return null;
+                }
+                return {
+                    page_number: currentPage,
+                    id: id
+                };
+            })
+            .filter(p => p !== null);
+
+        if (paragraphs.length === 0) {
+            alert("削除対象のパラグラフが見つかりませんでした");
+            return;
+        }
+
+        const response = await fetch(`/api/delete_paragraphs/${encodePdfNamePath(pdfName)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                paragraphs: paragraphs
+            })
+        });
+
+        const result = await response.json();
+        if (result.status === "ok") {
+            alert(result.message || "パラグラフを削除しました");
+            // ブックデータを再読み込みして現在のページを再描画
+            markPageStale(currentPage);
+            await fetchBookData();
+            await jumpToPage(currentPage, { replaceHistory: true, forceRender: true, preserveScroll: false });
+        } else {
+            alert("削除エラー: " + (result.message || "unknown"));
+        }
+    } catch (error) {
+        console.error("deleteSelectedParagraphs error:", error);
+        alert("削除中にエラーが発生しました");
     }
 }
 

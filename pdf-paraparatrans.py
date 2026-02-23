@@ -47,7 +47,7 @@ if log_level not in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
 logging.getLogger('werkzeug').setLevel(log_level)
 
 # PDFからパラグラフJSON生成(header/footerは自動判定でセット)
-from modules.parapara_pdf2json import extract_paragraphs
+from modules.parapara_pdf2json import extract_paragraphs, reextract_page
 # block_tagをセット
 from modules.parapara_tagging_by_structure import structure_tagging
 # 先頭小文字にjoinをセット
@@ -2060,14 +2060,32 @@ def crawl_url_book_api():
 def create_book_data_api(pdf_name):
     if _is_url_book_name(pdf_name):
         return jsonify({"status": "error", "message": "URLブックはパラグラフ抽出不要です"}), 400
+    
     pdf_path, json_path = get_paths(pdf_name)
-    if os.path.exists(json_path):
-        return jsonify({"status": "ok", "message": "既に抽出済みです"}), 200
-
+    
+    # リクエストボディから current_page を取得
+    data = request.get_json(silent=True) or {}
+    current_page = data.get("current_page")
+    
     try:
-        book_data = extract_paragraphs(pdf_path,json_path)
-        return jsonify({"status": "ok"}), 200
+        if os.path.exists(json_path):
+            # 既存JSONがある場合：現在のページを再抽出
+            if not current_page:
+                return jsonify({"status": "error", "message": "current_page が指定されていません"}), 400
+            
+            try:
+                page_number = int(current_page)
+            except (ValueError, TypeError):
+                return jsonify({"status": "error", "message": "current_page が不正です"}), 400
+            
+            reextract_page(pdf_path, json_path, page_number)
+            return jsonify({"status": "ok", "message": f"ページ {page_number} を再抽出しました"}), 200
+        else:
+            # 新規抽出
+            extract_paragraphs(pdf_path, json_path)
+            return jsonify({"status": "ok", "message": "パラグラフ抽出完了"}), 200
     except Exception as e:
+        app.logger.error(f"extract_paragraphs error: {str(e)}")
         return jsonify({"status": "error", "message": f"パラグラフ抽出エラー: {str(e)}"}), 500
 
 
@@ -3399,6 +3417,69 @@ def update_paragraphs_api(pdf_name):
         return jsonify({"status": "error", "message": str(ve)}), 400
     except Exception as e:
         return jsonify({"status": "error", "message": f"更新中にエラーが発生しました: {str(e)}"}), 500
+
+
+@app.route("/api/delete_paragraphs/<path:pdf_name>", methods=["POST"])
+def delete_paragraphs_api(pdf_name):
+    """選択したパラグラフを削除"""
+    pdf_path, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
+
+    request_data = request.get_json()
+    if not request_data or "paragraphs" not in request_data:
+        return jsonify({"status": "error", "message": "paragraphs がありません"}), 400
+
+    try:
+        book_data = load_json(json_path)
+        request_paragraphs = request_data.get("paragraphs")
+        
+        if not request_paragraphs:
+            return jsonify({"status": "error", "message": "削除対象がありません"}), 400
+
+        deleted_count = 0
+        for request_paragraph in request_paragraphs:
+            page_number = str(request_paragraph.get("page_number"))
+            paragraph_id = str(request_paragraph.get("id"))
+            
+            if page_number not in book_data["pages"]:
+                continue
+            
+            page_paragraphs = book_data["pages"][page_number]["paragraphs"]
+            if paragraph_id in page_paragraphs:
+                del page_paragraphs[paragraph_id]
+                deleted_count += 1
+
+        # trans_status_counts を再集計
+        recalc_trans_status_counts(book_data)
+
+        # order を再計算（ページごと）
+        affected_pages = set(str(p.get("page_number")) for p in request_paragraphs)
+        for page_number in affected_pages:
+            if page_number not in book_data["pages"]:
+                continue
+            page_paragraphs = book_data["pages"][page_number]["paragraphs"]
+            sorted_paragraphs = sorted(
+                page_paragraphs.values(),
+                key=lambda x: x.get("order", 0)
+            )
+            for i, paragraph in enumerate(sorted_paragraphs, start=1):
+                paragraph["order"] = i
+
+        atomicsave_json(json_path, book_data)
+        
+        return jsonify(
+            {
+                "status": "ok",
+                "message": f"{deleted_count}個のパラグラフを削除しました",
+                "deleted_count": deleted_count,
+                "trans_status_counts": book_data.get("trans_status_counts"),
+            }
+        ), 200
+
+    except Exception as e:
+        app.logger.error(f"delete_paragraphs error: {str(e)}")
+        return jsonify({"status": "error", "message": f"削除中にエラーが発生しました: {str(e)}"}), 500
 
 
 # json を読み込んでオブジェクトを戻す

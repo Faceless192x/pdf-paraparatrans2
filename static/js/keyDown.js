@@ -98,6 +98,7 @@ HotkeyMapper.map("Ctrl+Shift+K", () => {
 }, { description: "KeyHUD 表示切替", useCapture: true, allowInInput: true });
 HotkeyMapper.map("PageUp", rollUp, { description: "スクロールアップ" });
 HotkeyMapper.map("PageDown", rollDown, { description: "スクロールダウン" });
+HotkeyMapper.map("Ctrl+Delete", deleteSelectedParagraphs, { description: "選択したパラグラフを削除", useCapture: true });
 HotkeyMapper.map("RollUp", rollUp, { description: "スクロールアップ" });
 HotkeyMapper.map("RollDown", rollDown, { description: "スクロールダウン" });
 
