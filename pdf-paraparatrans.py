@@ -2904,6 +2904,19 @@ def reextract_table_from_selection_api(pdf_name):
     cols = data.get("cols")
     header_text = data.get("header_text")
     paragraph_ids = data.get("paragraph_ids") or []
+    desired_rows = data.get("rows")
+    desired_cols = data.get("cols")
+    header_text = data.get("header_text")
+
+    try:
+        desired_rows = int(desired_rows) if desired_rows is not None and str(desired_rows).strip() else None
+    except Exception:
+        desired_rows = None
+
+    try:
+        desired_cols = int(desired_cols) if desired_cols is not None and str(desired_cols).strip() else None
+    except Exception:
+        desired_cols = None
 
     try:
         page_number = int(page_number)
@@ -2917,8 +2930,8 @@ def reextract_table_from_selection_api(pdf_name):
         return jsonify({"status": "error", "message": "paragraph_ids は配列で指定してください"}), 400
 
     paragraph_ids = [str(pid).strip() for pid in paragraph_ids if str(pid).strip()]
-    if len(paragraph_ids) < 2:
-        return jsonify({"status": "error", "message": "2行以上選択してください"}), 400
+    if len(paragraph_ids) < 1:
+        return jsonify({"status": "error", "message": "1行以上選択してください"}), 400
 
     page_key = str(page_number)
 
@@ -2931,7 +2944,7 @@ def reextract_table_from_selection_api(pdf_name):
         page_paragraphs = page_obj.get("paragraphs", {}) or {}
 
         available_ids = [pid for pid in paragraph_ids if pid in page_paragraphs]
-        if len(available_ids) < 2:
+        if len(available_ids) < 1:
             return jsonify({"status": "error", "message": "選択段落が見つかりません"}), 404
 
         table_id = f"p{page_number}_{uuid.uuid4().hex[:8]}"
@@ -2990,6 +3003,19 @@ def table_grid_suggest_api(pdf_name):
     data = request.get_json(silent=True) or {}
     page_number = data.get("current_page") or data.get("page_number")
     paragraph_ids = data.get("paragraph_ids") or []
+    desired_rows = data.get("rows")
+    desired_cols = data.get("cols")
+    header_text = data.get("header_text")
+
+    try:
+        desired_rows = int(desired_rows) if desired_rows is not None and str(desired_rows).strip() else None
+    except Exception:
+        desired_rows = None
+
+    try:
+        desired_cols = int(desired_cols) if desired_cols is not None and str(desired_cols).strip() else None
+    except Exception:
+        desired_cols = None
 
     try:
         page_number = int(page_number)
@@ -3003,8 +3029,8 @@ def table_grid_suggest_api(pdf_name):
         return jsonify({"status": "error", "message": "paragraph_ids は配列で指定してください"}), 400
 
     paragraph_ids = [str(pid).strip() for pid in paragraph_ids if str(pid).strip()]
-    if len(paragraph_ids) < 2:
-        return jsonify({"status": "error", "message": "2行以上選択してください"}), 400
+    if len(paragraph_ids) < 1:
+        return jsonify({"status": "error", "message": "1行以上選択してください"}), 400
 
     page_key = str(page_number)
 
@@ -3016,7 +3042,7 @@ def table_grid_suggest_api(pdf_name):
 
         page_paragraphs = page_obj.get("paragraphs", {}) or {}
         available_ids = [pid for pid in paragraph_ids if pid in page_paragraphs]
-        if len(available_ids) < 2:
+        if len(available_ids) < 1:
             return jsonify({"status": "error", "message": "選択段落が見つかりません"}), 404
 
         with fitz.open(pdf_path) as doc:
@@ -3029,6 +3055,9 @@ def table_grid_suggest_api(pdf_name):
                 page=page,
                 page_paragraphs=page_paragraphs,
                 paragraph_ids=available_ids,
+                desired_rows=desired_rows,
+                desired_cols=desired_cols,
+                header_text=str(header_text).strip() if header_text else None,
             )
 
         if not suggestion.get("ok"):

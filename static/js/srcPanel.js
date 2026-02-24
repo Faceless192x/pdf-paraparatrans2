@@ -1143,9 +1143,22 @@ function getSelectedParagraphsOnlyInOrder() {
 }
 
 function getSelectedParagraphIdsOnlyInOrder() {
-    return getSelectedParagraphsOnlyInOrder()
-        .map((div) => String((div.id || '').replace('paragraph-', '')).trim())
-        .filter((id) => id.length > 0);
+    // .selected クラスがある場合はそれを優先、なければ .current を含める
+    const selected = getSelectedParagraphsOnlyInOrder();
+    if (selected.length > 0) {
+        return selected
+            .map((div) => String((div.id || '').replace('paragraph-', '')).trim())
+            .filter((id) => id.length > 0);
+    }
+    
+    // 明示的な選択がない場合は、カレントパラグラフを返す
+    const current = document.querySelector('.paragraph-box.current');
+    if (current) {
+        const id = String((current.id || '').replace('paragraph-', '')).trim();
+        return id ? [id] : [];
+    }
+    
+    return [];
 }
 
 // 移動系で使う：複数選択時に「選択のみ」を対象にし、カレントが選択外なら巻き込まない。
@@ -1456,8 +1469,8 @@ async function toggleJoinForSelected() {
 
 async function reextractTableFromSelection() {
     const selectedIds = getSelectedParagraphIdsOnlyInOrder();
-    if (selectedIds.length < 2) {
-        alert('表再抽出は2行以上選択してください。');
+    if (selectedIds.length === 0) {
+        alert('表再抽出の対象パラグラフが見つかりません。');
         return;
     }
 

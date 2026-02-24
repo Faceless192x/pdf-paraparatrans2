@@ -310,12 +310,42 @@ def _cluster_1d_points(points: List[float], tolerance: float) -> List[float]:
     return [sum(c) / len(c) for c in out]
 
 
-def _extract_header_text_from_first_row(row_groups: List[List[Tuple[Any, ...]]]) -> str:
-    """最初の行の単語を左から右にソートして結合"""
+def _extract_header_text_from_first_row(
+    row_groups: List[List[Tuple[Any, ...]]],
+    col_edges: Optional[List[float]] = None
+) -> str:
+    """最初の行の単語を列境界に基づいてカンマ区切りで結合"""
     if not row_groups or not row_groups[0]:
         return ""
+    
     first_row = sorted(row_groups[0], key=lambda w: float(w[0]))
-    return " ".join(str(w[4]).strip() for w in first_row if str(w[4]).strip())
+    
+    # 列境界が指定されていない場合はスペース区切りで結合
+    if not col_edges or len(col_edges) < 2:
+        return " ".join(str(w[4]).strip() for w in first_row if str(w[4]).strip())
+    
+    # 列境界に基づいて単語をグループ化
+    col_count = len(col_edges) - 1
+    col_words: List[List[str]] = [[] for _ in range(col_count)]
+    
+    for word in first_row:
+        xc = (float(word[0]) + float(word[2])) / 2.0
+        col_idx = 0
+        for i in range(len(col_edges) - 1):
+            if col_edges[i] <= xc < col_edges[i + 1]:
+                col_idx = i
+                break
+            elif xc >= col_edges[-1]:
+                col_idx = len(col_edges) - 2
+                break
+        
+        text = str(word[4]).strip()
+        if text:
+            col_words[col_idx].append(text)
+    
+    # 各列の単語をスペース区切りで結合し、列間をカンマで区切る
+    col_texts = [" ".join(words) for words in col_words]
+    return ",".join(col_texts)
 
 
 def _estimate_columns_from_header_segments(
@@ -504,6 +534,9 @@ def suggest_table_shape_for_selection(
     page: fitz.Page,
     page_paragraphs: Dict[str, Dict[str, Any]],
     paragraph_ids: Iterable[Any],
+    desired_rows: Optional[int] = None,
+    desired_cols: Optional[int] = None,
+    header_text: Optional[str] = None,
 ) -> Dict[str, Any]:
     rect = build_selection_rect_from_paragraph_ids(page_paragraphs, paragraph_ids)
     if rect is None:
@@ -521,14 +554,21 @@ def suggest_table_shape_for_selection(
     clip = fitz.Rect(rect.x0 - pad, rect.y0 - pad, rect.x1 + pad, rect.y1 + pad)
     words = page.get_text("words", clip=clip)
 
-    row_groups = _build_row_groups(words, desired_rows=None)
+    row_groups = _build_row_groups(words, desired_rows=desired_rows)
     row_edges = _build_row_edges_from_groups(row_groups, clip)
-    col_edges = _estimate_column_edges(words, clip, row_groups, desired_cols=None)
+
+    if header_text and "," in str(header_text):
+        col_edges = _estimate_columns_from_header_segments(str(header_text), words, clip, row_groups)
+    else:
+        col_edges = _estimate_column_edges(words, clip, row_groups, desired_cols=desired_cols)
 
     rows = max(1, len(row_edges) - 1)
     cols = max(1, len(col_edges) - 1)
     preview_cell_rects = _build_preview_cell_rects(row_edges, col_edges)
-    header_text = _extract_header_text_from_first_row(row_groups)
+    if header_text:
+        resolved_header_text = str(header_text).strip()
+    else:
+        resolved_header_text = _extract_header_text_from_first_row(row_groups, col_edges)
 
     return {
         "ok": True,
@@ -536,7 +576,7 @@ def suggest_table_shape_for_selection(
         "cols": cols,
         "clip_rect": [float(clip.x0), float(clip.y0), float(clip.x1), float(clip.y1)],
         "preview_cell_rects": preview_cell_rects,
-        "header_text": header_text,
+        "header_text": resolved_header_text,
     }
 
 
@@ -663,6 +703,7 @@ def append_markdown_table_rows_from_selection(
             unique_key = f"{para_id}_{suffix}"
             suffix += 1
 
+        block_tag_value = "th" if row_index == 1 else "tr"
         paragraph = {
             "id": unique_key,
             "src_text": md_row,
@@ -673,7 +714,7 @@ def append_markdown_table_rows_from_selection(
             "trans_text": md_row,
             "comment": "",
             "trans_status": "none",
-            "block_tag": "p",
+            "block_tag": block_tag_value,
             "modified_at": "",
             "base_style": "",
             "bbox": row_data.get("bbox") or [clip_rect.x0, clip_rect.y0, clip_rect.x1, clip_rect.y1],

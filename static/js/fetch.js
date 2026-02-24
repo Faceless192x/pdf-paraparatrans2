@@ -1251,8 +1251,8 @@ async function reextractTableFromSelectedLines(paragraphIds) {
         ? paragraphIds.map((id) => String(id || '').trim()).filter((id) => id.length > 0)
         : [];
 
-    if (ids.length < 2) {
-        alert('表再抽出は2行以上選択してください。');
+    if (ids.length === 0) {
+        alert('表再抽出の対象パラグラフが見つかりません。');
         return;
     }
 
@@ -1286,49 +1286,23 @@ async function reextractTableFromSelectedLines(paragraphIds) {
         const guessedCols = Number(suggestData.cols) > 0 ? Number(suggestData.cols) : 1;
         const headerText = String(suggestData.header_text || '').trim();
 
-        const promptMessage = headerText
-            ? `推測グリッド: ${guessedRows}×${guessedCols}\nヘッダ行: ${headerText}\n\nカンマ区切りで列を分割するか、行,列を入力してください（例: Weapon,Damage,Price または 9,11）`
-            : `推測グリッド: ${guessedRows}×${guessedCols}\n行,列 を入力してください（例: 9,11）`;
-        
-        const defaultValue = headerText || `${guessedRows},${guessedCols}`;
-        
-        const input = prompt(promptMessage, defaultValue);
-        if (input == null) {
+        // 専用ダイアログを表示
+        const result = await showTableReextractDialog({
+            guessedRows,
+            guessedCols,
+            headerText,
+            paragraphIds: ids,
+            pageNumber: currentPage,
+        });
+
+        if (!result) {
             if (typeof clearHighlights === 'function') {
                 clearHighlights();
             }
             return;
         }
 
-        let rows = guessedRows;
-        let cols = guessedCols;
-        let finalHeaderText = null;
-
-        const trimmedInput = String(input).trim();
-        
-        // カンマが含まれているかチェック
-        if (trimmedInput.includes(',')) {
-            const hasNumbers = /^\d+\s*,\s*\d+$/.test(trimmedInput);
-            
-            if (hasNumbers) {
-                // 数値,数値の形式 → 行,列として処理
-                const parts = trimmedInput.split(',').map((v) => Number(v.trim()));
-                rows = Number.isFinite(parts[0]) && parts[0] > 0 ? Math.floor(parts[0]) : guessedRows;
-                cols = Number.isFinite(parts[1]) && parts[1] > 0 ? Math.floor(parts[1]) : guessedCols;
-            } else {
-                // テキスト,テキストの形式 → ヘッダテキストとして処理
-                finalHeaderText = trimmedInput;
-                // 列数はカンマの数+1
-                const segmentCount = trimmedInput.split(',').filter(s => s.trim()).length;
-                cols = segmentCount > 0 ? segmentCount : guessedCols;
-                // 行数はデフォルト推測値を使用
-                rows = guessedRows;
-            }
-        } else if (/^\d+$/.test(trimmedInput)) {
-            // 数値のみ → 行数として処理
-            rows = Number(trimmedInput);
-            cols = guessedCols;
-        }
+        const { rows, cols, finalHeaderText } = result;
 
         const response = await fetch(`/api/reextract_table_from_selection/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
@@ -1420,6 +1394,8 @@ async function dictTrans() {
  * ページ内順序再発行＆保存処理
  */
 async function saveCurrentPageOrder() {
+    const originalCursor = document.body.style.cursor;
+    document.body.style.cursor = 'wait';
     const container = document.getElementById('srcParagraphs');
     const children = container.children;
     sendParagraphs = [];
@@ -1459,8 +1435,12 @@ async function saveCurrentPageOrder() {
         );
     }
 
-    console.log("saveOrder: Sending updates:", sendParagraphs.length);
-    await updateParagraphs(sendParagraphs); // updateParagraphsもasyncなのでawait
+    try {
+        console.log("saveOrder: Sending updates:", sendParagraphs.length);
+        await updateParagraphs(sendParagraphs); // updateParagraphsもasyncなのでawait
+    } finally {
+        document.body.style.cursor = originalCursor || 'auto';
+    }
 }
 
 async function exportHtml() {
@@ -2160,4 +2140,236 @@ async function updateBookInfo() {
         console.error("文書情報更新中にエラーが発生しました:", error);
         alert("文書情報更新中にエラーが発生しました。");
     }
+}
+
+/**
+ * テーブル再抽出用の専用ダイアログを表示
+ * @param {Object} options - ダイアログのオプション
+ * @param {number} options.guessedRows - 推測された行数
+ * @param {number} options.guessedCols - 推測された列数
+ * @param {string} options.headerText - 推測されたヘッダテキスト（カンマ区切り）
+ * @returns {Promise<{rows: number, cols: number, finalHeaderText: string}|null>} ユーザーが入力した値、またはキャンセル時null
+ */
+async function showTableReextractDialog(options) {
+    const { guessedRows, guessedCols, headerText, paragraphIds, pageNumber } = options;
+
+    return new Promise((resolve) => {
+        // ダイアログHTMLを作成
+        const dialogHTML = `
+            <style>
+                #tableReextractDialog {
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: var(--trd-bg);
+                    color: var(--trd-text);
+                    border: 2px solid var(--trd-border);
+                    padding: 20px;
+                    z-index: 10000;
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+                    min-width: 420px;
+                    max-width: 680px;
+                    border-radius: 8px;
+                }
+                #tableReextractDialogOverlay {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.5);
+                    z-index: 9999;
+                }
+                #tableReextractDialog input {
+                    width: 100%;
+                    padding: 6px 8px;
+                    font-size: 14px;
+                    background: var(--trd-input-bg);
+                    color: var(--trd-text);
+                    border: 1px solid var(--trd-border);
+                    border-radius: 4px;
+                }
+                #tableReextractDialog .trd-hint {
+                    color: var(--trd-subtext);
+                }
+                #tableReextractDialog .trd-guess {
+                    padding: 10px;
+                    background: var(--trd-guess-bg);
+                    border-radius: 4px;
+                    border: 1px solid var(--trd-border);
+                }
+                #tableReextractDialog .trd-actions {
+                    display: flex;
+                    justify-content: flex-end;
+                    gap: 10px;
+                }
+                #tableReextractDialog .trd-btn {
+                    padding: 8px 16px;
+                    cursor: pointer;
+                    border-radius: 4px;
+                    border: 1px solid var(--trd-border);
+                    background: var(--trd-btn-bg);
+                    color: var(--trd-text);
+                }
+                #tableReextractDialog .trd-btn-primary {
+                    background: var(--trd-primary-bg);
+                    color: var(--trd-primary-text);
+                    border: 1px solid var(--trd-primary-bg);
+                }
+                @media (prefers-color-scheme: dark) {
+                    #tableReextractDialog {
+                        --trd-bg: #1e1e1e;
+                        --trd-text: #f1f1f1;
+                        --trd-subtext: #b8b8b8;
+                        --trd-border: #3a3a3a;
+                        --trd-input-bg: #2a2a2a;
+                        --trd-guess-bg: #242424;
+                        --trd-btn-bg: #2a2a2a;
+                        --trd-primary-bg: #3b82f6;
+                        --trd-primary-text: #ffffff;
+                    }
+                }
+                @media (prefers-color-scheme: light) {
+                    #tableReextractDialog {
+                        --trd-bg: #ffffff;
+                        --trd-text: #1a1a1a;
+                        --trd-subtext: #666666;
+                        --trd-border: #cccccc;
+                        --trd-input-bg: #ffffff;
+                        --trd-guess-bg: #f5f5f5;
+                        --trd-btn-bg: #f5f5f5;
+                        --trd-primary-bg: #2563eb;
+                        --trd-primary-text: #ffffff;
+                    }
+                }
+            </style>
+            <div id="tableReextractDialog">
+                <h3 style="margin-top: 0;">テーブル再抽出設定</h3>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">ヘッダ（カンマ区切り）:</label>
+                    <input type="text" id="tableHeaderInput" value="${headerText || ''}" />
+                    <small class="trd-hint">列見出しをカンマで区切って入力（例: Weapon,Damage,Price）</small>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">行数:</label>
+                    <input type="number" id="tableRowsInput" value="${guessedRows}" min="1" />
+                    <small class="trd-hint">テーブルの行数を指定してください</small>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <div class="trd-guess">
+                        <strong>推測値:</strong> ${guessedRows}行 × ${guessedCols}列
+                    </div>
+                </div>
+                <div class="trd-actions">
+                    <button id="tableDialogPreview" class="trd-btn">枠線描画</button>
+                    <button id="tableDialogCancel" class="trd-btn">キャンセル</button>
+                    <button id="tableDialogOK" class="trd-btn trd-btn-primary">OK</button>
+                </div>
+            </div>
+            <div id="tableReextractDialogOverlay"></div>
+        `;
+
+        // ダイアログを表示
+        const container = document.createElement('div');
+        container.innerHTML = dialogHTML;
+        document.body.appendChild(container);
+
+        const overlay = document.getElementById('tableReextractDialogOverlay');
+        const rowsInput = document.getElementById('tableRowsInput');
+        const headerInput = document.getElementById('tableHeaderInput');
+        const okButton = document.getElementById('tableDialogOK');
+        const cancelButton = document.getElementById('tableDialogCancel');
+        const previewButton = document.getElementById('tableDialogPreview');
+
+        // フォーカスをヘッダ入力に設定
+        setTimeout(() => headerInput.focus(), 100);
+
+        const cleanup = () => {
+            document.body.removeChild(container);
+        };
+
+        const resolveValues = () => {
+            const rows = parseInt(rowsInput.value, 10) || guessedRows;
+            const headerTextValue = headerInput.value.trim();
+
+            let cols = guessedCols;
+            let finalHeaderText = null;
+
+            if (headerTextValue && headerTextValue.includes(',')) {
+                finalHeaderText = headerTextValue;
+                const segmentCount = headerTextValue.split(',').filter(s => s.trim()).length;
+                cols = segmentCount > 0 ? segmentCount : guessedCols;
+            }
+
+            return { rows, cols, finalHeaderText };
+        };
+
+        const handleOK = () => {
+            const values = resolveValues();
+            cleanup();
+            resolve(values);
+        };
+
+        const handleCancel = () => {
+            cleanup();
+            resolve(null);
+        };
+
+        const handlePreview = async () => {
+            if (!Array.isArray(paragraphIds) || paragraphIds.length === 0) {
+                return;
+            }
+            const values = resolveValues();
+            try {
+                const response = await fetch(`/api/table_grid_suggest/${encodePdfNamePath(pdfName)}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        current_page: pageNumber,
+                        paragraph_ids: paragraphIds,
+                        rows: values.rows,
+                        cols: values.cols,
+                        header_text: values.finalHeaderText,
+                    })
+                });
+
+                const data = await response.json();
+                if (data.status !== 'ok') {
+                    alert(`表グリッド推測エラー: ${data.message || 'unknown'}`);
+                    return;
+                }
+
+                const previewRects = Array.isArray(data.preview_cell_rects) ? data.preview_cell_rects : [];
+                if (previewRects.length > 0 && typeof highlightRectsOnPage === 'function') {
+                    highlightRectsOnPage(pageNumber, previewRects);
+                }
+            } catch (error) {
+                console.error('table grid preview error:', error);
+                alert('枠線描画中にエラーが発生しました');
+            }
+        };
+
+        // イベントリスナー
+        okButton.addEventListener('click', handleOK);
+        cancelButton.addEventListener('click', handleCancel);
+        previewButton.addEventListener('click', handlePreview);
+        overlay.addEventListener('click', handleCancel);
+
+        // Enterキーで確定、Escapeキーでキャンセル
+        const handleKeyDown = (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleOK();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                handleCancel();
+            }
+        };
+
+        rowsInput.addEventListener('keydown', handleKeyDown);
+        headerInput.addEventListener('keydown', handleKeyDown);
+    });
 }
