@@ -1,16 +1,27 @@
 import json
 import sys
 import os
+import re
 
-def json2html(json_file_path: str):
+def json2html(json_file_path: str, display_unit: str = "page"):
     # JSONファイルの読み込み
     with open(json_file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
+    display_unit = (display_unit or "page").strip().lower()
+    if display_unit not in {"all", "page", "h1", "h2"}:
+        display_unit = "page"
+
     title = data.get("title", "PDF 翻訳")
     # 目次と本文のエントリを保持する変数
     toc_entries = []
-    content_entries = ""
+    content_by_chunk = []
+    current_chunk_content = ""
+    anchor_page_map = {}
+    anchor_chunk_map = {}
+    current_chunk_index = 0
+    current_chunk_label = ""
+    current_chunk_first_page = None
     # グループ化用変数
     open_group = None
     # 現在のページ番号を覚えておく
@@ -120,13 +131,92 @@ def json2html(json_file_path: str):
     # 目次HTMLを生成
     toc_html_content = render_toc_html(toc_tree_data)
 
+    def split_markdown_row_cells(row_text: str):
+        if not row_text:
+            return []
+        parts = re.split(r"(?<!\\)\|", row_text)
+        if parts and parts[0].strip() == "":
+            parts = parts[1:]
+        if parts and parts[-1].strip() == "":
+            parts = parts[:-1]
+        return [p.replace(r"\|", "|").strip() for p in parts]
+
+    def build_table_row_html(cells, cell_tag: str):
+        if not cells:
+            return ""
+        inner = "".join([f"<{cell_tag}>{c}</{cell_tag}>" for c in cells])
+        return f"<tr>{inner}</tr>"
+
+    table_rows_trans = []
+    table_rows_src = []
+    table_anchor_id = None
+    table_open = False
+
+    def flush_chunk_if_needed():
+        nonlocal content_by_chunk, current_chunk_content
+        nonlocal current_chunk_index, current_chunk_label, current_chunk_first_page
+        if current_chunk_index == 0:
+            return
+        if not current_chunk_content.strip():
+            return
+        content_by_chunk.append(
+            {
+                "chunk_index": current_chunk_index,
+                "label": current_chunk_label,
+                "html": current_chunk_content,
+                "page": current_chunk_first_page,
+            }
+        )
+        current_chunk_content = ""
+
+    def start_new_chunk(label: str, first_page: int):
+        nonlocal current_chunk_index, current_chunk_label, current_chunk_first_page
+        if current_chunk_index != 0:
+            flush_chunk_if_needed()
+        current_chunk_index += 1
+        current_chunk_label = label
+        current_chunk_first_page = first_page
+
+    def flush_table_if_needed():
+        nonlocal current_chunk_content, table_rows_trans, table_rows_src, table_anchor_id, table_open
+        if not table_open:
+            return
+        trans_table = "<table class=\"para-table\"><tbody>" + "".join(table_rows_trans) + "</tbody></table>"
+        src_table = "<table class=\"para-table\"><tbody>" + "".join(table_rows_src) + "</tbody></table>"
+        anchor_html = ""
+        id_html = ""
+        if table_anchor_id:
+            anchor_html = f'<div class="paragraph-anchor" id="{table_anchor_id}"></div>'
+            id_html = f'<div class="paragraph-id hidden-text">{table_anchor_id}</div>'
+        current_chunk_content += f'''
+        <div class="paragraph-container">
+            {anchor_html}
+            {id_html}
+            <div class="trans-text">{trans_table}</div>
+            <div class="src-joined">{src_table}</div>
+        </div>
+        '''
+        table_rows_trans = []
+        table_rows_src = []
+        table_anchor_id = None
+        table_open = False
+
 
     for paragraph in paragraphs_list:  # ソートされたリストをイテレート
         # --- ページ番号が変わったら改ページを挿入 ---
         page_number = int(paragraph.get("page_number", 0))
         if page_number != current_page_number:
+            flush_table_if_needed()
+            if open_group is not None:
+                current_chunk_content += '</div></div>'
+                open_group = None
+            if display_unit == "page":
+                start_new_chunk(f"Page {page_number}", page_number)
+            elif current_chunk_index == 0:
+                label = "All" if display_unit == "all" else f"{display_unit.upper()} 1"
+                start_new_chunk(label, page_number)
             current_page_number = page_number
-            content_entries += f'<div class="page-break"></div>Page {page_number}'
+            current_chunk_content += f'<div class="page-break"></div>Page {page_number}'
 
         # --- 追加: 空文字のみの段落をスキップ ---
         trans_text = paragraph.get("trans_text", "")
@@ -137,25 +227,66 @@ def json2html(json_file_path: str):
         # グループIDで記事を囲む
         group_id = paragraph.get("group_id")
         if group_id != open_group:
+            flush_table_if_needed()
             # 既存のグループを閉じる
             if open_group is not None:
-                content_entries += '</div></div>'
+                current_chunk_content += '</div></div>'
             # 新しいグループを開始
             if group_id:
-                content_entries += f'<div class="article-group" data-group="{group_id}"><div class="paragraph-group">'
+                current_chunk_content += f'<div class="article-group" data-group="{group_id}"><div class="paragraph-group">'
             open_group = group_id
 
         unique_paragraph_id = f"{paragraph.get('page_number','0')}_{paragraph.get('id','0')}"
+        anchor_page_map[unique_paragraph_id] = page_number
+        if current_chunk_index == 0:
+            label = "All" if display_unit == "all" else f"{display_unit.upper()} 1"
+            start_new_chunk(label, page_number)
+        anchor_chunk_map[unique_paragraph_id] = current_chunk_index
+
         original_block_tag = str(paragraph.get("block_tag", "div"))
         block_tag = original_block_tag.lower()
         if block_tag in ("header", "footer"):
+            flush_table_if_needed()
             continue
+
+        if display_unit in {"h1", "h2"} and (block_tag == display_unit or (display_unit == "h2" and block_tag == "h1")):
+            flush_table_if_needed()
+            if open_group is not None:
+                current_chunk_content += '</div></div>'
+                open_group = None
+            heading_text = (trans_text or src_joined or "").strip()
+            label_prefix = "H1" if block_tag == "h1" else display_unit.upper()
+            heading_text = heading_text if heading_text else f"{label_prefix} {current_chunk_index + 1}"
+            start_new_chunk(f"{label_prefix}: {heading_text}", page_number)
+
+        if block_tag in ("th", "tr"):
+            if not table_open:
+                table_open = True
+                table_anchor_id = unique_paragraph_id
+
+            trans_cells = split_markdown_row_cells(trans_text)
+            if not trans_cells and trans_text.strip():
+                trans_cells = [trans_text.strip()]
+
+            src_cells = split_markdown_row_cells(src_joined)
+            if not src_cells and src_joined.strip():
+                src_cells = [src_joined.strip()]
+
+            cell_tag = "th" if block_tag == "th" else "td"
+            trans_row_html = build_table_row_html(trans_cells, cell_tag)
+            src_row_html = build_table_row_html(src_cells, cell_tag)
+            if trans_row_html or src_row_html:
+                table_rows_trans.append(trans_row_html)
+                table_rows_src.append(src_row_html)
+            continue
+
+        flush_table_if_needed()
 
         safe_flow_tags = {"p", "div"} | {f"h{i}" for i in range(1, 7)}
         render_tag = block_tag if block_tag in safe_flow_tags else "div"
 
         # 段落を追加
-        content_entries += f'''
+        current_chunk_content += f'''
         <div class="paragraph-container">
             <div class="paragraph-anchor" id="{unique_paragraph_id}"></div>
             <div class="paragraph-id hidden-text">{unique_paragraph_id}</div>
@@ -165,8 +296,24 @@ def json2html(json_file_path: str):
         '''
 
     # 最後のグループを閉じる
+    flush_table_if_needed()
     if open_group is not None:
-        content_entries += '</div></div>'
+        current_chunk_content += '</div></div>'
+        open_group = None
+    flush_chunk_if_needed()
+
+    pages_payload = [
+        {
+            "chunk_index": chunk["chunk_index"],
+            "label": chunk["label"],
+            "html": chunk["html"],
+            "page": chunk.get("page"),
+        }
+        for chunk in content_by_chunk
+    ]
+    pages_json = json.dumps(pages_payload, ensure_ascii=False).replace("</", "<\\/")
+    anchor_map_json = json.dumps(anchor_page_map, ensure_ascii=False).replace("</", "<\\/")
+    anchor_chunk_map_json = json.dumps(anchor_chunk_map, ensure_ascii=False).replace("</", "<\\/")
 
     # HTML全体の構造
     html_content = '''
@@ -213,6 +360,18 @@ def json2html(json_file_path: str):
             .header .powered {
                 font-size: 12px;
                 margin-left: 20px;
+            }
+            .header .page-controls {
+                margin-left: 20px;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+            }
+            .header .page-controls .page-status {
+                font-size: 12px;
+                padding: 2px 6px;
+                background: #1f2a3a;
+                border-radius: 4px;
             }
 
             .container {
@@ -274,6 +433,19 @@ def json2html(json_file_path: str):
                 margin: 0;
                 line-height: 1.5;
                 font-family: Arial, sans-serif;
+            }
+
+            .para-table {
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+            }
+            .para-table th,
+            .para-table td {
+                border: 1px solid #888;
+                padding: 4px 6px;
+                vertical-align: top;
+                word-break: break-word;
             }
 
             .paragraph-container h1,
@@ -454,18 +626,65 @@ def json2html(json_file_path: str):
                 <button onclick="toggleSrc()">原文</button>
             </div>
             <span class="title">''' + title + '''</span>
+            <span class="page-controls">
+                <button onclick="prevPage()">Prev</button>
+                <button onclick="nextPage()">Next</button>
+                <span class="page-status" id="pageStatus">Page</span>
+            </span>
             <span class="powered">Powered by PDF-ParaParaTrans</span>
         </div>
         <div class="container">
             <div class="toc" id="toc">
     ''' + toc_html_content + '''
             </div>
-            <div class="content">
-    ''' + content_entries + '''
-            </div>
+            <div class="content" id="content"></div>
         </div>
         <script>
             document.addEventListener('DOMContentLoaded', function() {
+                const PAGES = ''' + pages_json + ''';
+                const ANCHOR_PAGE = ''' + anchor_map_json + ''';
+                const ANCHOR_CHUNK = ''' + anchor_chunk_map_json + ''';
+                const content = document.getElementById('content');
+                const pageStatus = document.getElementById('pageStatus');
+                let currentIndex = 0;
+
+                function renderPage(index, anchorId) {
+                    if (!PAGES.length) {
+                        content.innerHTML = '';
+                        if (pageStatus) pageStatus.textContent = 'Page -';
+                        return;
+                    }
+                    currentIndex = Math.min(Math.max(index, 0), PAGES.length - 1);
+                    const page = PAGES[currentIndex];
+                    content.innerHTML = page.html;
+                    if (pageStatus) {
+                        const label = page.label || `Unit ${currentIndex + 1}`;
+                        pageStatus.textContent = `${label} (${currentIndex + 1}/${PAGES.length})`;
+                    }
+                    highlightTocForPage(page.page);
+                    if (anchorId) {
+                        const target = document.getElementById(anchorId);
+                        if (target) target.scrollIntoView({ behavior: 'smooth' });
+                    } else {
+                        content.scrollTop = 0;
+                    }
+                }
+
+                function highlightTocForPage(pageNum) {
+                    document.querySelectorAll('.toc-item').forEach(item =>
+                        item.classList.remove('active-page')
+                    );
+                    document.querySelectorAll(`.toc-item a[href^="#${pageNum}_"]`)
+                        .forEach(link => link.parentElement.classList.add('active-page'));
+                }
+
+                window.prevPage = function() {
+                    renderPage(currentIndex - 1);
+                };
+                window.nextPage = function() {
+                    renderPage(currentIndex + 1);
+                };
+
                 const tocItems = document.querySelectorAll('.toc-item');
                 tocItems.forEach(item => {
                     const indicator = item.querySelector('.toggle-indicator');
@@ -486,8 +705,11 @@ def json2html(json_file_path: str):
                         link.addEventListener('click', function(event) {
                             event.preventDefault();
                             const targetId = this.getAttribute('href').substring(1);
-                            const target = document.getElementById(targetId);
-                            if (target) target.scrollIntoView({ behavior: 'smooth' });
+                            const chunkId = ANCHOR_CHUNK[targetId];
+                            if (chunkId) {
+                                const pageIndex = PAGES.findIndex(p => p.chunk_index === chunkId);
+                                renderPage(pageIndex, targetId);
+                            }
                         });
                     }
                 });
@@ -496,32 +718,7 @@ def json2html(json_file_path: str):
                 document.querySelectorAll('.toc-item:not(.level-1) > ul')
                         .forEach(ul => ul.classList.add('collapsed'));
 
-                // 新規: 本文スクロールに合わせて目次をハイライト
-                const content = document.querySelector('.content');
-                function highlightTocItems() {
-                    const anchors = content.querySelectorAll('.paragraph-anchor');
-                    const containerRect = content.getBoundingClientRect();
-                    let currentPage = null;
-                    for (let anchor of anchors) {
-                        const rect = anchor.getBoundingClientRect();
-                        if (rect.top >= containerRect.top) {
-                            currentPage = anchor.id.split('_')[0];
-                            break;
-                        }
-                    }
-                    document.querySelectorAll('.toc-item').forEach(item =>
-                        item.classList.remove('active-page')
-                    );
-                    if (currentPage) {
-                        document.querySelectorAll(`.toc-item a[href^="#${currentPage}_"]`)
-                                .forEach(link =>
-                                    link.parentElement.classList.add('active-page')
-                                );
-                    }
-                }
-                content.addEventListener('scroll', highlightTocItems);
-                // 初回呼び出し
-                highlightTocItems();
+                renderPage(0);
             });
 
             function toggleToc() {

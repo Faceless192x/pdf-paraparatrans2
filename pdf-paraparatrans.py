@@ -2174,7 +2174,8 @@ def export_html_api(pdf_name):
     if not os.path.exists(json_path):
         return jsonify({"status": "error", "message": "JSONが存在しません"}), 400
     try:
-        json2html(json_path)
+        display_unit = request.form.get("display_unit") or "page"
+        json2html(json_path, display_unit=display_unit)
     except Exception as e:
         return jsonify({"status": "error", "message": f"HTML生成エラー: {str(e)}"}), 500
     out_path = os.path.splitext(json_path)[0] + ".html"
@@ -2192,7 +2193,8 @@ def download_html_api(pdf_name):
     out_path = os.path.splitext(json_path)[0] + ".html"
     if not os.path.exists(out_path):
         try:
-            json2html(json_path)
+            display_unit = request.args.get("display_unit") or "page"
+            json2html(json_path, display_unit=display_unit)
         except Exception as e:
             return jsonify({"status": "error", "message": f"HTML生成エラー: {str(e)}"}), 500
 

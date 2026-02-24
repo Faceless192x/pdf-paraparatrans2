@@ -22,10 +22,10 @@ DICT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "
 
 try:
     # パッケージとして読み込まれる（Flaskアプリなど）ケース
-    from .api_translate import translate_text  # type: ignore
+    from .api_translate import translate_text, translate_texts  # type: ignore
 except Exception:
     # スクリプトとして直接実行されるケース（sys.path に modules が入っている前提）
-    from api_translate import translate_text  # type: ignore
+    from api_translate import translate_text, translate_texts  # type: ignore
 
 
 def _debug_pagetrans_enabled() -> bool:
@@ -88,6 +88,59 @@ def _apply_translation_to_paragraph(para: dict, translated_content: str) -> None
     para['trans_text'] = translated_content
     para['trans_status'] = 'auto'
     para['modified_at'] = datetime.now().isoformat()
+
+
+def _is_table_row(paragraph: dict) -> bool:
+    return str(paragraph.get("block_tag") or "").lower() in {"th", "tr"}
+
+
+def _split_markdown_row_cells(row_text: str) -> List[str]:
+    if not row_text:
+        return []
+    parts = re.split(r"(?<!\\)\|", row_text)
+    if parts and parts[0].strip() == "":
+        parts = parts[1:]
+    if parts and parts[-1].strip() == "":
+        parts = parts[:-1]
+    return [p.replace(r"\|", "|").strip() for p in parts]
+
+
+def _build_markdown_row_from_cells(cells: List[str]) -> str:
+    escaped = [c.replace("|", r"\|").strip() for c in cells]
+    return "| " + " | ".join(escaped) + " |"
+
+
+def _translate_table_row_paragraph(para: dict, stats: Optional[TranslationStats] = None) -> bool:
+    src_replaced = para.get("src_replaced", "") or ""
+    cells = _split_markdown_row_cells(src_replaced)
+    if not cells:
+        return False
+
+    used_fallback = False
+    try:
+        translated_cells = translate_texts(cells, source="en", target="ja")
+        if not isinstance(translated_cells, list) or len(translated_cells) != len(cells):
+            raise ValueError("Unexpected translate_texts result length")
+    except Exception as e:
+        print(f"Warning: テーブル行の一括翻訳に失敗。セルごとにフォールバックします: {e}")
+        used_fallback = True
+        translated_cells = []
+        for cell in cells:
+            try:
+                translated_cells.append(translate_text(cell, source="en", target="ja"))
+            except Exception as ee:
+                if stats is not None:
+                    stats.failed += 1
+                print(f"Warning: テーブル行のセル翻訳にも失敗しました: {ee}")
+                translated_cells.append(cell)
+
+    translated_row = _build_markdown_row_from_cells(translated_cells)
+    _apply_translation_to_paragraph(para, translated_row)
+    if stats is not None:
+        stats.translated += 1
+        if used_fallback:
+            stats.translated_fallback += 1
+    return True
 
 def process_group(paragraphs_group: List[dict], stats: Optional[TranslationStats] = None):
     """
@@ -417,10 +470,18 @@ def pagetrans(filepath, book_data, page_number, stats: Optional[TranslationStats
     if stats is not None:
         stats.paragraphs_target += len(filtered_paragraphs)
 
+    table_paragraphs = [p for p in filtered_paragraphs if _is_table_row(p)]
+    normal_paragraphs = [p for p in filtered_paragraphs if not _is_table_row(p)]
+
+    for para in table_paragraphs:
+        ok = _translate_table_row_paragraph(para, stats=stats)
+        if not ok and stats is not None:
+            stats.failed += 1
+
     current_group = []
     current_length = 0
     # 4000文字を上限にグループ化して翻訳処理を実施
-    for para in filtered_paragraphs:
+    for para in normal_paragraphs:
         text_to_add = f"【{para['id']}】{para.get('src_replaced','')}"
         if current_length + len(text_to_add) > 4000:
             if current_group:

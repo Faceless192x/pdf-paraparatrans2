@@ -1444,19 +1444,27 @@ async function saveCurrentPageOrder() {
 }
 
 async function exportHtml() {
+    // カーソルを砂時計に変更
+    const originalCursor = document.body.style.cursor;
+    document.body.style.cursor = 'wait';
+    
     await saveCurrentPageOrder(); // saveOrderもasyncにする必要あり
     try {
+        const displayUnit = document.getElementById('dataExportHtmlUnit')?.value || 'page';
+        const body = new URLSearchParams({
+            display_unit: displayUnit
+        });
         const response = await fetch(`/api/export_html/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: '' // 特に送信するデータがなければ空文字でOK
+            body
         });
         const data = await response.json();
         if (data.status === "ok") {
             // 生成後、ダウンロードも実行
-            window.location.href = `/api/download_html/${encodePdfNamePath(pdfName)}`;
+            window.location.href = `/api/download_html/${encodePdfNamePath(pdfName)}?display_unit=${encodeURIComponent(displayUnit)}`;
             alert(`対訳HTMLを出力しました: ${data.path ?? ''}`);
         } else {
             alert("エラー: " + data.message);
@@ -1464,11 +1472,18 @@ async function exportHtml() {
     } catch (error) {
         console.error("Error exporting HTML:", error);
         alert("対訳HTML出力中にエラーが発生しました");
+    } finally {
+        // カーソルを元に戻す
+        document.body.style.cursor = originalCursor || 'auto';
     }
 }
 
 
 async function exportDocStructure() {
+    // カーソルを砂時計に変更
+    const originalCursor = document.body.style.cursor;
+    document.body.style.cursor = 'wait';
+    
     // 未保存の順序・group_id などが構造に含まれるため、先に保存
     await saveCurrentPageOrder();
     try {
@@ -1490,6 +1505,9 @@ async function exportDocStructure() {
     } catch (error) {
         console.error("Error exporting doc structure:", error);
         alert("構造ファイル出力中にエラーが発生しました");
+    } finally {
+        // カーソルを元に戻す
+        document.body.style.cursor = originalCursor || 'auto';
     }
 }
 
@@ -1902,6 +1920,10 @@ function setDataExportStatus(message, isError = false) {
 
 
 async function exportTextOrMd() {
+    // カーソルを砂時計に変更
+    const originalCursor = document.body.style.cursor;
+    document.body.style.cursor = 'wait';
+    
     await saveCurrentPageOrder();
     const formatSelect = document.getElementById('dataExportFormat');
     const includePage = document.getElementById('dataExportIncludePage');
@@ -1912,6 +1934,7 @@ async function exportTextOrMd() {
 
     if (!fields.length || fields.length > 2) {
         alert('出力項目は1〜2件で選択してください。');
+        document.body.style.cursor = originalCursor || 'auto';
         return;
     }
 
@@ -1950,6 +1973,9 @@ async function exportTextOrMd() {
         console.error('Error exporting text:', error);
         setDataExportStatus('テキスト出力中にエラーが発生しました', true);
         alert('テキスト出力中にエラーが発生しました');
+    } finally {
+        // カーソルを元に戻す
+        document.body.style.cursor = originalCursor || 'auto';
     }
 }
 

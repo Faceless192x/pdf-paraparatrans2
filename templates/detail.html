@@ -217,6 +217,13 @@
         <div class="data-export-dialog__section">
           <div class="data-export-dialog__section-title">HTML/構造</div>
           <div class="data-export-dialog__row">
+            <label for="dataExportHtmlUnit">表示単位</label>
+            <select id="dataExportHtmlUnit">
+              <option value="all">すべて</option>
+              <option value="page" selected>ページ単位</option>
+              <option value="h1">h1単位</option>
+              <option value="h2">h2単位</option>
+            </select>
             <button type="button" class="btn-step btn-step-export" onclick="exportHtml()">対訳HTML出力</button>
             <button type="button" class="btn-step btn-step-export" onclick="exportDocStructure()">構造ファイル出力</button>
             <button type="button" class="btn-step btn-step-export" onclick="openDocStructurePicker()">構造ファイル取込</button>
