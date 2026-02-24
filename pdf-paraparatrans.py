@@ -3524,6 +3524,10 @@ def load_json(json_path: str):
 def dict_maintenance_page():
     return render_template("dict_maintenance.html")
 
+@app.route("/symbol_fonts_maintenance")
+def symbol_fonts_maintenance_page():
+    return render_template("symbol_fonts_maintenance.html")
+
 
 @app.route("/api/dict/list", methods=["GET"])
 def dict_list_api():
@@ -3646,6 +3650,294 @@ def dict_selection_save_api(pdf_name):
         return jsonify({"status": "error", "message": "dict_paths が配列ではありません"}), 400
     selected = dict_service.selection_save(pdf_name, dict_paths)
     return jsonify({"status": "ok", "selected_paths": selected}), 200
+
+
+# API: ブック内のスタイル一覧を取得
+@app.route("/api/book_styles/<path:pdf_name>")
+def get_book_styles_api(pdf_name):
+    """Get all styles from the book's JSON file."""
+    _, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            book_data = json.load(f)
+        
+        styles = book_data.get("styles", {}) or {}
+        return jsonify({"status": "ok", "styles": styles}), 200
+    except Exception as e:
+        app.logger.error(f"Error getting book styles: {str(e)}")
+        return jsonify({"status": "error", "message": f"スタイル取得エラー: {str(e)}"}), 500
+
+
+# API: シンボルフォント登録
+@app.route("/api/register_symbolfont", methods=["POST"])
+def register_symbolfont_api():
+    """Register a symbol font mapping in symbolfont_dict.txt."""
+    payload = request.get_json(silent=True) or {}
+    font_style = payload.get("font_style", "").strip()
+    replacement = payload.get("replacement", "").strip()
+    
+    if not font_style:
+        return jsonify({"status": "error", "message": "font_style is required"}), 400
+    if not replacement:
+        return jsonify({"status": "error", "message": "replacement is required"}), 400
+    
+    try:
+        # Read existing symbol font dict
+        symbolfont_dict_lines = []
+        if os.path.exists(SYMBOLFONT_DICT_PATH):
+            with open(SYMBOLFONT_DICT_PATH, "r", encoding="utf-8") as f:
+                symbolfont_dict_lines = f.readlines()
+        
+        # Check if this font_style already exists and remove it
+        existing_entry = None
+        filtered_lines = []
+        for line in symbolfont_dict_lines:
+            if line.strip().startswith("#"):
+                filtered_lines.append(line)
+            else:
+                parts = line.strip().split("\t")
+                if parts and parts[0] == font_style:
+                    existing_entry = line
+                else:
+                    filtered_lines.append(line)
+        
+        # Add the new entry
+        new_entry = f"{font_style}\t{replacement}\n"
+        filtered_lines.append(new_entry)
+        
+        # Write back to file
+        os.makedirs(os.path.dirname(SYMBOLFONT_DICT_PATH), exist_ok=True)
+        with open(SYMBOLFONT_DICT_PATH, "w", encoding="utf-8") as f:
+            f.writelines(filtered_lines)
+        
+        # Also add to symbolfonts.txt if font name is not already there
+        font_name = font_style.split(".")[0] if "." in font_style else font_style
+        if os.path.exists(SIMBLE_DICT_PATH):
+            with open(SIMBLE_DICT_PATH, "r", encoding="utf-8") as f:
+                symbolfonts_content = f.read()
+            if font_name not in symbolfonts_content:
+                with open(SIMBLE_DICT_PATH, "a", encoding="utf-8") as f:
+                    f.write(f"{font_name}\n")
+        else:
+            os.makedirs(os.path.dirname(SIMBLE_DICT_PATH), exist_ok=True)
+            with open(SIMBLE_DICT_PATH, "w", encoding="utf-8") as f:
+                f.write(f"{font_name}\n")
+        
+        app.logger.info(f"Registered symbol font: {font_style} -> {replacement}")
+        return jsonify({"status": "ok", "message": "シンボルフォントを登録しました"}), 200
+    except Exception as e:
+        app.logger.error(f"Error registering symbol font: {str(e)}")
+        return jsonify({"status": "error", "message": f"登録エラー: {str(e)}"}), 500
+
+
+# API: 登録済みシンボルフォント一覧を取得
+@app.route("/api/get_registered_symbolfonts")
+def get_registered_symbolfonts_api():
+    """Get all registered symbol font mappings."""
+    try:
+        symbols = {}
+        app.logger.info(f"Reading symbolfont_dict from: {SYMBOLFONT_DICT_PATH}")
+        
+        if os.path.exists(SYMBOLFONT_DICT_PATH):
+            with open(SYMBOLFONT_DICT_PATH, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip comments and empty lines
+                    if not line or line.startswith("#"):
+                        continue
+                    parts = line.split("\t", 1)
+                    if len(parts) == 2:
+                        font_style, replacement = parts
+                        symbols[font_style] = replacement
+            
+            # Extract unique font names
+            font_names = set()
+            for key in symbols.keys():
+                font_name = key.split(".")[0]
+                font_names.add(font_name)
+            
+            app.logger.info(f"Loaded {len(symbols)} mappings from {len(font_names)} fonts: {sorted(font_names)}")
+        else:
+            app.logger.warning(f"symbolfont_dict.txt not found at: {SYMBOLFONT_DICT_PATH}")
+        
+        return jsonify({"status": "ok", "symbols": symbols}), 200
+    except Exception as e:
+        app.logger.error(f"Error getting registered symbol fonts: {str(e)}")
+        return jsonify({"status": "error", "message": f"取得エラー: {str(e)}"}), 500
+
+
+# API: シンボルフォント削除
+@app.route("/api/delete_symbolfont", methods=["POST"])
+def delete_symbolfont_api():
+    """Delete a symbol font mapping from symbolfont_dict.txt."""
+    payload = request.get_json(silent=True) or {}
+    key = payload.get("key", "").strip()
+    
+    if not key:
+        return jsonify({"status": "error", "message": "key is required"}), 400
+    
+    try:
+        # Read existing symbol font dict
+        symbolfont_dict_lines = []
+        if os.path.exists(SYMBOLFONT_DICT_PATH):
+            with open(SYMBOLFONT_DICT_PATH, "r", encoding="utf-8") as f:
+                symbolfont_dict_lines = f.readlines()
+        
+        # Remove the entry
+        filtered_lines = []
+        for line in symbolfont_dict_lines:
+            if line.strip().startswith("#"):
+                filtered_lines.append(line)
+            else:
+                parts = line.strip().split("\t")
+                if not (parts and parts[0] == key):
+                    filtered_lines.append(line)
+        
+        # Write back to file
+        os.makedirs(os.path.dirname(SYMBOLFONT_DICT_PATH), exist_ok=True)
+        with open(SYMBOLFONT_DICT_PATH, "w", encoding="utf-8") as f:
+            f.writelines(filtered_lines)
+        
+        app.logger.info(f"Deleted symbol font: {key}")
+        return jsonify({"status": "ok", "message": "シンボルフォントを削除しました"}), 200
+    except Exception as e:
+        app.logger.error(f"Error deleting symbol font: {str(e)}")
+        return jsonify({"status": "error", "message": f"削除エラー: {str(e)}"}), 500
+
+
+# API: PDF一覧を取得
+@app.route("/api/pdf_list")
+def pdf_list_api():
+    """Get list of all available PDF files (without .pdf extension)."""
+    try:
+        pdf_files = []
+        if os.path.exists(DATA_FOLDER):
+            for root, subdirs, files in os.walk(DATA_FOLDER):
+                subdirs[:] = [d for d in subdirs if not _should_skip_dir(d)]
+                for item in files:
+                    if not item.lower().endswith('.pdf'):
+                        continue
+                    full_path = os.path.join(root, item)
+                    rel_path = os.path.relpath(full_path, DATA_FOLDER).replace(os.sep, '/')
+                    pdf_files.append(rel_path[:-4])
+        pdf_files.sort()
+        return jsonify({"status": "ok", "pdf_files": pdf_files}), 200
+    except Exception as e:
+        app.logger.error(f"Error getting PDF list: {str(e)}")
+        return jsonify({"status": "error", "message": f"取得エラー: {str(e)}"}), 500
+
+
+# API: ブック内のフォント名一覧を取得（フォントサイズを除去）
+@app.route("/api/book_fonts/<path:pdf_name>")
+def get_book_fonts_api(pdf_name):
+    """Get unique font names from the book's styles (without size info)."""
+    _, json_path = get_paths(pdf_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            book_data = json.load(f)
+        
+        styles = book_data.get("styles", {}) or {}
+        fonts = set()
+        
+        # Extract font names from CSS style strings
+        # CSS format: "font-family: 'FontName'; font-size: 12pt; ..."
+        import re
+        font_pattern = re.compile(r"font-family:\s*['\"]?([^'\";\n]+)['\"]?(?:;|$)", re.IGNORECASE)
+        
+        for style_name, style_value in styles.items():
+            if isinstance(style_value, str):
+                matches = font_pattern.findall(style_value)
+                for match in matches:
+                    font_name = match.strip()
+                    if font_name:
+                        # Remove size info if present (e.g., "Arial 12pt" -> "Arial")
+                        parts = font_name.split()
+                        if parts:
+                            fonts.add(parts[0])
+        
+        font_list = sorted(list(fonts))
+        return jsonify({"status": "ok", "fonts": {f: f for f in font_list}}), 200
+    except Exception as e:
+        app.logger.error(f"Error getting book fonts: {str(e)}")
+        return jsonify({"status": "error", "message": f"フォント取得エラー: {str(e)}"}), 500
+
+
+# API: シンボルフォントマッピングを一括更新
+@app.route("/api/update_symbolfont_mappings", methods=["POST"])
+def update_symbolfont_mappings_api():
+    """Update multiple symbol font mappings at once."""
+    payload = request.get_json(silent=True) or {}
+    font_name = payload.get("font_name", "").strip()
+    mappings = payload.get("mappings", {}) or {}
+    
+    if not font_name:
+        return jsonify({"status": "error", "message": "font_name is required"}), 400
+    if not isinstance(mappings, dict):
+        return jsonify({"status": "error", "message": "mappings must be a dict"}), 400
+    
+    try:
+        # Read current symbol font dict
+        symbolfont_dict_lines = []
+        if os.path.exists(SYMBOLFONT_DICT_PATH):
+            with open(SYMBOLFONT_DICT_PATH, "r", encoding="utf-8") as f:
+                symbolfont_dict_lines = f.readlines()
+        # Keep comments and remove entries for this font
+        filtered_lines = []
+        for line in symbolfont_dict_lines:
+            line_stripped = line.strip()
+            # Keep comments and empty lines
+            if not line_stripped or line_stripped.startswith("#"):
+                filtered_lines.append(line)
+            else:
+                # Filter out entries for this font
+                parts = line_stripped.split("\t")
+                if not (parts and parts[0].startswith(font_name + ".")):
+                    # Ensure line has newline
+                    if line and not line.endswith("\n"):
+                        filtered_lines.append(line + "\n")
+                    else:
+                        filtered_lines.append(line)
+        
+        # Add new mappings
+        for key, replacement in mappings.items():
+            if key and replacement:
+                # Ensure key and replacement don't contain newlines
+                key_clean = key.replace("\n", "").replace("\r", "").strip()
+                replacement_clean = replacement.replace("\n", "").replace("\r", "").strip()
+                if key_clean and replacement_clean:
+                    filtered_lines.append(f"{key_clean}\t{replacement_clean}\n")
+        
+        app.logger.info(f"Saving {len(filtered_lines)} lines to {SYMBOLFONT_DICT_PATH}")
+        
+        # Write back to file
+        os.makedirs(os.path.dirname(SYMBOLFONT_DICT_PATH), exist_ok=True)
+        with open(SYMBOLFONT_DICT_PATH, "w", encoding="utf-8") as f:
+            f.writelines(filtered_lines)
+        
+        app.logger.info(f"Successfully saved symbol font mappings for: {font_name} ({len(mappings)} entries)")
+        if mappings:
+            if os.path.exists(SIMBLE_DICT_PATH):
+                with open(SIMBLE_DICT_PATH, "r", encoding="utf-8") as f:
+                    symbolfonts_content = f.read()
+                if font_name not in symbolfonts_content:
+                    with open(SIMBLE_DICT_PATH, "a", encoding="utf-8") as f:
+                        f.write(f"{font_name}\n")
+            else:
+                os.makedirs(os.path.dirname(SIMBLE_DICT_PATH), exist_ok=True)
+                with open(SIMBLE_DICT_PATH, "w", encoding="utf-8") as f:
+                    f.write(f"{font_name}\n")
+        
+        app.logger.info(f"Updated symbol font mappings for: {font_name} ({len(mappings)} entries)")
+        return jsonify({"status": "ok", "message": "マッピングを更新しました"}), 200
+    except Exception as e:
+        app.logger.error(f"Error updating symbol font mappings: {str(e)}")
+        return jsonify({"status": "error", "message": f"更新エラー: {str(e)}"}), 500
 
 
 def atomicsave_json(json_path, data):

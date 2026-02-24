@@ -1,0 +1,366 @@
+/* Symbol Fonts Maintenance Page */
+
+.app-header {
+  background-color: var(--header-bg, #f5f5f5);
+  border-bottom: 1px solid var(--border, #ccc);
+  padding: 12px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.app-icon {
+  width: 32px;
+  height: 32px;
+}
+
+.app-title h1 {
+  font-size: 18px;
+  margin: 0;
+  color: var(--text-primary, #333);
+}
+
+.symbol-fonts-maintenance {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 60px);
+  background-color: var(--bg-page, #fff);
+}
+
+.symbol-fonts-toolbar {
+  background-color: var(--toolbar-bg, #f9f9f9);
+  border-bottom: 1px solid var(--border, #e1e4e8);
+  padding: 12px 20px;
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.toolbar-section {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.target-book-name {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary, #333);
+  background-color: var(--surface-strong, #f6f8fa);
+  border: 1px solid var(--border, #e1e4e8);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+
+.book-source-info {
+  color: var(--text-muted, #666);
+  font-size: 13px;
+}
+
+.toolbar-section label {
+  font-weight: bold;
+  color: var(--text-primary, #333);
+}
+
+.toolbar-section select {
+  padding: 5px 10px;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 4px;
+  background-color: var(--surface, #fff);
+  color: var(--text-primary, #333);
+  font-size: 14px;
+}
+
+.toolbar-section button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  background-color: var(--accent, #0f766e);
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.toolbar-section button:hover {
+  background-color: var(--accent-strong, #0d5c52);
+}
+
+#loadStatus {
+  color: var(--text-muted, #666);
+  font-size: 14px;
+}
+
+.symbol-fonts-container {
+  display: flex;
+  flex: 1;
+  gap: 20px;
+  padding: 20px;
+  overflow: hidden;
+}
+
+/* Left Panel: Font Selection */
+.fonts-panel {
+  flex: 0 0 250px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border, #e1e4e8);
+  border-radius: 4px;
+  background-color: var(--surface, #fff);
+  overflow: hidden;
+}
+
+.fonts-panel__header {
+  padding: 12px;
+  border-bottom: 1px solid var(--border, #e1e4e8);
+  background-color: var(--surface-strong, #f6f8fa);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.fonts-panel__header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: bold;
+  color: var(--text-primary, #333);
+}
+
+.fonts-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.font-item {
+  padding: 10px 12px;
+  border: 1px solid var(--table-border, rgba(31, 41, 51, 0.15));
+  border-radius: 3px;
+  margin-bottom: 5px;
+  cursor: pointer;
+  background-color: var(--surface, #fff);
+  color: var(--text-primary, #333);
+  transition: all 0.2s ease;
+  font-size: 13px;
+}
+
+.font-item:hover {
+  background-color: var(--accent-soft, rgba(15, 118, 110, 0.12));
+  border-color: var(--accent, #0f766e);
+}
+
+.font-item.selected {
+  background-color: var(--accent, #0f766e);
+  color: white;
+  border-color: var(--accent-strong, #0d5c52);
+  font-weight: bold;
+}
+
+/* Right Panel: Mapping Editor */
+.mappings-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border, #e1e4e8);
+  border-radius: 4px;
+  background-color: var(--surface, #fff);
+  overflow: hidden;
+}
+
+.mappings-panel__header {
+  padding: 12px;
+  border-bottom: 1px solid var(--border, #e1e4e8);
+  background-color: var(--surface-strong, #f6f8fa);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.mappings-panel__header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: bold;
+  color: var(--text-primary, #333);
+  flex: 1;
+}
+
+.btn-action {
+  padding: 6px 12px;
+  margin-left: 8px;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 3px;
+  background-color: var(--surface-accent, #eef6f2);
+  color: var(--text-primary, #333);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.btn-action:hover {
+  background-color: var(--accent, #0f766e);
+  color: white;
+  border-color: var(--accent-strong, #0d5c52);
+}
+
+.mappings-editor {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.no-mapping-message {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted, #999);
+  font-size: 14px;
+  padding: 40px;
+  text-align: center;
+}
+
+.mappings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.mappings-table thead {
+  background-color: var(--surface-strong, #f6f8fa);
+  border-bottom: 1px solid var(--table-border-strong, rgba(31, 41, 51, 0.3));
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.mappings-table th {
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: bold;
+  color: var(--text-primary, #333);
+  border-right: 1px solid var(--table-border, rgba(31, 41, 51, 0.15));
+}
+
+.mappings-table th:last-child {
+  border-right: none;
+}
+
+.mappings-table tbody tr {
+  border-bottom: 1px solid var(--table-border, rgba(31, 41, 51, 0.15));
+  transition: background-color 0.15s ease;
+}
+
+.mappings-table tbody tr:hover {
+  background-color: var(--accent-soft, rgba(15, 118, 110, 0.12));
+}
+
+.mappings-table td {
+  padding: 8px 12px;
+  border-right: 1px solid var(--table-border, rgba(31, 41, 51, 0.15));
+  color: var(--text-primary, #333);
+}
+
+.mappings-table td:last-child {
+  border-right: none;
+}
+
+.mapping-input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 3px;
+  font-size: 13px;
+  background-color: var(--surface, #fff);
+  color: var(--text-primary, #333);
+  font-family: monospace;
+}
+
+.mapping-input:focus {
+  outline: none;
+  border-color: var(--accent, #0f766e);
+  box-shadow: 0 0 3px rgba(15, 118, 110, 0.3);
+}
+
+.btn-delete {
+  padding: 4px 8px;
+  background-color: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s ease;
+}
+
+.btn-delete:hover {
+  background-color: #c0392b;
+}
+
+.mapping-checkbox {
+  margin: 0;
+  cursor: pointer;
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+  .app-header {
+    background-color: var(--header-bg, #1f2937);
+    border-bottom-color: var(--border, #404854);
+  }
+
+  .symbol-fonts-maintenance {
+    background-color: var(--bg-page, #0f1419);
+  }
+
+  .symbol-fonts-toolbar {
+    background-color: var(--toolbar-bg, #1a1f25);
+    border-bottom-color: var(--border, #404854);
+  }
+
+  .fonts-panel,
+  .mappings-panel {
+    background-color: var(--surface, #1f2933);
+    border-color: var(--border, #404854);
+  }
+
+  .fonts-panel__header,
+  .mappings-panel__header {
+    background-color: var(--surface-strong, #282e38);
+    border-bottom-color: var(--border, #404854);
+  }
+
+  .font-item {
+    background-color: var(--surface, #1f2933);
+    border-color: var(--table-border, rgba(255, 255, 255, 0.1));
+    color: var(--text-primary, #e0e0e0);
+  }
+
+  .font-item:hover {
+    background-color: var(--accent-soft, rgba(15, 118, 110, 0.2));
+  }
+
+  .mappings-table thead {
+    background-color: var(--surface-strong, #282e38);
+    border-bottom-color: var(--table-border-strong, rgba(255, 255, 255, 0.2));
+  }
+
+  .mappings-table tbody tr {
+    border-bottom-color: var(--table-border, rgba(255, 255, 255, 0.1));
+  }
+
+  .mappings-table tbody tr:hover {
+    background-color: var(--accent-soft, rgba(15, 118, 110, 0.15));
+  }
+
+  .mapping-input {
+    background-color: var(--surface, #1f2933);
+    border-color: var(--border, #404854);
+    color: var(--text-primary, #e0e0e0);
+  }
+
+  .mapping-input:focus {
+    border-color: var(--accent, #0f766e);
+  }
+}

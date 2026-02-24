@@ -1,0 +1,122 @@
+/* symbolFonts.css - Styles for Symbol Fonts Dialog */
+
+#symbolFontsDialog .styles-list {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0;
+    overflow-y: auto;
+}
+
+#symbolFontsDialog .styles-list table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+#symbolFontsDialog .styles-list table thead th {
+    background-color: var(--surface-strong);
+    padding: 8px;
+    border-bottom: 2px solid var(--border-strong);
+    font-weight: bold;
+    text-align: left;
+    color: var(--text-primary);
+}
+
+#symbolFontsDialog .styles-list table tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background-color 0.2s ease;
+    color: var(--text-primary);
+}
+
+#symbolFontsDialog .styles-list table tbody tr:hover {
+    background-color: var(--surface-accent);
+}
+
+#symbolFontsDialog .styles-list table tbody tr.selected {
+    background-color: rgba(15, 118, 110, 0.15);
+}
+
+#symbolFontsDialog .styles-list table tbody td {
+    padding: 8px;
+    word-break: break-word;
+}
+
+#symbolFontsDialog .styles-list table tbody td:nth-child(2) {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+#symbolFontsDialog .styles-list button {
+    padding: 5px 10px;
+    background-color: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+    transition: background-color 0.2s ease;
+}
+
+#symbolFontsDialog .styles-list button:hover {
+    background-color: var(--accent-strong);
+}
+
+#symbolFontsDialog .styles-list button.delete {
+    background-color: #e74c3c;
+}
+
+#symbolFontsDialog .styles-list button.delete:hover {
+    background-color: #c0392b;
+}
+
+#registeredSymbolsList {
+    background-color: var(--surface-accent);
+}
+
+#registeredSymbolsList .data-export-dialog__section {
+    padding: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+    #symbolFontsDialog .styles-list {
+        background-color: var(--surface);
+        border-color: var(--border);
+    }
+
+    #symbolFontsDialog .styles-list table thead th {
+        background-color: var(--surface-strong);
+        border-bottom-color: var(--border-strong);
+        color: var(--text-primary);
+    }
+
+    #symbolFontsDialog .styles-list table tbody tr {
+        border-bottom-color: var(--border);
+        color: var(--text-primary);
+    }
+
+    #symbolFontsDialog .styles-list table tbody tr:hover {
+        background-color: var(--surface-accent);
+    }
+
+    #symbolFontsDialog .styles-list table tbody tr.selected {
+        background-color: rgba(34, 193, 180, 0.15);
+    }
+
+    #symbolFontsDialog .styles-list table tbody td:nth-child(2) {
+        color: var(--text-muted);
+    }
+
+    #symbolFontsDialog .styles-list button {
+        background-color: var(--accent);
+        color: white;
+    }
+
+    #symbolFontsDialog .styles-list button:hover {
+        background-color: var(--accent-strong);
+    }
+
+    #registeredSymbolsList {
+        background-color: var(--surface-accent);
+    }
+}

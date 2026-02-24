@@ -16,7 +16,7 @@
 .toggle-icon {
     margin-right: 4px;
     font-size: 10px;
-    color:cadetblue;
+    color: var(--accent);
     user-select: none;
 }
 
@@ -59,7 +59,7 @@
 
 .toc-children {
     margin-left: 4%;
-    border-left: 1px dashed #ccc;
+    border-left: 1px dashed var(--border-strong);
 }
 
 
@@ -82,7 +82,7 @@
   max-width: 24px;
   padding-left: 4px;
   padding-right: 4px;
-  color: rgba(160, 160, 160, 0.8);
+  color: var(--text-muted);
   text-align: right;
   white-space: nowrap;
 }
@@ -204,5 +204,23 @@ tr[data-open="false"] .toc-toggle::before {
 /* ===== Template-inline styles extracted to CSS ===== */
 #tocPanelHeader {
     padding-left: 10px;
-    border-bottom: 1px solid;
+    border-bottom: 1px solid var(--border);
+}
+
+@media (prefers-color-scheme: dark) {
+    .toggle-icon {
+        color: var(--accent);
+    }
+
+    .toc-children {
+        border-left: 1px dashed var(--border-strong);
+    }
+
+    .tocTable td.toc-page {
+        color: var(--text-muted);
+    }
+
+    #tocPanelHeader {
+        border-bottom-color: var(--border);
+    }
 }

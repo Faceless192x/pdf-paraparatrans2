@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>PDF ParaParaTrans - シンボルフォント登録</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='paraparatrans.svg') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/symbol_fonts_maintenance.css') }}">
+</head>
+<body>
+  <div class="app-header">
+    <div class="app-title">
+      <a href="{{ url_for('index') }}" style="display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--header-fg);">
+        <img src="{{ url_for('static', filename='paraparatrans.svg') }}" alt="Icon" class="app-icon">
+        <h1 style="margin: 0;">シンボルフォント登録</h1>
+      </a>
+    </div>
+  </div>
+
+  <div class="symbol-fonts-maintenance">
+    
+    <div class="symbol-fonts-toolbar">
+      <div class="toolbar-section">
+        <span>対象ブック:</span>
+        <strong id="targetBookName" class="target-book-name">-</strong>
+        <span id="bookSourceInfo" class="book-source-info">抽出元: -</span>
+        <span id="loadStatus"></span>
+      </div>
+    </div>
+
+    <div class="symbol-fonts-container">
+      
+      <!-- Left Panel: Font Selection -->
+      <div class="fonts-panel">
+        <div class="fonts-panel__header">
+          <h3>フォント一覧</h3>
+          <button type="button" id="addFontButton" class="btn-action" style="display: none;">新規追加</button>
+        </div>
+        <div id="fontsList" class="fonts-list"></div>
+      </div>
+
+      <!-- Right Panel: Mapping Editor -->
+      <div class="mappings-panel">
+        <div class="mappings-panel__header">
+          <h3 id="selectedFontTitle">フォントを選択してください</h3>
+          <button type="button" id="addMappingButton" class="btn-action" style="display: none;">マッピング追加</button>
+          <button type="button" id="saveMappingsButton" class="btn-step btn-step-export" style="display: none;">保存</button>
+        </div>
+        <div id="mappingsEditor" class="mappings-editor">
+          <table class="mappings-table">
+            <thead>
+              <tr>
+                <th>選択</th>
+                <th style="min-width: 100px;">フォント.キャラクター</th>
+                <th style="min-width: 150px;">置換後文字列</th>
+                <th style="min-width: 80px;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="mappingsTableBody">
+            </tbody>
+          </table>
+        </div>
+        <div id="noMappingMessage" class="no-mapping-message">
+          左側でフォントを選択して、マッピングを追加してください
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script src="{{ url_for('static', filename='js/symbol_fonts_maintenance.js') }}"></script>
+</body>
+</html>
