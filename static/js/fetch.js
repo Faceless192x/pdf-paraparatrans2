@@ -1512,8 +1512,28 @@ async function exportDocStructure() {
 }
 
 
-function openDataExportDialog() {
-    const dialog = document.getElementById('dataExportDialog');
+async function openDataExportDialog() {
+    let dialog = document.getElementById('dataExportDialog');
+    
+    // 初回呼び出し時にダイアログHTMLを動的にロード
+    if (!dialog) {
+        try {
+            const response = await fetch('/partials/data_export_dialog');
+            if (!response.ok) {
+                console.error('Failed to load data export dialog');
+                return;
+            }
+            const html = await response.text();
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = html;
+            document.body.appendChild(tempDiv.firstElementChild);
+            dialog = document.getElementById('dataExportDialog');
+        } catch (error) {
+            console.error('Error loading data export dialog:', error);
+            return;
+        }
+    }
+    
     if (!dialog) return;
     dialog.style.display = 'flex';
     updateDataExportFieldState();

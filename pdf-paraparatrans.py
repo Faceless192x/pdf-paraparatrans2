@@ -3528,6 +3528,10 @@ def dict_maintenance_page():
 def symbol_fonts_maintenance_page():
     return render_template("symbol_fonts_maintenance.html")
 
+@app.route("/partials/data_export_dialog")
+def data_export_dialog_partial():
+    return render_template("_data_export_dialog.html")
+
 
 @app.route("/api/dict/list", methods=["GET"])
 def dict_list_api():
