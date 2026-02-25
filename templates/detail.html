@@ -146,7 +146,6 @@
             <button id="pageTransButton" class="btn-step btn-step-transall" data-help-id="ページの翻訳">ページ翻訳</button>
             <button id="reextractTableButton" onclick="reextractTableFromSelection()" data-help-id="選択複数行を1テーブルとして再抽出">表再抽出</button>
             <button id="openDictButton" data-help-id="辞書登録">辞書登録</button>
-            <button onclick="openSymbolFontsPage()" class="btn-step btn-step-dict" data-help-id="シンボルフォント登録" style="background-color: var(--btn-step-bg-special, #9d4edd); cursor: pointer;">シンボルフォント登録</button>
             <span id="markupTools" class="inline-block-margin markup-tools" style="display:inline-flex" data-help-id="選択文字列をマークアップ">
               <span class="markup-tools__label" title="Markup" aria-label="Markup">✎</span>
               <button id="markupHighlightButton" type="button" title="選択範囲をハイライト" aria-label="選択範囲をハイライト">🖍</button>
@@ -272,6 +271,9 @@
         <div class="data-export-dialog__section">
           <div class="data-export-dialog__section-title">辞書</div>
           <div class="data-export-dialog__row">
+            <button type="button" class="btn-step btn-step-export" onclick="openSymbolFontsPage()" data-help-id="シンボルフォント登録">シンボルフォント登録</button>
+          </div>
+          <div class="data-export-dialog__row">
             <button type="button" class="btn-step btn-step-export" onclick="createBookDictFromDialog()">固有辞書を作成</button>
           </div>
           <div class="data-export-dialog__row">
@@ -328,28 +330,33 @@
   <script src="{{ url_for('static', filename='js/keyDown.js') }}" defer></script>    
   <script src="{{ url_for('static', filename='js/help.js') }}"></script>
   <script>
-    function openSymbolFontsPage() {
-      const pdfName = document.body.getAttribute('data-pdf-name');
-      console.log('[detail.html] openSymbolFontsPage called');
-      console.log('[detail.html] data-pdf-name attribute:', pdfName);
-      if (pdfName) {
-        try {
-          localStorage.setItem('ppt.symbol_fonts.pdf_name', pdfName);
-          console.log('[detail.html] localStorage saved:', pdfName);
-        } catch (e) {
-          console.warn('[detail.html] localStorage save error:', e);
-        }
-        const params = new URLSearchParams();
-        params.set('pdf_name', pdfName);
-        const url = `/symbol_fonts_maintenance?${params.toString()}`;
-        console.log('[detail.html] Full URL:', window.location.origin + url);
-        console.log('[detail.html] URL params:', params.toString());
-        console.log('[detail.html] Redirecting to:', url);
-        window.location.href = url;
-      } else {
-        console.error('[detail.html] pdfName is empty or null');
-        alert('PDF名が取得できません');
+    function buildSymbolFontsUrl() {
+      const pdfName = document.body.getAttribute('data-pdf-name') || '';
+      if (!pdfName) return '#';
+
+      try {
+        localStorage.setItem('ppt.symbol_fonts.pdf_name', pdfName);
+      } catch (_e) {
+        // ignore storage errors
       }
+
+      const params = new URLSearchParams();
+      params.set('pdf_name', pdfName);
+      const currentParams = new URLSearchParams(window.location.search);
+      const currentPage = (currentParams.get('page') || '').trim();
+      if (/^\d+$/.test(currentPage)) {
+        params.set('return_page', currentPage);
+      }
+      return `/symbol_fonts_maintenance?${params.toString()}`;
+    }
+
+    function openSymbolFontsPage() {
+      const url = buildSymbolFontsUrl();
+      if (url === '#') {
+        alert('PDF名が取得できません');
+        return;
+      }
+      window.open(url, '_blank', 'noopener');
     }
   </script>
 </body>

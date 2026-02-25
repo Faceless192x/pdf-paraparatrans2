@@ -30,6 +30,43 @@ function $(id) {
     return document.getElementById(id);
 }
 
+function encodePdfNamePath(value) {
+    return encodeURIComponent(String(value || '')).replace(/%2F/gi, '/');
+}
+
+function setupBackToReferrerLink() {
+    const backLink = $("backToReferrerLink");
+    if (!backLink) return;
+
+    let targetHref = "";
+    const params = new URLSearchParams(window.location.search);
+    const returnPageParam = (params.get("return_page") || "").trim();
+
+    if (state.pdfName && /^\d+$/.test(returnPageParam)) {
+        targetHref = `/detail/${encodePdfNamePath(state.pdfName)}?page=${returnPageParam}`;
+    }
+
+    if (!targetHref && document.referrer) {
+        try {
+            const refUrl = new URL(document.referrer, window.location.origin);
+            if (refUrl.origin === window.location.origin) {
+                targetHref = `${refUrl.pathname}${refUrl.search}${refUrl.hash}`;
+            }
+        } catch (_e) {
+            targetHref = "";
+        }
+    }
+
+    if (!targetHref && state.pdfName) {
+        targetHref = `/detail/${encodePdfNamePath(state.pdfName)}`;
+    }
+
+    if (targetHref) {
+        backLink.href = targetHref;
+        backLink.style.display = "inline-flex";
+    }
+}
+
 function setStatus(message, isError = false) {
     const el = $("dictStatus");
     if (!el) return;
@@ -413,6 +450,7 @@ document.addEventListener("DOMContentLoaded", () => {
     state.dictPath = params.get("dict_path") || "";
     state.comparePath = params.get("compare_path") || "";
     state.pdfName = params.get("pdf_name") || "";
+    setupBackToReferrerLink();
     attachEvents();
     loadDictCatalog();
 });

@@ -85,6 +85,55 @@ function removeLegacySelectorUi() {
   if (legacyLabel) legacyLabel.remove();
 }
 
+function setupBackToReferrerLink(selectedBookParam) {
+  const backLink = document.getElementById('backToReferrerLink');
+  if (!backLink) return;
+
+  let targetHref = '';
+
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const returnPageParam = (urlParams.get('return_page') || '').trim();
+    if (selectedBookParam && /^\d+$/.test(returnPageParam)) {
+      targetHref = `/detail/${encodePdfNamePath(selectedBookParam)}?page=${returnPageParam}`;
+    }
+
+    const returnUrlParam = (urlParams.get('return_url') || '').trim();
+    if (!targetHref && returnUrlParam) {
+      if (returnUrlParam.startsWith('/')) {
+        targetHref = returnUrlParam;
+      } else {
+        const parsed = new URL(returnUrlParam, window.location.origin);
+        if (parsed.origin === window.location.origin) {
+          targetHref = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+        }
+      }
+    }
+  } catch (_e) {
+    targetHref = '';
+  }
+
+  if (!targetHref && document.referrer) {
+    try {
+      const refUrl = new URL(document.referrer, window.location.origin);
+      if (refUrl.origin === window.location.origin) {
+        targetHref = `${refUrl.pathname}${refUrl.search}${refUrl.hash}`;
+      }
+    } catch (_e) {
+      targetHref = '';
+    }
+  }
+
+  if (!targetHref && selectedBookParam) {
+    targetHref = `/detail/${encodePdfNamePath(selectedBookParam)}`;
+  }
+
+  if (targetHref) {
+    backLink.href = targetHref;
+    backLink.style.display = 'inline-flex';
+  }
+}
+
 // Initialize page
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('[symbol_fonts_maintenance.js] DOMContentLoaded started');
@@ -95,6 +144,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   removeLegacySelectorUi();
 
   const selectedBookParam = resolveTargetBookName();
+  setupBackToReferrerLink(selectedBookParam);
   
   console.log('[symbol_fonts_maintenance.js] Resolved symbol fonts target:', {
     search: window.location.search,

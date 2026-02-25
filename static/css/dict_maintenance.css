@@ -8,6 +8,29 @@
     overflow: hidden;
 }
 
+.app-header-actions {
+    display: flex;
+    align-items: center;
+}
+
+.btn-back-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 12px;
+    border: 1px solid var(--border, #ccc);
+    border-radius: 4px;
+    background: var(--surface, #fff);
+    color: var(--text-primary, #333);
+    text-decoration: none;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.btn-back-link:hover {
+    background: var(--surface-strong, #f6f8fa);
+}
+
 html,
 body {
     height: 100%;
