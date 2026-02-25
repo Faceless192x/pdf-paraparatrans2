@@ -170,8 +170,26 @@
         color: #e0e0e0;
     }
 }
+
+/* 各列の左ボーダー色 */
 .src-text {
-    border-left: 4px solid #e74c3c;
+    border-left: 4px solid #e74c3c; /* 原文: 赤 */
+}
+
+.src-joined {
+    border-left: 4px solid #d4b816; /* 連結文: 黄色 */
+}
+
+.src-replaced {
+    border-left: 4px solid #3498db; /* 置換文: 青 */
+}
+
+.trans-auto {
+    border-left: 4px solid var(--dark-orange); /* Auto: オレンジ */
+}
+
+.trans-text {
+    border-left: 4px solid #27ae60; /* 訳文: 緑 */
 }
 .block-tag-header {
     color: #ccc;

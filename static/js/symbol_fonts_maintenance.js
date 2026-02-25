@@ -129,6 +129,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Event listeners
   document.getElementById('addMappingButton').addEventListener('click', addMappingRow);
+  document.getElementById('fillCharacterCodesButton').addEventListener('click', fillMissingCharacterCodes);
   document.getElementById('saveMappingsButton').addEventListener('click', saveMappings);
 });
 
@@ -193,6 +194,7 @@ function displayFontsList() {
   Object.keys(currentFonts).sort().forEach(fontName => {
     const item = document.createElement('div');
     item.className = 'font-item';
+    item.dataset.fontName = fontName;
     
     // Check if this font has any mappings
     const fontMappings = {};
@@ -232,6 +234,115 @@ function displayFontsList() {
   });
 }
 
+function getKeyboardCharacterCodes() {
+  const chars = [];
+  for (let code = 33; code <= 126; code++) {
+    chars.push(String.fromCharCode(code));
+  }
+  return chars;
+}
+
+function getCharacterCodesInTable() {
+  const tableBody = document.getElementById('mappingsTableBody');
+  const rows = tableBody.querySelectorAll('tr');
+  const existing = new Set();
+  rows.forEach((row) => {
+    const cells = row.querySelectorAll('td');
+    if (cells.length >= 3) {
+      const keyInput = cells[1].querySelector('input');
+      if (!keyInput) return;
+      const key = keyInput.value.trim();
+      if (!selectedFont || !key.startsWith(selectedFont + '.')) return;
+      const charCode = key.substring((selectedFont + '.').length);
+      if (charCode.length === 1) {
+        existing.add(charCode);
+      }
+    }
+  });
+  return existing;
+}
+
+function appendMappingRow(fontName, charCode, replacementValue = '') {
+  const tableBody = document.getElementById('mappingsTableBody');
+  const row = tableBody.insertRow();
+
+  const surfaceColor = getThemeColor('--surface', '#fff');
+  const textColor = getThemeColor('--text-primary', '#333');
+  row.style.backgroundColor = surfaceColor;
+  row.style.color = textColor;
+
+  const checkCell = row.insertCell();
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.className = 'mapping-checkbox';
+  checkCell.appendChild(checkbox);
+
+  const keyCell = row.insertCell();
+  const keyInput = document.createElement('input');
+  keyInput.type = 'text';
+  keyInput.className = 'mapping-input';
+  keyInput.value = `${fontName}.${charCode}`;
+  keyInput.readOnly = true;
+  keyInput.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
+  keyInput.style.fontFamily = 'monospace';
+  keyCell.appendChild(keyInput);
+
+  const replCell = row.insertCell();
+  const replInput = document.createElement('input');
+  replInput.type = 'text';
+  replInput.className = 'mapping-input';
+  replInput.value = replacementValue;
+  replInput.style.fontFamily = 'monospace';
+  replInput.addEventListener('change', () => {
+    editingRows.add(row);
+  });
+  replCell.appendChild(replInput);
+
+  const btnCell = row.insertCell();
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'btn-delete';
+  deleteBtn.textContent = '削除';
+  deleteBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    row.remove();
+  });
+  btnCell.appendChild(deleteBtn);
+
+  editingRows.add(row);
+}
+
+function fillMissingCharacterCodes() {
+  if (!selectedFont) {
+    alert('フォントを選択してください');
+    return;
+  }
+
+  const allCodes = getKeyboardCharacterCodes();
+  const existingCodes = getCharacterCodesInTable();
+  let addedCount = 0;
+
+  allCodes.forEach((charCode) => {
+    if (!existingCodes.has(charCode)) {
+      appendMappingRow(selectedFont, charCode, charCode);
+      addedCount += 1;
+    }
+  });
+
+  document.getElementById('noMappingMessage').style.display = 'none';
+
+  const statusEl = document.getElementById('loadStatus');
+  if (statusEl) {
+    statusEl.textContent = addedCount > 0
+      ? `✓ 未登録キャラクターを ${addedCount} 件補完しました`
+      : '✓ 補完対象はありません';
+    statusEl.style.color = addedCount > 0 ? '#27ae60' : getThemeColor('--text-muted', '#666');
+    setTimeout(() => {
+      statusEl.textContent = '';
+    }, 3000);
+  }
+}
+
 // Select font
 async function selectFont(fontName) {
   selectedFont = fontName;
@@ -240,7 +351,7 @@ async function selectFont(fontName) {
   const items = document.querySelectorAll('.font-item');
   items.forEach(item => {
     item.classList.remove('selected');
-    if (item.textContent === fontName) {
+    if (item.dataset.fontName === fontName) {
       item.classList.add('selected');
     }
   });
@@ -263,6 +374,7 @@ async function selectFont(fontName) {
   } else {
     // Show editor controls for existing mappings
     document.getElementById('addMappingButton').style.display = 'inline-block';
+    document.getElementById('fillCharacterCodesButton').style.display = 'inline-block';
     document.getElementById('saveMappingsButton').style.display = 'inline-block';
     document.getElementById('noMappingMessage').style.display = 'none';
     document.getElementById('mappingsEditor').style.display = 'block';
@@ -282,6 +394,7 @@ async function showCreateMappingsDialog(fontName) {
   if (confirmed) {
     // Show editor controls
     document.getElementById('addMappingButton').style.display = 'inline-block';
+    document.getElementById('fillCharacterCodesButton').style.display = 'inline-block';
     document.getElementById('saveMappingsButton').style.display = 'inline-block';
     document.getElementById('noMappingMessage').style.display = 'none';
     document.getElementById('mappingsEditor').style.display = 'block';
@@ -372,69 +485,8 @@ function createInitialMappingRows(fontName) {
   const tableBody = document.getElementById('mappingsTableBody');
   tableBody.innerHTML = '';
   editingRows.clear();
-
-  const surfaceColor = getThemeColor('--surface', '#fff');
-  const textColor = getThemeColor('--text-primary', '#333');
-
-  // Generate common characters for initial rows (20 rows)
-  const commonCharacters = [
-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
-    'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't'
-  ];
-
-  commonCharacters.forEach((char) => {
-    const row = tableBody.insertRow();
-    row.style.backgroundColor = surfaceColor;
-    row.style.color = textColor;
-
-    // Checkbox
-    const checkCell = row.insertCell();
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'mapping-checkbox';
-    checkCell.appendChild(checkbox);
-
-    // Font.Character (editable initially)
-    const keyCell = row.insertCell();
-    const keyInput = document.createElement('input');
-    keyInput.type = 'text';
-    keyInput.className = 'mapping-input';
-    keyInput.placeholder = `${fontName}.[キャラクターコード]`;
-    keyInput.value = `${fontName}.${char}`;
-    keyInput.style.fontFamily = 'monospace';
-    keyInput.addEventListener('change', () => {
-      editingRows.add(row);
-    });
-    keyCell.appendChild(keyInput);
-
-    // Replacement input
-    const replCell = row.insertCell();
-    const replInput = document.createElement('input');
-    replInput.type = 'text';
-    replInput.className = 'mapping-input';
-    replInput.placeholder = '置換後文字列を入力してください（例: [記号名]）';
-    replInput.style.fontFamily = 'monospace';
-    replInput.addEventListener('change', () => {
-      editingRows.add(row);
-    });
-    replCell.appendChild(replInput);
-
-    // Delete button
-    const btnCell = row.insertCell();
-    const deleteBtn = document.createElement('button');
-    deleteBtn.type = 'button';
-    deleteBtn.className = 'btn-delete';
-    deleteBtn.textContent = '削除';
-    deleteBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      row.remove();
-    });
-    btnCell.appendChild(deleteBtn);
-
-    editingRows.add(row);
-  });
-
-  document.getElementById('noMappingMessage').style.display = 'none';
+  selectedFont = fontName;
+  fillMissingCharacterCodes();
 }
 
 // Load current mappings from server
