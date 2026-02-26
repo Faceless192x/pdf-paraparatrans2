@@ -540,6 +540,363 @@ def _is_url_book_name(pdf_name: str) -> bool:
     return isinstance(pdf_name, str) and pdf_name.startswith(URL_BOOK_PREFIX)
 
 
+def _parse_int(value, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def _url_page_sort_key(page_key: str):
+    text = str(page_key)
+    if text.isdigit():
+        return (0, int(text), text)
+    return (1, text)
+
+
+def _sorted_url_page_keys(book_data: dict) -> list[str]:
+    pages = (book_data or {}).get("pages") or {}
+    if not isinstance(pages, dict):
+        return []
+    return sorted((str(k) for k in pages.keys()), key=_url_page_sort_key)
+
+
+def _url_page_first_paragraph_summary(page_id: str, page: dict) -> dict:
+    page_obj = page if isinstance(page, dict) else {}
+    paragraphs = page_obj.get("paragraphs") or {}
+
+    best = None
+    if isinstance(paragraphs, dict):
+        for para in paragraphs.values():
+            if not isinstance(para, dict):
+                continue
+            order = _parse_int(para.get("order"), 10**9)
+            column_order = _parse_int(para.get("column_order"), 10**9)
+            bbox = para.get("bbox") or [0, 0]
+            try:
+                y0 = float(bbox[1]) if isinstance(bbox, list) and len(bbox) > 1 else 0.0
+            except Exception:
+                y0 = 0.0
+            pid = str(para.get("id") or "")
+            key = (order, column_order, y0, pid)
+            if best is None or key < best[0]:
+                best = (key, para)
+
+    selected = best[1] if best else {}
+    src_text = str(selected.get("src_text") or selected.get("src_joined") or page_obj.get("title") or page_obj.get("url") or f"Page {page_id}")
+    trans_text = str(selected.get("trans_text") or selected.get("trans_auto") or "")
+    return {
+        "paragraph_id": str(selected.get("id") or ""),
+        "src_text": src_text,
+        "trans_text": trans_text,
+    }
+
+
+def _build_url_page_preview_map(book_data: dict) -> dict:
+    result: dict[str, dict] = {}
+    pages = (book_data or {}).get("pages") or {}
+    if not isinstance(pages, dict):
+        return result
+    for page_id in _sorted_url_page_keys(book_data):
+        result[str(page_id)] = _url_page_first_paragraph_summary(str(page_id), pages.get(str(page_id)) or {})
+    return result
+
+
+def _new_url_nav_node_id(existing_ids: set[str], page_id: str) -> str:
+    base = re.sub(r"[^a-zA-Z0-9_-]", "_", str(page_id)) or "page"
+    candidate = f"n_{base}"
+    if candidate not in existing_ids:
+        return candidate
+    index = 2
+    while True:
+        candidate = f"n_{base}_{index}"
+        if candidate not in existing_ids:
+            return candidate
+        index += 1
+
+
+def _build_default_url_page_nav(book_data: dict) -> dict:
+    page_keys = _sorted_url_page_keys(book_data)
+    nodes: dict[str, dict] = {}
+    root_children: list[str] = []
+    existing_ids: set[str] = set()
+    for page_id in page_keys:
+        node_id = _new_url_nav_node_id(existing_ids, page_id)
+        existing_ids.add(node_id)
+        nodes[node_id] = {
+            "id": node_id,
+            "page_id": page_id,
+            "parent_id": None,
+            "children": [],
+            "collapsed": False,
+            "manual_title": None,
+        }
+        root_children.append(node_id)
+    selected = root_children[0] if root_children else ""
+    return {
+        "root_children": root_children,
+        "nodes": nodes,
+        "selected_node_id": selected,
+        "revision": 1,
+    }
+
+
+def _ensure_url_page_nav(book_data: dict) -> bool:
+    if not isinstance(book_data, dict):
+        return False
+    if (book_data.get("source_type") or "") != "url":
+        return False
+
+    changed = False
+    page_keys = _sorted_url_page_keys(book_data)
+    page_key_set = set(page_keys)
+
+    nav = book_data.get("page_nav")
+    if not isinstance(nav, dict):
+        book_data["page_nav"] = _build_default_url_page_nav(book_data)
+        nav = book_data["page_nav"]
+        changed = True
+
+    nodes_raw = nav.get("nodes")
+    root_children_raw = nav.get("root_children")
+    if not isinstance(nodes_raw, dict) or not isinstance(root_children_raw, list):
+        book_data["page_nav"] = _build_default_url_page_nav(book_data)
+        nav = book_data["page_nav"]
+        changed = True
+        nodes_raw = nav.get("nodes")
+        root_children_raw = nav.get("root_children")
+
+    nodes: dict[str, dict] = {}
+    page_to_node: dict[str, str] = {}
+
+    for raw_node_id, raw_node in (nodes_raw or {}).items():
+        if not isinstance(raw_node, dict):
+            changed = True
+            continue
+        node_id = str(raw_node_id or "").strip()
+        page_id = str(raw_node.get("page_id") or "").strip()
+        if not node_id or page_id not in page_key_set:
+            changed = True
+            continue
+        if page_id in page_to_node:
+            changed = True
+            continue
+
+        children_raw = raw_node.get("children")
+        if not isinstance(children_raw, list):
+            children_raw = []
+            changed = True
+
+        manual_title = raw_node.get("manual_title")
+        if manual_title is not None and not isinstance(manual_title, str):
+            manual_title = str(manual_title)
+            changed = True
+
+        nodes[node_id] = {
+            "id": node_id,
+            "page_id": page_id,
+            "parent_id": None,
+            "children": [str(child) for child in children_raw],
+            "collapsed": bool(raw_node.get("collapsed", False)),
+            "manual_title": manual_title,
+        }
+        page_to_node[page_id] = node_id
+
+    if not nodes and page_keys:
+        book_data["page_nav"] = _build_default_url_page_nav(book_data)
+        changed = True
+        nav = book_data["page_nav"]
+        nodes = nav.get("nodes") or {}
+        root_children_raw = nav.get("root_children") or []
+
+    parent_of: dict[str, str] = {}
+    for node_id, node in nodes.items():
+        children: list[str] = []
+        for child_id in node.get("children") or []:
+            if child_id == node_id or child_id not in nodes:
+                changed = True
+                continue
+            if child_id in children:
+                changed = True
+                continue
+            children.append(child_id)
+        node["children"] = children
+
+    for node_id, node in nodes.items():
+        dedup_children = []
+        for child_id in node.get("children") or []:
+            existing_parent = parent_of.get(child_id)
+            if existing_parent and existing_parent != node_id:
+                changed = True
+                continue
+            parent_of[child_id] = node_id
+            dedup_children.append(child_id)
+        node["children"] = dedup_children
+
+    root_children: list[str] = []
+    seen_root: set[str] = set()
+    for node_id in root_children_raw or []:
+        if node_id not in nodes:
+            changed = True
+            continue
+        if node_id in parent_of:
+            changed = True
+            continue
+        if node_id in seen_root:
+            changed = True
+            continue
+        root_children.append(node_id)
+        seen_root.add(node_id)
+
+    for page_id in page_keys:
+        node_id = page_to_node.get(page_id)
+        if node_id and node_id not in parent_of and node_id not in seen_root:
+            root_children.append(node_id)
+            seen_root.add(node_id)
+
+    existing_ids = set(nodes.keys())
+    for page_id in page_keys:
+        if page_id in page_to_node:
+            continue
+        node_id = _new_url_nav_node_id(existing_ids, page_id)
+        existing_ids.add(node_id)
+        nodes[node_id] = {
+            "id": node_id,
+            "page_id": page_id,
+            "parent_id": None,
+            "children": [],
+            "collapsed": False,
+            "manual_title": None,
+        }
+        page_to_node[page_id] = node_id
+        root_children.append(node_id)
+        changed = True
+
+    for node_id, node in nodes.items():
+        parent_id = parent_of.get(node_id)
+        if node.get("parent_id") != parent_id:
+            changed = True
+        node["parent_id"] = parent_id
+
+    selected_node_id = str(nav.get("selected_node_id") or "")
+    if selected_node_id and selected_node_id not in nodes:
+        selected_node_id = ""
+        changed = True
+    if not selected_node_id:
+        selected_node_id = root_children[0] if root_children else ""
+
+    revision = _parse_int(nav.get("revision"), 1)
+    if revision < 1:
+        revision = 1
+        changed = True
+
+    normalized_nav = {
+        "root_children": root_children,
+        "nodes": nodes,
+        "selected_node_id": selected_node_id,
+        "revision": revision,
+    }
+    book_data["page_nav"] = normalized_nav
+
+    page_url_map = (book_data.get("page_url_map") or {}) if isinstance(book_data.get("page_url_map"), dict) else {}
+    pages = (book_data.get("pages") or {}) if isinstance(book_data.get("pages"), dict) else {}
+    url_to_page_id: dict[str, str] = {}
+    for page_id in page_keys:
+        page_url = (pages.get(page_id) or {}).get("url")
+        if not page_url:
+            page_url = page_url_map.get(page_id)
+        if isinstance(page_url, str) and page_url.strip():
+            url_to_page_id[page_url.strip()] = page_id
+    if book_data.get("url_to_page_id") != url_to_page_id:
+        book_data["url_to_page_id"] = url_to_page_id
+        changed = True
+
+    return changed
+
+
+def _url_nav_parent_list(page_nav: dict, node_id: str):
+    nodes = page_nav.get("nodes") or {}
+    node = nodes.get(node_id)
+    if not node:
+        return None, None, -1
+
+    parent_id = node.get("parent_id")
+    if parent_id:
+        parent = nodes.get(parent_id)
+        if not parent:
+            return None, None, -1
+        siblings = parent.get("children")
+    else:
+        siblings = page_nav.get("root_children")
+
+    if not isinstance(siblings, list):
+        return None, None, -1
+
+    try:
+        index = siblings.index(node_id)
+    except ValueError:
+        return None, None, -1
+    return siblings, parent_id, index
+
+
+def _move_url_page_nav_node(page_nav: dict, node_id: str, op: str) -> tuple[bool, str]:
+    nodes = page_nav.get("nodes") or {}
+    if node_id not in nodes:
+        return False, "node_idが不正です"
+
+    siblings, parent_id, index = _url_nav_parent_list(page_nav, node_id)
+    if siblings is None:
+        return False, "ノードの配置が不正です"
+
+    if op == "up":
+        if index <= 0:
+            return False, "先頭のため上へ移動できません"
+        siblings[index - 1], siblings[index] = siblings[index], siblings[index - 1]
+        return True, "ok"
+
+    if op == "down":
+        if index >= len(siblings) - 1:
+            return False, "末尾のため下へ移動できません"
+        siblings[index], siblings[index + 1] = siblings[index + 1], siblings[index]
+        return True, "ok"
+
+    if op == "indent":
+        if index <= 0:
+            return False, "直前の兄弟がないため階層下へ移動できません"
+        new_parent_id = siblings[index - 1]
+        new_parent = nodes.get(new_parent_id)
+        if not new_parent:
+            return False, "移動先が不正です"
+        siblings.pop(index)
+        new_parent_children = new_parent.get("children")
+        if not isinstance(new_parent_children, list):
+            new_parent_children = []
+            new_parent["children"] = new_parent_children
+        new_parent_children.append(node_id)
+        nodes[node_id]["parent_id"] = new_parent_id
+        return True, "ok"
+
+    if op == "outdent":
+        if not parent_id:
+            return False, "ルートのため階層上へ移動できません"
+
+        parent_node = nodes.get(parent_id)
+        if not parent_node:
+            return False, "親ノードが不正です"
+
+        parent_siblings, grand_parent_id, parent_index = _url_nav_parent_list(page_nav, parent_id)
+        if parent_siblings is None:
+            return False, "親ノード配置が不正です"
+
+        siblings.pop(index)
+        insert_index = parent_index + 1
+        parent_siblings.insert(insert_index, node_id)
+        nodes[node_id]["parent_id"] = grand_parent_id
+        return True, "ok"
+
+    return False, "opが不正です"
+
+
 def _sanitize_folder_name(name: str) -> str:
     if not isinstance(name, str):
         return ""
@@ -1326,6 +1683,8 @@ def get_book_data(pdf_name):
         return jsonify({"status": "ok", "message": "JSONが存在しません"}), 206
     with open(json_path, "r", encoding="utf-8") as f:
         book_data = json.load(f)
+    if _is_url_book_name(pdf_name):
+        _ensure_url_page_nav(book_data)
     return jsonify(book_data)
 
 
@@ -1343,6 +1702,9 @@ def get_book_meta(pdf_name):
 
     with open(json_path, "r", encoding="utf-8") as f:
         book_data = json.load(f)
+
+    if _is_url_book_name(pdf_name):
+        _ensure_url_page_nav(book_data)
 
     last_open_page = book_data.get("last_open_page")
     if not _is_url_book_name(pdf_name):
@@ -1368,6 +1730,9 @@ def get_book_meta(pdf_name):
         "source_root_url": book_data.get("source_root_url"),
         "source_host": book_data.get("source_host"),
         "page_url_map": book_data.get("page_url_map") or {},
+        "url_to_page_id": book_data.get("url_to_page_id") or {},
+        "page_nav": book_data.get("page_nav") or {},
+        "page_preview_map": _build_url_page_preview_map(book_data) if _is_url_book_name(pdf_name) else {},
     }
     return jsonify({"status": "ok", "meta": meta})
 
@@ -1635,6 +2000,7 @@ def create_url_book_api():
         try:
             with open(json_path, "r", encoding="utf-8") as f:
                 book_data = json.load(f)
+            _ensure_url_page_nav(book_data)
         except Exception:
             book_data = {}
         return jsonify({
@@ -1643,6 +2009,7 @@ def create_url_book_api():
             "exists": True,
             "title": (book_data or {}).get("title"),
             "page_count": (book_data or {}).get("page_count"),
+            "page_nav": (book_data or {}).get("page_nav") or {},
         })
 
     profiles = load_site_profiles(CONFIG_FOLDER)
@@ -1651,6 +2018,7 @@ def create_url_book_api():
 
     try:
         book_data = build_url_book_data(normalized, title=title, site_profile=profile)
+        _ensure_url_page_nav(book_data)
         save_url_book(json_path, book_data)
     except Exception as e:
         app.logger.exception("URL book create failed")
@@ -1662,6 +2030,7 @@ def create_url_book_api():
         "exists": False,
         "title": book_data.get("title"),
         "page_count": book_data.get("page_count"),
+        "page_nav": book_data.get("page_nav") or {},
     })
 
 
@@ -1697,7 +2066,8 @@ def navigate_url_book_api():
 
     try:
         page_number, page_data, added = ensure_url_page_in_book(book_data, normalized, site_profile=profile)
-        if added:
+        nav_changed = _ensure_url_page_nav(book_data)
+        if added or nav_changed:
             save_url_book(json_path, book_data)
     except Exception as e:
         app.logger.exception("URL book navigate failed")
@@ -1711,6 +2081,8 @@ def navigate_url_book_api():
         "trans_status_counts": book_data.get("trans_status_counts"),
         "title": book_data.get("title"),
         "page_url_map": book_data.get("page_url_map") or {},
+        "url_to_page_id": book_data.get("url_to_page_id") or {},
+        "page_nav": book_data.get("page_nav") or {},
     })
 
 
@@ -1772,7 +2144,8 @@ def import_url_book_html_api():
             site_profile=profile,
             force=force,
         )
-        if added or updated:
+        nav_changed = _ensure_url_page_nav(book_data)
+        if added or updated or nav_changed:
             save_url_book(json_path, book_data)
     except Exception as e:
         app.logger.exception("URL book import_html failed")
@@ -1803,6 +2176,8 @@ def import_url_book_html_api():
         "trans_status_counts": book_data.get("trans_status_counts"),
         "title": book_data.get("title"),
         "page_url_map": book_data.get("page_url_map") or {},
+        "url_to_page_id": book_data.get("url_to_page_id") or {},
+        "page_nav": book_data.get("page_nav") or {},
         "added": bool(added),
         "updated": bool(updated),
         "exists": bool(exists),
@@ -1853,7 +2228,8 @@ def import_url_book_url_api():
             site_profile=profile,
             force=force,
         )
-        if added or updated:
+        nav_changed = _ensure_url_page_nav(book_data)
+        if added or updated or nav_changed:
             save_url_book(json_path, book_data)
     except Exception as e:
         app.logger.exception("URL book import_url failed")
@@ -1882,6 +2258,8 @@ def import_url_book_url_api():
         "trans_status_counts": book_data.get("trans_status_counts"),
         "title": book_data.get("title"),
         "page_url_map": book_data.get("page_url_map") or {},
+        "url_to_page_id": book_data.get("url_to_page_id") or {},
+        "page_nav": book_data.get("page_nav") or {},
         "added": bool(added),
         "updated": bool(updated),
         "exists": bool(exists),
@@ -1988,6 +2366,154 @@ def current_url_book_api():
     return _corsify_response(resp)
 
 
+@app.route("/api/url_book/page_nav/<path:book_name>", methods=["GET", "PUT"])
+def url_book_page_nav_api(book_name: str):
+    normalized = _normalize_pdf_name(book_name or "")
+    if not normalized or not _is_url_book_name(normalized):
+        return jsonify({"status": "error", "message": "book_nameが不正です"}), 400
+
+    _, json_path = get_paths(normalized)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "URLブックが存在しません"}), 404
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            book_data = json.load(f)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"URLブックの読み込みに失敗しました: {str(e)}"}), 500
+
+    if request.method == "GET":
+        changed = _ensure_url_page_nav(book_data)
+        if changed:
+            save_url_book(json_path, book_data)
+        return jsonify({
+            "status": "ok",
+            "page_nav": book_data.get("page_nav") or {},
+            "revision": _parse_int((book_data.get("page_nav") or {}).get("revision"), 1),
+        }), 200
+
+    payload = request.get_json(silent=True) or {}
+    expected_revision = _parse_int(payload.get("revision"), 0)
+    changed = _ensure_url_page_nav(book_data)
+    current_revision = _parse_int((book_data.get("page_nav") or {}).get("revision"), 1)
+    if changed:
+        save_url_book(json_path, book_data)
+
+    if expected_revision != current_revision:
+        return jsonify({
+            "status": "error",
+            "message": "ページリストが更新されています。再読み込みしてください",
+            "revision": current_revision,
+            "page_nav": book_data.get("page_nav") or {},
+        }), 409
+
+    incoming = payload.get("page_nav")
+    if not isinstance(incoming, dict):
+        return jsonify({"status": "error", "message": "page_navが不正です"}), 400
+
+    book_data["page_nav"] = incoming
+    _ensure_url_page_nav(book_data)
+    next_revision = current_revision + 1
+    book_data["page_nav"]["revision"] = next_revision
+    save_url_book(json_path, book_data)
+
+    return jsonify({
+        "status": "ok",
+        "page_nav": book_data.get("page_nav") or {},
+        "revision": next_revision,
+    }), 200
+
+
+@app.route("/api/url_book/page_nav/move", methods=["POST"])
+def move_url_book_page_nav_api():
+    payload = request.get_json(silent=True) or {}
+    book_name = _normalize_pdf_name(payload.get("book_name") or "")
+    if not book_name or not _is_url_book_name(book_name):
+        return jsonify({"status": "error", "message": "book_nameが不正です"}), 400
+
+    node_id = str(payload.get("node_id") or "").strip()
+    op = str(payload.get("op") or "").strip().lower()
+    expected_revision = _parse_int(payload.get("revision"), 0)
+    if not node_id:
+        return jsonify({"status": "error", "message": "node_idが不正です"}), 400
+
+    _, json_path = get_paths(book_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "URLブックが存在しません"}), 404
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            book_data = json.load(f)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"URLブックの読み込みに失敗しました: {str(e)}"}), 500
+
+    changed = _ensure_url_page_nav(book_data)
+    page_nav = book_data.get("page_nav") or {}
+    current_revision = _parse_int(page_nav.get("revision"), 1)
+    if changed:
+        save_url_book(json_path, book_data)
+
+    if expected_revision != current_revision:
+        return jsonify({
+            "status": "error",
+            "message": "ページリストが更新されています。再読み込みしてください",
+            "revision": current_revision,
+            "page_nav": page_nav,
+        }), 409
+
+    ok, message = _move_url_page_nav_node(page_nav, node_id, op)
+    if not ok:
+        return jsonify({
+            "status": "error",
+            "message": message,
+            "revision": current_revision,
+            "page_nav": page_nav,
+        }), 400
+
+    page_nav["selected_node_id"] = node_id
+    page_nav["revision"] = current_revision + 1
+    save_url_book(json_path, book_data)
+
+    return jsonify({
+        "status": "ok",
+        "page_nav": page_nav,
+        "revision": page_nav.get("revision"),
+    }), 200
+
+
+@app.route("/api/url_book/page_nav/rebuild", methods=["POST"])
+def rebuild_url_book_page_nav_api():
+    payload = request.get_json(silent=True) or {}
+    book_name = _normalize_pdf_name(payload.get("book_name") or "")
+    if not book_name or not _is_url_book_name(book_name):
+        return jsonify({"status": "error", "message": "book_nameが不正です"}), 400
+
+    _, json_path = get_paths(book_name)
+    if not os.path.exists(json_path):
+        return jsonify({"status": "error", "message": "URLブックが存在しません"}), 404
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            book_data = json.load(f)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"URLブックの読み込みに失敗しました: {str(e)}"}), 500
+
+    before_revision = _parse_int((book_data.get("page_nav") or {}).get("revision"), 1)
+    changed = _ensure_url_page_nav(book_data)
+
+    page_nav = (book_data.get("page_nav") or {}) if isinstance(book_data.get("page_nav"), dict) else {}
+    if changed:
+        page_nav["revision"] = max(1, before_revision) + 1
+        book_data["page_nav"] = page_nav
+        save_url_book(json_path, book_data)
+
+    return jsonify({
+        "status": "ok",
+        "page_nav": page_nav,
+        "revision": page_nav.get("revision"),
+    }), 200
+
+
 @app.route("/api/url_book/crawl", methods=["POST"])
 def crawl_url_book_api():
     payload = request.get_json(silent=True) or {}
@@ -2043,7 +2569,8 @@ def crawl_url_book_api():
             app.logger.warning(f"Failed to add URL {url}: {e}")
             continue
 
-    if added_count > 0:
+    nav_changed = _ensure_url_page_nav(book_data)
+    if added_count > 0 or nav_changed:
         save_url_book(json_path, book_data)
 
     return jsonify({
@@ -2052,6 +2579,7 @@ def crawl_url_book_api():
         "added": added_count,
         "page_count": book_data.get("page_count"),
         "trans_status_counts": book_data.get("trans_status_counts"),
+        "page_nav": book_data.get("page_nav") or {},
     })
 
 

@@ -5,8 +5,367 @@ function tocDebugLog(...args) {
   }
 }
 
+function isUrlBookTocMode() {
+  const bodyType = document.body?.dataset?.bookType;
+  if (bodyType === 'url') return true;
+  return String(bookData?.source_type || '') === 'url';
+}
+
+function applyTocColumnModeStyles() {
+  const pageCols = document.querySelectorAll('.toc-page');
+  const srcCols = document.querySelectorAll('.toc-src');
+  const transCols = document.querySelectorAll('.toc-trans');
+  const readToggleState = (toggleId, fallback = true) => {
+    const input = document.getElementById(`auto-toggle-input-${toggleId}`);
+    if (input && input.type === 'checkbox') {
+      return Boolean(input.checked);
+    }
+    if (window.autoToggle && typeof window.autoToggle.getState === 'function') {
+      const cached = window.autoToggle.getState(toggleId);
+      if (typeof cached === 'boolean') return cached;
+    }
+    return fallback;
+  };
+
+  const showPage = readToggleState('toggleTocPage', true);
+  const showSrc = readToggleState('toggleTocSrc', true);
+  const showTrans = readToggleState('toggleTocTrans', true);
+
+  const setDisplay = (elements, value) => {
+    elements.forEach((el) => {
+      el.style.display = value;
+    });
+  };
+
+  setDisplay(pageCols, showPage ? 'table-cell' : 'none');
+  setDisplay(srcCols, showSrc ? 'table-cell' : 'none');
+  setDisplay(transCols, showTrans ? 'table-cell' : 'none');
+
+  const srcMarkers = document.querySelectorAll('.url-nav-src .toc-toggle, .url-nav-src .toc-toggle-blank');
+  const transMarkers = document.querySelectorAll('.url-nav-trans .toc-toggle, .url-nav-trans .toc-toggle-blank');
+  const srcGaps = document.querySelectorAll('.url-nav-src .url-nav-toggle-gap');
+  const transGaps = document.querySelectorAll('.url-nav-trans .url-nav-toggle-gap');
+
+  const showSrcMarker = showSrc;
+  const showTransMarker = !showSrc && showTrans;
+
+  srcMarkers.forEach((el) => {
+    el.style.display = showSrcMarker ? 'flex' : 'none';
+  });
+  transMarkers.forEach((el) => {
+    el.style.display = showTransMarker ? 'flex' : 'none';
+  });
+  srcGaps.forEach((el) => {
+    el.style.display = showSrcMarker ? 'inline-block' : 'none';
+  });
+  transGaps.forEach((el) => {
+    el.style.display = showTransMarker ? 'inline-block' : 'none';
+  });
+}
+
+window.applyTocColumnModeStyles = applyTocColumnModeStyles;
+
+function shortUrlForNav(rawUrl) {
+  const text = String(rawUrl || '').trim();
+  if (!text) return '';
+  try {
+    const u = new URL(text);
+    const path = `${u.pathname || '/'}${u.search || ''}`;
+    return `${u.host}${path}`;
+  } catch (_e) {
+    return text;
+  }
+}
+
+function getFirstParagraphForUrlPage(page) {
+  const paragraphs = (page && typeof page === 'object' && page.paragraphs && typeof page.paragraphs === 'object')
+    ? Object.values(page.paragraphs)
+    : [];
+  if (!Array.isArray(paragraphs) || paragraphs.length === 0) {
+    return null;
+  }
+
+  const list = paragraphs
+    .filter((p) => p && typeof p === 'object')
+    .map((p) => {
+      const order = Number(p.order);
+      const columnOrder = Number(p.column_order);
+      const bboxY = Number(Array.isArray(p.bbox) ? p.bbox[1] : 0);
+      return {
+        paragraph: p,
+        order: Number.isFinite(order) ? order : Number.MAX_SAFE_INTEGER,
+        columnOrder: Number.isFinite(columnOrder) ? columnOrder : Number.MAX_SAFE_INTEGER,
+        bboxY: Number.isFinite(bboxY) ? bboxY : Number.MAX_SAFE_INTEGER,
+      };
+    });
+
+  if (list.length === 0) return null;
+
+  list.sort((a, b) => {
+    if (a.order !== b.order) return a.order - b.order;
+    if (a.columnOrder !== b.columnOrder) return a.columnOrder - b.columnOrder;
+    if (a.bboxY !== b.bboxY) return a.bboxY - b.bboxY;
+    return String(a.paragraph?.id || '').localeCompare(String(b.paragraph?.id || ''));
+  });
+
+  return list[0].paragraph;
+}
+
+function ensureUrlPageNavClientState() {
+  if (!isUrlBookTocMode()) return null;
+  if (!bookData || typeof bookData !== 'object') return null;
+
+  const pages = (bookData.pages && typeof bookData.pages === 'object') ? bookData.pages : {};
+  const pageIds = Object.keys(pages).length > 0
+    ? Object.keys(pages)
+    : Object.keys(bookData.page_url_map || {});
+  pageIds.sort((a, b) => {
+    const aa = Number(a);
+    const bb = Number(b);
+    if (Number.isFinite(aa) && Number.isFinite(bb)) return aa - bb;
+    return String(a).localeCompare(String(b));
+  });
+
+  if (!bookData.page_nav || typeof bookData.page_nav !== 'object') {
+    bookData.page_nav = { root_children: [], nodes: {}, selected_node_id: '', revision: 1 };
+  }
+  const nav = bookData.page_nav;
+  if (!Array.isArray(nav.root_children)) nav.root_children = [];
+  if (!nav.nodes || typeof nav.nodes !== 'object') nav.nodes = {};
+
+  const pageToNode = {};
+  const usedIds = new Set(Object.keys(nav.nodes));
+  for (const [nodeId, node] of Object.entries(nav.nodes)) {
+    const pageId = String(node?.page_id || '');
+    if (pageId) pageToNode[pageId] = nodeId;
+  }
+
+  const appendRoot = [];
+  for (const pageId of pageIds) {
+    if (pageToNode[pageId]) continue;
+    let nodeId = `n_${String(pageId).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    if (!nodeId) nodeId = 'n_page';
+    let suffix = 2;
+    while (usedIds.has(nodeId)) {
+      nodeId = `${nodeId}_${suffix}`;
+      suffix += 1;
+    }
+    usedIds.add(nodeId);
+    nav.nodes[nodeId] = {
+      id: nodeId,
+      page_id: String(pageId),
+      parent_id: null,
+      children: [],
+      collapsed: false,
+      manual_title: null,
+    };
+    appendRoot.push(nodeId);
+  }
+  if (appendRoot.length > 0) {
+    nav.root_children.push(...appendRoot);
+  }
+
+  if (!nav.selected_node_id || !nav.nodes[nav.selected_node_id]) {
+    nav.selected_node_id = nav.root_children[0] || '';
+  }
+  if (!Number.isFinite(Number(nav.revision)) || Number(nav.revision) < 1) {
+    nav.revision = 1;
+  }
+  return nav;
+}
+
+window.ensureUrlPageNavClientState = ensureUrlPageNavClientState;
+
+function refreshUrlNavRowVisibility() {
+  if (!isUrlBookTocMode()) return;
+  const nav = ensureUrlPageNavClientState();
+  if (!nav) return;
+
+  const openSet = new Set();
+  const walk = (nodeId, parentVisible) => {
+    const node = nav.nodes[nodeId];
+    if (!node) return;
+    const row = document.querySelector(`#toc-row-${nodeId}`);
+    if (row) {
+      row.style.display = parentVisible ? 'table-row' : 'none';
+      const isOpen = !Boolean(node.collapsed);
+      row.setAttribute('data-open', isOpen ? 'true' : 'false');
+      if (isOpen) openSet.add(nodeId);
+    }
+    const childVisible = parentVisible && !Boolean(node.collapsed);
+    for (const childId of node.children || []) {
+      walk(childId, childVisible);
+    }
+  };
+
+  for (const rootId of nav.root_children || []) {
+    walk(rootId, true);
+  }
+}
+
+function renderUrlPageNavRows() {
+  const nav = ensureUrlPageNavClientState();
+  if (!nav) return '';
+
+  const rows = [];
+  const visited = new Set();
+
+  const walk = (nodeId, parentId = null, nestLevel = 1) => {
+    const node = nav.nodes[nodeId];
+    if (!node || visited.has(nodeId)) return;
+    visited.add(nodeId);
+
+    const pageId = String(node.page_id || '');
+    const page = bookData?.pages?.[pageId] || {};
+    const preview = bookData?.page_preview_map?.[pageId] || {};
+    const pageUrl = String(page.url || bookData?.page_url_map?.[pageId] || '').trim();
+    const firstParagraph = getFirstParagraphForUrlPage(page);
+    const paragraphId = String(firstParagraph?.id || preview?.paragraph_id || '').trim();
+    const indentText = '　'.repeat(Math.max(0, nestLevel - 1));
+    const srcLabel = String(
+      firstParagraph?.src_text
+      || preview?.src_text
+      || firstParagraph?.src_joined
+      || node.manual_title
+      || page.title
+      || pageUrl
+      || `Page ${pageId}`
+    ).trim();
+    const transLabel = String(
+      firstParagraph?.trans_text
+      || preview?.trans_text
+      || firstParagraph?.trans_auto
+      || shortUrlForNav(pageUrl)
+      || ''
+    ).trim();
+    const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+    const rowId = `toc-row-${nodeId}`;
+    const rowClass = parentId ? `child-of-${parentId}` : '';
+    const selectedClass = String(nav.selected_node_id || '') === nodeId ? 'toc-row-selected' : '';
+    const isOpen = !Boolean(node.collapsed);
+
+    const toggleMarker = hasChildren
+      ? `<span class="toc-toggle nest-level-${nestLevel}" data-target="${nodeId}"></span>`
+      : `<span class="toc-toggle-blank nest-level-${nestLevel}"></span>`;
+
+    rows.push(`
+      <tr id="${rowId}" class="${rowClass} ${selectedClass}" data-row-id="${nodeId}" data-node-id="${nodeId}" data-parent="${parentId || ''}" data-nest-level="${nestLevel}" data-open="${isOpen ? 'true' : 'false'}">
+        <td class="toc-page">${pageId}</td>
+        <td class="toc-src url-nav-src">
+          ${toggleMarker}<span class="url-nav-toggle-gap" aria-hidden="true"></span><a class="url-nav-label" href="#" data-node-id="${nodeId}" data-page-number="${pageId}" data-id="${paragraphId}">${indentText}${srcLabel}</a>
+        </td>
+        <td class="toc-trans url-nav-trans">
+          ${toggleMarker}<span class="url-nav-toggle-gap" aria-hidden="true"></span><a class="url-nav-label" href="#" data-node-id="${nodeId}" data-page-number="${pageId}" data-id="${paragraphId}">${indentText}${transLabel}</a>
+        </td>
+      </tr>
+    `);
+
+    for (const childId of node.children || []) {
+      walk(childId, nodeId, Math.min(6, nestLevel + 1));
+    }
+  };
+
+  for (const rootId of nav.root_children || []) {
+    walk(rootId, null, 1);
+  }
+
+  return rows.join('\n');
+}
+
+async function moveSelectedUrlNav(op) {
+  if (!isUrlBookTocMode()) return;
+  const nav = ensureUrlPageNavClientState();
+  if (!nav) return;
+
+  const nodeId = String(nav.selected_node_id || '').trim();
+  if (!nodeId) return;
+
+  try {
+    const res = await fetch('/api/url_book/page_nav/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        book_name: pdfName,
+        node_id: nodeId,
+        op,
+        revision: Number(nav.revision || 1),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.status !== 'ok') {
+      if (res.status === 409 && data.page_nav) {
+        bookData.page_nav = data.page_nav;
+        showToc();
+      }
+      alert(data.message || `ページリスト更新に失敗しました (${res.status})`);
+      return;
+    }
+    bookData.page_nav = data.page_nav || bookData.page_nav;
+    showToc();
+  } catch (e) {
+    alert(`ページリスト更新に失敗しました: ${e}`);
+  }
+}
+
+async function rebuildUrlNavTree() {
+  if (!isUrlBookTocMode()) return;
+  if (!confirm('現在のページツリーをページ同期します。よろしいですか？')) return;
+
+  try {
+    const res = await fetch('/api/url_book/page_nav/rebuild', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ book_name: pdfName }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.status !== 'ok') {
+      alert(data.message || `ページツリー同期に失敗しました (${res.status})`);
+      return;
+    }
+    bookData.page_nav = data.page_nav || bookData.page_nav;
+    showToc();
+  } catch (e) {
+    alert(`ページツリー同期に失敗しました: ${e}`);
+  }
+}
+
+function bindUrlNavControls() {
+  const rebuildButton = document.getElementById('urlNavRebuild');
+  if (rebuildButton && !rebuildButton.dataset.bound) {
+    rebuildButton.dataset.bound = '1';
+    rebuildButton.addEventListener('click', () => {
+      rebuildUrlNavTree();
+    });
+  }
+
+  const map = [
+    ['urlNavMoveUp', 'up'],
+    ['urlNavMoveDown', 'down'],
+    ['urlNavIndent', 'indent'],
+    ['urlNavOutdent', 'outdent'],
+  ];
+  for (const [id, op] of map) {
+    const button = document.getElementById(id);
+    if (!button || button.dataset.bound) continue;
+    button.dataset.bound = '1';
+    button.addEventListener('click', () => {
+      moveSelectedUrlNav(op);
+    });
+  }
+}
+
+function updateTocHeaderMode() {
+  const isUrl = isUrlBookTocMode();
+  const actions = document.getElementById('urlPageNavActions');
+
+  if (actions) {
+    actions.style.display = isUrl ? 'inline-flex' : 'none';
+  }
+}
+
 function initTocPanel() {
   tocDebugLog("Initializing TOC Panel");
+  bindUrlNavControls();
 }
 
 function headlineParagraphs() {
@@ -55,6 +414,15 @@ function headlineParagraphs() {
 function showToc(isTrans) {
   const tbody = document.querySelector(".tocTable tbody");
 
+  updateTocHeaderMode();
+
+  if (isUrlBookTocMode()) {
+    tbody.innerHTML = renderUrlPageNavRows();
+    refreshUrlNavRowVisibility();
+    applyTocColumnModeStyles();
+    return;
+  }
+
   const paragraphsArray = headlineParagraphs();
   
   if (paragraphsArray.length === 0) {
@@ -65,6 +433,8 @@ function showToc(isTrans) {
     tbody.innerHTML = renderTocTableRows(tocTree);
     expandUpToLimit(30);
   }
+
+  applyTocColumnModeStyles();
 }
 
 function renderTocTableRows(tocNode) {
@@ -158,6 +528,14 @@ document.addEventListener("click", function (e) {
     tocDebugLog("Toggle clicked:", targetId);
     const parentRow = document.querySelector(`#toc-row-${targetId}`);
 
+    if (isUrlBookTocMode()) {
+      const nav = ensureUrlPageNavClientState();
+      if (!nav || !nav.nodes?.[targetId]) return;
+      nav.nodes[targetId].collapsed = !Boolean(nav.nodes[targetId].collapsed);
+      refreshUrlNavRowVisibility();
+      return;
+    }
+
     const wasOpen = parentRow.getAttribute("data-open") === "true";
     parentRow.setAttribute("data-open", wasOpen ? "false" : "true");
 
@@ -232,6 +610,34 @@ document.addEventListener("click", function (event) {
   if (!link) return;
 
   event.preventDefault();
+
+  if (isUrlBookTocMode()) {
+    const nodeId = String(link.dataset.nodeId || '').trim();
+    const pageNumber = parseInt(link.dataset.pageNumber, 10);
+    const paragraphId = String(link.dataset.id || '').trim();
+    const nav = ensureUrlPageNavClientState();
+    if (nav && nodeId && nav.nodes?.[nodeId]) {
+      nav.selected_node_id = nodeId;
+      showToc();
+    }
+
+    const scrollToParagraph = () => {
+      if (!paragraphId) return;
+      const el = document.getElementById(`paragraph-${paragraphId}`);
+      if (el) el.scrollIntoView({ behavior: 'auto', block: 'start' });
+    };
+
+    if (Number.isFinite(pageNumber) && pageNumber >= 1) {
+      if (pageNumber !== currentPage) {
+        jumpToPage(pageNumber);
+        setTimeout(scrollToParagraph, 500);
+      } else {
+        scrollToParagraph();
+      }
+    }
+    return;
+  }
+
   const id = link.dataset.id;
   const page_number = parseInt(link.dataset.pageNumber);
 

@@ -192,10 +192,21 @@ async function processUrlImportEvent(event) {
     if (bookData && bookData.page_url_map && event.url) {
         bookData.page_url_map[String(pageNum)] = event.url;
     }
+    if (bookData && isUrlBookContext()) {
+        if (!bookData.page_nav || typeof bookData.page_nav !== 'object') {
+            bookData.page_nav = { root_children: [], nodes: {}, selected_node_id: '', revision: 1 };
+        }
+        if (typeof ensureUrlPageNavClientState === 'function') {
+            ensureUrlPageNavClientState();
+        }
+    }
 
     await fetchAndApplyPage(pageNum);
     if (typeof fetchAndApplyToc === 'function') {
         await fetchAndApplyToc();
+    }
+    if (typeof showToc === 'function') {
+        showToc();
     }
     await jumpToPage(pageNum, { updateUrl: true, preserveScroll: false });
 }
@@ -276,6 +287,14 @@ async function navigateUrlBook(targetUrl) {
             bookData.page_url_map = data.page_url_map;
         }
 
+        if (data.url_to_page_id) {
+            bookData.url_to_page_id = data.url_to_page_id;
+        }
+
+        if (data.page_nav) {
+            bookData.page_nav = data.page_nav;
+        }
+
         if (data.trans_status_counts) {
             updateTransStatusCounts(data.trans_status_counts);
         }
@@ -286,6 +305,9 @@ async function navigateUrlBook(targetUrl) {
 
         if (typeof fetchAndApplyToc === 'function') {
             await fetchAndApplyToc();
+        }
+        if (typeof showToc === 'function') {
+            showToc();
         }
 
         await jumpToPage(data.page_number, { updateUrl: true, preserveScroll: false });

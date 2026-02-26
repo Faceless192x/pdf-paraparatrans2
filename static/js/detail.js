@@ -656,6 +656,15 @@ function autoToggleChanged(event) {
         console.log(`トグルスイッチ ${id} が ${newState ? 'ON' : 'OFF'} に変更されました。`);
     }
 
+    if (typeof isUrlBook === 'function' && isUrlBook()) {
+        if (id === 'toggleTocPage' || id === 'toggleTocSrc' || id === 'toggleTocTrans') {
+            if (typeof applyTocColumnModeStyles === 'function') {
+                applyTocColumnModeStyles();
+            }
+            return;
+        }
+    }
+
     if (id === 'toggleTocPanel') {
         // 目次パネル本体のON/OFF（トグルボタン自体は常に表示）
         let tocPanel = document.getElementById("tocPanel");

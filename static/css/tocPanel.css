@@ -153,6 +153,59 @@
   text-decoration: underline;  /* ホバー時に下線だけ出す等もOK */
 }
 
+.tocTable td.url-nav-src,
+.tocTable td.url-nav-trans {
+  padding-left: 0;
+}
+
+.tocTable td.url-nav-src .url-nav-toggle-gap {
+  display: inline-block;
+  width: 24px;
+}
+
+.tocTable td.url-nav-trans .url-nav-toggle-gap {
+  display: inline-block;
+  width: 24px;
+}
+
+.tocTable td.url-nav-src .url-nav-label,
+.tocTable td.url-nav-trans .url-nav-label {
+  display: inline-block;
+  max-width: calc(100% - 22px);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.tocTable td.url-nav-trans .url-nav-label {
+  max-width: 100%;
+}
+
+.tocTable td.url-nav-src .toc-toggle,
+.tocTable td.url-nav-src .toc-toggle-blank,
+.tocTable td.url-nav-trans .toc-toggle,
+.tocTable td.url-nav-trans .toc-toggle-blank {
+  left: 0 !important;
+}
+
+.tocTable tr.toc-row-selected td {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+#urlPageNavActions {
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+#urlPageNavActions button {
+  min-width: 24px;
+  padding: 0 4px;
+  line-height: 1.2;
+}
+
 
 /* マーカーの共通スタイル */
 .toc-toggle,
@@ -203,8 +256,17 @@ tr[data-open="false"] .toc-toggle::before {
 }
 /* ===== Template-inline styles extracted to CSS ===== */
 #tocPanelHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
     padding-left: 10px;
     border-bottom: 1px solid var(--border);
+}
+
+#tocPanelHeader .auto-toggle-checkbox-container,
+#tocPanelHeader .auto-toggle {
+  margin-right: 4px;
 }
 
 @media (prefers-color-scheme: dark) {
