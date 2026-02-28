@@ -174,6 +174,7 @@
       const moveDialogEl = document.getElementById('pdf-move-dialog');
       const moveTargetEl = document.getElementById('pdf-move-target');
       const uploadButtonLabel = uploadButton.textContent;
+      const isCodespacesHost = /\.github\.dev$/i.test(window.location.hostname || '');
       const currentDir = "{{ current_dir|e }}";
       let pendingMovePdfName = '';
 
@@ -263,6 +264,16 @@
 
           if (res.status === 409) {
             setUploadStatus((data.message ? `${data.message}\n` : '') + 'ファイル名（同名）を変えて再試行してください。');
+          } else if (res.status === 413) {
+            if (isCodespacesHost) {
+              setUploadStatus(
+                'アップロードに失敗しました (413)\n'
+                + 'Codespaces のポート転送側のサイズ制限によりアップロードできません。\n'
+                + '左のファイルツリーから data/ フォルダへPDFを直接アップロードしてください。'
+              );
+            } else {
+              setUploadStatus('アップロードに失敗しました (413)\nファイルサイズが大きすぎる可能性があります。');
+            }
           } else {
             setUploadStatus(data.message || `アップロードに失敗しました (${res.status})`);
           }
