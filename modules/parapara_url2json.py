@@ -11,7 +11,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 from urllib.robotparser import RobotFileParser
 
 import requests
-from bs4 import BeautifulSoup, Comment
+from bs4 import BeautifulSoup, Comment, UnicodeDammit
 
 
 _BAD_CLASS_RE = re.compile(
@@ -96,7 +96,49 @@ def save_url_book(path: str, book_data: Dict[str, Any]) -> None:
     _atomic_save_json(path, book_data)
 
 
-def fetch_html(url: str, timeout: int = 15) -> str:
+def _site_profile_encoding(site_profile: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not isinstance(site_profile, dict):
+        return None
+    for key in ("force_encoding", "preferred_encoding", "encoding"):
+        value = site_profile.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _decode_html_bytes(content: bytes, *, preferred_encoding: Optional[str], http_encoding: Optional[str]) -> str:
+    override = preferred_encoding.strip() if isinstance(preferred_encoding, str) and preferred_encoding.strip() else None
+    header_enc = http_encoding.strip() if isinstance(http_encoding, str) and http_encoding.strip() else None
+
+    candidates: List[str] = []
+    for enc in (override, header_enc, "utf-8", "cp932", "shift_jis", "euc_jp", "iso-2022-jp"):
+        if not enc:
+            continue
+        if enc not in candidates:
+            candidates.append(enc)
+
+    dammit = UnicodeDammit(content, is_html=True, override_encodings=candidates or None)
+    if isinstance(dammit.unicode_markup, str):
+        return dammit.unicode_markup
+
+    apparent = None
+    try:
+        apparent = requests.utils.get_encodings_from_content(content.decode("latin-1", errors="ignore"))
+        apparent = apparent[0] if apparent else None
+    except Exception:
+        apparent = None
+
+    for enc in [override, header_enc, apparent, "utf-8", "cp932", "shift_jis", "euc_jp", "iso-2022-jp", "latin-1"]:
+        if not enc:
+            continue
+        try:
+            return content.decode(enc, errors="replace")
+        except Exception:
+            continue
+    return content.decode("utf-8", errors="replace")
+
+
+def fetch_html(url: str, timeout: int = 15, *, preferred_encoding: Optional[str] = None) -> str:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
@@ -104,8 +146,18 @@ def fetch_html(url: str, timeout: int = 15) -> str:
     }
     resp = requests.get(url, headers=headers, timeout=timeout)
     resp.raise_for_status()
-    resp.encoding = resp.encoding or "utf-8"
-    return resp.text
+
+    http_encoding = None
+    try:
+        http_encoding = requests.utils.get_encoding_from_headers(resp.headers)
+    except Exception:
+        http_encoding = resp.encoding
+
+    return _decode_html_bytes(
+        resp.content,
+        preferred_encoding=preferred_encoding,
+        http_encoding=http_encoding,
+    )
 
 
 def _strip_noise(soup: BeautifulSoup) -> None:
@@ -418,7 +470,8 @@ def build_url_book_data(
     title: Optional[str] = None,
     site_profile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    html_text = fetch_html(root_url)
+    preferred_encoding = _site_profile_encoding(site_profile)
+    html_text = fetch_html(root_url, preferred_encoding=preferred_encoding)
     page_title, blocks = extract_page_from_html(html_text, root_url, site_profile)
 
     page_number = 1
@@ -469,7 +522,8 @@ def ensure_url_page_in_book(
         page = (book_data.get("pages") or {}).get(page_key)
         return int(page_key), page or {}, False
 
-    html_text = fetch_html(normalized)
+    preferred_encoding = _site_profile_encoding(site_profile)
+    html_text = fetch_html(normalized, preferred_encoding=preferred_encoding)
     page_title, blocks = extract_page_from_html(html_text, normalized, site_profile)
     blocks = _prepend_title_block(page_title or normalized, blocks)
 
@@ -656,6 +710,8 @@ def crawl_site(
             return False
         return True
 
+    preferred_encoding = _site_profile_encoding(site_profile)
+
     while queue and len(visited) < max_pages:
         current = queue.popleft()
         if current in visited:
@@ -667,7 +723,7 @@ def crawl_site(
         discovered_urls.append(current)
 
         try:
-            html_text = fetch_html(current)
+            html_text = fetch_html(current, preferred_encoding=preferred_encoding)
             links = _extract_links_from_html(html_text, current)
             for link in links:
                 if link not in visited:

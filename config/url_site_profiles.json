@@ -13,5 +13,11 @@
       "div.entry-meta > div.blog-data-wrapper > div.post-data-positioning > div.post-data-text"
     ],
     "exclude_selectors": []
+  },
+  "www2u.biglobe.ne.jp": {
+    "force_encoding": "cp932",
+    "include_selectors": [],
+    "add_selectors": [],
+    "exclude_selectors": []
   }
 }
