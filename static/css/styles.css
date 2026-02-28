@@ -454,6 +454,9 @@ a {
     --th-fg: #1e293b;
     --th-border: #4f46e5;
 
+    /* src_joined: block_tag=p かつ末尾ピリオドなしの注意色（見出し色と被らない暖色系） */
+    --src-joined-alert-bg: #fff1cc;
+
     /* Tables: readable borders for both light/dark (follows OS setting) */
     --table-border: rgba(0, 0, 0, 0.22);
     --table-border-strong: rgba(0, 0, 0, 0.35);
@@ -495,6 +498,9 @@ a {
         --th-bg: #2d2847;
         --th-fg: #d0d9f7;
         --th-border: #6366f1;
+
+        /* Dark mode: src_joined 注意色（暖色・低彩度） */
+        --src-joined-alert-bg: #4a3a18;
 
         /* Dark mode: List items */
         --li-bg: #1a3a4a;

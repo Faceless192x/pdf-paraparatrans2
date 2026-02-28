@@ -534,6 +534,7 @@ async function onSaveButtonClick(event, paragraph, divSrc, srcText, transText, b
     // パラグラフの背景をblock_tagに基づいて更新
     const blockTagClass = `block-tag-${blockTagSelect.value}`;
     divSrc.className = divSrc.className.replace(/block-tag-\S+/g, '').trim() + ` ${blockTagClass}`;
+    applySrcJoinedEndingClass(divSrc, paragraphDict);
 
     const editBox = divSrc.querySelector('.edit-box');
     editBox.className = `edit-box status-${selectedStatus.value}`;
@@ -574,6 +575,26 @@ function onEditCancelClick(event, paragraph, divSrc, srcText, transText, blockTa
 
     // 元のtrans_statusに基づいて背景色を復元
     updateEditUiBackground(divSrc, paragraph.trans_status);
+}
+
+function toPlainText(value) {
+    const html = String(value ?? '');
+    if (!html) return '';
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    return (temp.textContent || temp.innerText || '').trim();
+}
+
+function isSrcJoinedNoTerminalPeriod(paragraph) {
+    if (!paragraph || String(paragraph.block_tag || '').toLowerCase() !== 'p') return false;
+    const joinedText = toPlainText(paragraph.src_joined);
+    if (!joinedText) return false;
+    return !/[.!]\s*$/.test(joinedText);
+}
+
+function applySrcJoinedEndingClass(divSrc, paragraph) {
+    if (!divSrc) return;
+    divSrc.classList.toggle('src-joined-no-terminal-period', isSrcJoinedNoTerminalPeriod(paragraph));
 }
 
 /** @function renderParagraphs */
@@ -643,6 +664,7 @@ function renderParagraphs(options = {}) {
 
         let statusClass = `status-${p.trans_status}`;
         divSrc.className = `paragraph-box ${blockTagClass}`;
+        applySrcJoinedEndingClass(divSrc, p);
 
         // グループ情報に基づいてクラスを付与
         if (p.group_id) {

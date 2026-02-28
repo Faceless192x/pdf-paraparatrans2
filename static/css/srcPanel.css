@@ -139,6 +139,10 @@
     font-size: calc(1em * var(--src-panel-font-scale));
 }
 
+#srcPanel .paragraph-box.src-joined-no-terminal-period .src-joined {
+    background-color: var(--src-joined-alert-bg);
+}
+
 .edit-ui {
     display: none;
     position: absolute;
