@@ -125,6 +125,7 @@ from modules.parapara_url2json import (
     save_url_book,
 )
 from app.services.dict_service import DictService
+from app.services.chunked_upload_service import ChunkedUploadService, ChunkedUploadServiceError
 
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -139,6 +140,19 @@ _URL_IMPORT_EVENTS_LOCK = threading.Lock()
 # 一度キャッシュされると壊れたままになるので、F12→ハードキャッシュクリアを推奨。
 import mimetypes
 mimetypes.add_type('application/javascript', '.mjs')
+
+
+def _get_env_int(name: str, default: int, minimum: int = 1) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    if value < minimum:
+        return default
+    return value
 
 
 def _corsify_response(resp):
@@ -228,6 +242,9 @@ URL_BOOK_JSON_SUFFIX = ".url.json"
 # 既存コード互換のため BASE_FOLDER は data/ を指す
 BASE_FOLDER = DATA_FOLDER
 SETTINGS_PATH = os.path.join(DATA_FOLDER, "paraparatrans.settings.json")
+
+CHUNK_UPLOAD_THRESHOLD_MB = _get_env_int("CHUNK_UPLOAD_THRESHOLD_MB", 15, minimum=1)
+CHUNK_UPLOAD_THRESHOLD_BYTES = CHUNK_UPLOAD_THRESHOLD_MB * 1024 * 1024
 
 DICT_PATH = os.path.join(CONFIG_FOLDER, "dict.txt")
 SIMBLE_DICT_PATH = os.path.join(CONFIG_FOLDER, "symbolfonts.txt")
@@ -954,6 +971,12 @@ dict_service = DictService(
     should_skip_dir=_should_skip_dir,
 )
 
+chunked_upload_service = ChunkedUploadService(base_folder=BASE_FOLDER)
+try:
+    chunked_upload_service.cleanup_expired_sessions()
+except Exception as e:
+    app.logger.warning(f"古い分割アップロードセッションのクリーンアップに失敗しました: {str(e)}")
+
 
 def _sanitize_pdf_basename(original_filename: str) -> str:
     """アップロードされたファイル名から pdf_name（拡張子なし）を安全に生成する。
@@ -1335,6 +1358,7 @@ def index():
         breadcrumbs=_build_breadcrumbs(current_dir),
         all_dirs=all_dirs,
         folder_tree=folder_tree,
+        chunk_upload_threshold_bytes=CHUNK_UPLOAD_THRESHOLD_BYTES,
     )
 
 
@@ -1623,6 +1647,114 @@ def upload_pdf_api():
         except OSError:
             pass
         return jsonify({"status": "error", "message": f"アップロードに失敗しました: {str(e)}"}), 500
+
+
+@app.route("/api/upload_pdf_chunk/init", methods=["POST"])
+def upload_pdf_chunk_init_api():
+    payload = request.get_json(silent=True) or {}
+
+    original_filename = str(payload.get("filename") or "").strip()
+    if not original_filename:
+        return jsonify({"status": "error", "message": "filename が不正です"}), 400
+    if not original_filename.lower().endswith(".pdf"):
+        return jsonify({"status": "error", "message": "PDFファイルのみアップロード可能です"}), 400
+
+    try:
+        total_size = int(payload.get("size") or 0)
+    except Exception:
+        total_size = 0
+    if total_size <= 0:
+        return jsonify({"status": "error", "message": "size が不正です"}), 400
+
+    pdf_name = _sanitize_pdf_basename(original_filename)
+    if not pdf_name:
+        return jsonify({"status": "error", "message": "ファイル名が空です"}), 400
+
+    if os.path.exists(DATA_FOLDER) and not os.path.isdir(DATA_FOLDER):
+        return jsonify({"status": "error", "message": f"dataフォルダが不正です: {DATA_FOLDER}"}), 500
+    os.makedirs(DATA_FOLDER, exist_ok=True)
+    if os.path.exists(BASE_FOLDER) and not os.path.isdir(BASE_FOLDER):
+        return jsonify({"status": "error", "message": f"保存先フォルダが不正です: {BASE_FOLDER}"}), 500
+    os.makedirs(BASE_FOLDER, exist_ok=True)
+
+    dest_pdf_path, _ = get_paths(pdf_name)
+    if os.path.exists(dest_pdf_path):
+        return jsonify({"status": "error", "message": f"同名のPDFが既に存在します: {pdf_name}.pdf"}), 409
+
+    last_modified_sec = None
+    last_modified_ms_raw = payload.get("last_modified_ms")
+    if last_modified_ms_raw is not None and str(last_modified_ms_raw).strip():
+        try:
+            last_modified_sec = int(last_modified_ms_raw) / 1000.0
+        except Exception:
+            last_modified_sec = None
+
+    chunk_size = int(chunked_upload_service.chunk_size_bytes)
+    total_chunks = max(1, (total_size + chunk_size - 1) // chunk_size)
+
+    try:
+        session = chunked_upload_service.create_session(
+            pdf_name=pdf_name,
+            original_filename=original_filename,
+            dest_pdf_path=dest_pdf_path,
+            total_size=total_size,
+            total_chunks=total_chunks,
+            last_modified_sec=last_modified_sec,
+        )
+        return jsonify({"status": "ok", **session}), 201
+    except ChunkedUploadServiceError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        app.logger.exception("分割アップロード初期化に失敗")
+        return jsonify({"status": "error", "message": f"初期化に失敗しました: {str(e)}"}), 500
+
+
+@app.route("/api/upload_pdf_chunk/part", methods=["POST"])
+def upload_pdf_chunk_part_api():
+    upload_id = str(request.form.get("upload_id") or "").strip()
+    if not upload_id:
+        return jsonify({"status": "error", "message": "upload_id が不正です"}), 400
+
+    chunk_index_raw = request.form.get("chunk_index")
+    try:
+        chunk_index = int(chunk_index_raw)
+    except Exception:
+        return jsonify({"status": "error", "message": "chunk_index が不正です"}), 400
+
+    chunk_file = request.files.get("chunk")
+    if not chunk_file:
+        return jsonify({"status": "error", "message": "chunk が指定されていません"}), 400
+
+    try:
+        chunked_upload_service.save_chunk(
+            upload_id=upload_id,
+            chunk_index=chunk_index,
+            file_obj=chunk_file.stream,
+        )
+        return jsonify({"status": "ok", "upload_id": upload_id, "chunk_index": chunk_index}), 200
+    except ChunkedUploadServiceError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        app.logger.exception("分割アップロードチャンク保存に失敗")
+        return jsonify({"status": "error", "message": f"チャンク保存に失敗しました: {str(e)}"}), 500
+
+
+@app.route("/api/upload_pdf_chunk/complete", methods=["POST"])
+def upload_pdf_chunk_complete_api():
+    payload = request.get_json(silent=True) or {}
+    upload_id = str(payload.get("upload_id") or "").strip()
+    if not upload_id:
+        return jsonify({"status": "error", "message": "upload_id が不正です"}), 400
+
+    try:
+        completed = chunked_upload_service.complete_session(upload_id=upload_id)
+        app.logger.info(f"PDF分割アップロード完了: {completed.get('pdf_name')} -> {completed.get('dest_pdf_path')}")
+        return jsonify({"status": "ok", "pdf_name": completed.get("pdf_name")}), 201
+    except ChunkedUploadServiceError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        app.logger.exception("分割アップロード完了処理に失敗")
+        return jsonify({"status": "error", "message": f"完了処理に失敗しました: {str(e)}"}), 500
 
 @app.route("/detail/<path:pdf_name>")
 @app.route("/detail/<path:pdf_name>/<int:page_number>")  # page_number をオプションに

@@ -972,6 +972,8 @@ async function extractParagraphs(auto = false){
     
     if(!auto && !confirm(message)) return;
     showLog();
+    const originalCursor = document.body.style.cursor;
+    document.body.style.cursor = 'wait';
 
     try {
         const body = hasExistingData 
@@ -1006,6 +1008,8 @@ async function extractParagraphs(auto = false){
     } catch (error) {
         console.error("extractParagraphs error:", error);
         alert("パラグラフ抽出中にエラーが発生しました。");
+    } finally {
+        document.body.style.cursor = originalCursor || 'auto';
     }
 }
 

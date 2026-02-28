@@ -309,7 +309,6 @@ async function moveSelectedUrlNav(op) {
 
 async function rebuildUrlNavTree() {
   if (!isUrlBookTocMode()) return;
-  if (!confirm('現在のページツリーをページ同期します。よろしいですか？')) return;
 
   try {
     const res = await fetch('/api/url_book/page_nav/rebuild', {
@@ -319,22 +318,64 @@ async function rebuildUrlNavTree() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.status !== 'ok') {
-      alert(data.message || `ページツリー同期に失敗しました (${res.status})`);
+      alert(data.message || `ページツリー再生成に失敗しました (${res.status})`);
       return;
     }
     bookData.page_nav = data.page_nav || bookData.page_nav;
     showToc();
   } catch (e) {
-    alert(`ページツリー同期に失敗しました: ${e}`);
+    alert(`ページツリー再生成に失敗しました: ${e}`);
+  }
+}
+
+async function refreshTocPanel() {
+  const refreshButton = document.getElementById('tocRefreshButton');
+  const body = document.body;
+  const html = document.documentElement;
+
+  if (refreshButton) {
+    refreshButton.disabled = true;
+  }
+  if (body) {
+    body.style.cursor = 'wait';
+  }
+  if (html) {
+    html.style.cursor = 'wait';
+  }
+
+  try {
+    if (isUrlBookTocMode()) {
+      await rebuildUrlNavTree();
+      return;
+    }
+
+    try {
+      if (typeof fetchAndApplyToc === 'function') {
+        await fetchAndApplyToc();
+      }
+    } catch (_e) {
+      // ignore and fallback to client-side render
+    }
+    showToc();
+  } finally {
+    if (refreshButton) {
+      refreshButton.disabled = false;
+    }
+    if (body) {
+      body.style.cursor = '';
+    }
+    if (html) {
+      html.style.cursor = '';
+    }
   }
 }
 
 function bindUrlNavControls() {
-  const rebuildButton = document.getElementById('urlNavRebuild');
-  if (rebuildButton && !rebuildButton.dataset.bound) {
-    rebuildButton.dataset.bound = '1';
-    rebuildButton.addEventListener('click', () => {
-      rebuildUrlNavTree();
+  const refreshButton = document.getElementById('tocRefreshButton');
+  if (refreshButton && !refreshButton.dataset.bound) {
+    refreshButton.dataset.bound = '1';
+    refreshButton.addEventListener('click', () => {
+      refreshTocPanel();
     });
   }
 
@@ -357,9 +398,15 @@ function bindUrlNavControls() {
 function updateTocHeaderMode() {
   const isUrl = isUrlBookTocMode();
   const actions = document.getElementById('urlPageNavActions');
+  const refreshButton = document.getElementById('tocRefreshButton');
 
   if (actions) {
     actions.style.display = isUrl ? 'inline-flex' : 'none';
+  }
+  if (refreshButton) {
+    const label = isUrl ? 'ページツリーを再生成' : '目次を再生成';
+    refreshButton.title = label;
+    refreshButton.setAttribute('aria-label', label);
   }
 }
 

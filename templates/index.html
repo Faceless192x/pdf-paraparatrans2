@@ -153,6 +153,7 @@
         </table>
       </main>
     </div>
+    <script src="{{ url_for('static', filename='js/chunked_upload.js') }}"></script>
     <script>
         async function refreshBookList() {
             const url = window.location.pathname + window.location.search;
@@ -242,10 +243,6 @@
           return;
         }
         const file = uploadInput.files[0];
-        const form = new FormData();
-        form.append('file', file);
-        // PDFの更新日時を引き継ぐ（ローカルファイルのmtime）
-        form.append('last_modified_ms', String(file.lastModified || ''));
 
         uploadButton.disabled = true;
         uploadButton.classList.add('is-busy');
@@ -253,6 +250,11 @@
         setUploadStatus(`アップロード中…\n${file.name}`, false);
 
         try {
+          const form = new FormData();
+          form.append('file', file);
+          // PDFの更新日時を引き継ぐ（ローカルファイルのmtime）
+          form.append('last_modified_ms', String(file.lastModified || ''));
+
           const res = await fetch('/api/upload_pdf', { method: 'POST', body: form });
           const data = await res.json().catch(() => ({}));
 
@@ -265,12 +267,34 @@
           if (res.status === 409) {
             setUploadStatus((data.message ? `${data.message}\n` : '') + 'ファイル名（同名）を変えて再試行してください。');
           } else if (res.status === 413) {
-            if (isCodespacesHost) {
-              setUploadStatus(
-                'アップロードに失敗しました (413)\n'
-                + 'Codespaces のポート転送側のサイズ制限によりアップロードできません。\n'
-                + '左のファイルツリーから data/ フォルダへPDFを直接アップロードしてください。'
-              );
+            const canFallbackChunked = window.ChunkedPdfUpload
+              && typeof window.ChunkedPdfUpload.uploadPdfInChunks === 'function';
+            if (canFallbackChunked) {
+              setUploadStatus('通常アップロードが 413 で失敗したため、分割アップロードを試行します…', false);
+              try {
+                const completeData = await window.ChunkedPdfUpload.uploadPdfInChunks(file, {
+                  onProgress: ({ uploadedBytes, totalBytes, chunkIndex, totalChunks }) => {
+                    const percent = totalBytes > 0 ? Math.floor((uploadedBytes / totalBytes) * 100) : 0;
+                    setUploadStatus(`分割アップロード中… ${percent}% (${chunkIndex + 1}/${totalChunks})\n${file.name}`, false);
+                  },
+                });
+                if (completeData && (completeData.status === 'ok' || completeData.pdf_name)) {
+                  setUploadStatus('アップロード完了。一覧を更新しています…', false);
+                  window.location.reload();
+                  return;
+                }
+              } catch (chunkErr) {
+                if (isCodespacesHost) {
+                  setUploadStatus(
+                    `分割アップロードにも失敗しました: ${chunkErr}\n`
+                    + 'VS Code の左のファイルツリーから data/ フォルダへPDFを直接アップロードしてください。'
+                  );
+                } else {
+                  setUploadStatus(`分割アップロードにも失敗しました: ${chunkErr}`);
+                }
+                return;
+              }
+              setUploadStatus('分割アップロードの完了処理に失敗しました。');
             } else {
               setUploadStatus('アップロードに失敗しました (413)\nファイルサイズが大きすぎる可能性があります。');
             }
