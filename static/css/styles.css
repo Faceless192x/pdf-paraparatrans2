@@ -384,6 +384,28 @@ input[type="reset"]:disabled {
     color: var(--accent);
 }
 
+.book-type-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+}
+
+.book-type-badge-pdf {
+    background: var(--book-type-pdf-bg);
+    color: var(--book-type-pdf-fg);
+}
+
+.book-type-badge-url {
+    background: var(--book-type-url-bg);
+    color: var(--book-type-url-fg);
+}
+
 a {
     color: var(--accent);
 }
@@ -399,41 +421,61 @@ a {
     --surface: #ffffff;
     --surface-strong: #f6f8fa;
     --surface-accent: #eef6f2;
+    --surface-hover: #e9eff6;
     --text-primary: #1f2933;
+    --text-secondary: #5f6b76;
     --text-muted: #6b7280;
+    --text-on-primary: #ffffff;
     --border: rgba(31, 41, 51, 0.15);
     --border-strong: rgba(31, 41, 51, 0.3);
+    --primary: #0f766e;
     --accent: #0f766e;
     --accent-strong: #0b4f4a;
     --accent-soft: rgba(15, 118, 110, 0.12);
-    --header-bg: #1f2a34;
-    --header-bg-alt: #2d3d4f;
-    --header-fg: #f5f7fa;
-    --table-header-bg: #1f2a34;
-    --table-header-fg: #f5f7fa;
+    --header-bg: #f8fafc;
+    --header-bg-alt: #edf2f7;
+    --header-fg: #1f2933;
+    --table-header-bg: #e9eff6;
+    --table-header-fg: #1f2933;
     --row-alt: #f8fafb;
     --panel-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    --comment-bg: #f4f6fb;
+    --comment-fg: #1f2933;
+    --comment-border: #7c83db;
+    --edit-focus-bg: #fff8d6;
+    --edit-focus-fg: #1f2933;
+    --edit-focus-border: #1f2933;
+    --edit-src-bg: #fff1c7;
+    --edit-src-border: #b45309;
+    --edit-trans-bg: #dcfce7;
+    --edit-trans-border: #15803d;
+    --muted-block-bg: #d1d5db;
+    --muted-block-fg: #4b5563;
+    --book-type-pdf-bg: #fee2e2;
+    --book-type-pdf-fg: #991b1b;
+    --book-type-url-bg: #dbeafe;
+    --book-type-url-fg: #1e3a8a;
 }
 
 
 :root {
-    --h1-bg: #2c3e50;
-    --h1-fg: white;
+    --h1-bg: #bfdbfe;
+    --h1-fg: #1e3a8a;
   
-    --h2-bg: #34495e;
-    --h2-fg: white;
+    --h2-bg: #c7d2fe;
+    --h2-fg: #3730a3;
   
-    --h3-bg: #4a69bd;
-    --h3-fg: white;
+    --h3-bg: #ddd6fe;
+    --h3-fg: #5b21b6;
   
-    --h4-bg: #6a89cc;
-    --h4-fg: black;
+    --h4-bg: #bae6fd;
+    --h4-fg: #0c4a6e;
   
-    --h5-bg: #82ccdd;
-    --h5-fg: black;
+    --h5-bg: #a5f3fc;
+    --h5-fg: #0f4c5c;
   
-    --h6-bg: #b8e994;
-    --h6-fg: black;
+    --h6-bg: #d9f99d;
+    --h6-fg: #365314;
 
     /* List item tag (li): cool tone */
     --li-bg: #e6f6ff;
@@ -453,6 +495,8 @@ a {
     --th-bg: #e0e7ff;
     --th-fg: #1e293b;
     --th-border: #4f46e5;
+    --p-bg: #f7f8fa;
+    --p-fg: #1f2933;
 
     /* src_joined: block_tag=p かつ末尾ピリオドなしの注意色（見出し色と被らない暖色系） */
     --src-joined-alert-bg: #fff1cc;
@@ -469,10 +513,14 @@ a {
         --surface: #0f172a;
         --surface-strong: #131c2f;
         --surface-accent: #122125;
+        --surface-hover: #1a263e;
         --text-primary: #e5e7eb;
+        --text-secondary: #b3bcc8;
         --text-muted: #9aa3af;
+        --text-on-primary: #0b0f14;
         --border: rgba(229, 231, 235, 0.18);
         --border-strong: rgba(229, 231, 235, 0.28);
+        --primary: #22c1b4;
         --accent: #22c1b4;
         --accent-strong: #89e5dc;
         --accent-soft: rgba(34, 193, 180, 0.15);
@@ -485,6 +533,35 @@ a {
         --panel-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
         --table-border: rgba(255, 255, 255, 0.22);
         --table-border-strong: rgba(255, 255, 255, 0.35);
+        --comment-bg: #1e293b;
+        --comment-fg: #e5e7eb;
+        --comment-border: #6366f1;
+        --edit-focus-bg: #1e293b;
+        --edit-focus-fg: #e5e7eb;
+        --edit-focus-border: #6366f1;
+        --edit-src-bg: #4a3a18;
+        --edit-src-border: #f59e0b;
+        --edit-trans-bg: #1b3b2b;
+        --edit-trans-border: #34d399;
+        --muted-block-bg: #374151;
+        --muted-block-fg: #d1d5db;
+        --book-type-pdf-bg: #7f1d1d;
+        --book-type-pdf-fg: #fee2e2;
+        --book-type-url-bg: #1e3a8a;
+        --book-type-url-fg: #dbeafe;
+
+        --h1-bg: #2c3e50;
+        --h1-fg: #ffffff;
+        --h2-bg: #34495e;
+        --h2-fg: #ffffff;
+        --h3-bg: #4a69bd;
+        --h3-fg: #ffffff;
+        --h4-bg: #6a89cc;
+        --h4-fg: #0b1324;
+        --h5-bg: #82ccdd;
+        --h5-fg: #0b1324;
+        --h6-bg: #b8e994;
+        --h6-fg: #132a13;
 
         /* Dark mode: Table row tag (tr) - dark tone */
         --tr-bg: #2d2416;
@@ -498,6 +575,8 @@ a {
         --th-bg: #2d2847;
         --th-fg: #d0d9f7;
         --th-border: #6366f1;
+        --p-bg: #1a212b;
+        --p-fg: #e6eaf0;
 
         /* Dark mode: src_joined 注意色（暖色・低彩度） */
         --src-joined-alert-bg: #4a3a18;

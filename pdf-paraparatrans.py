@@ -163,6 +163,33 @@ def _corsify_response(resp):
     return resp
 
 
+_BOOK_FONT_FAMILY_PATTERN = re.compile(r"font-family\s*:\s*([^;\n]+)", re.IGNORECASE)
+
+
+def _extract_book_font_name(style_value: str) -> str:
+    if not style_value:
+        return ""
+
+    match = _BOOK_FONT_FAMILY_PATTERN.search(style_value)
+    if not match:
+        return ""
+
+    family_expr = match.group(1).strip()
+    if not family_expr:
+        return ""
+
+    primary = family_expr.split(",", 1)[0].strip().strip("'\"")
+    if not primary:
+        return ""
+
+    # PDF由来の `FontName-BoldItalic` 形式はハイフン以降を落としてフォント名だけ採用
+    primary = primary.split("-", 1)[0].strip()
+    if not primary:
+        return ""
+
+    return re.sub(r"\s+", " ", primary).strip()
+
+
 def _set_current_url_book(book_name: str) -> None:
     with _CURRENT_URL_BOOK_LOCK:
         _CURRENT_URL_BOOK["name"] = book_name
@@ -4508,22 +4535,12 @@ def get_book_fonts_api(pdf_name):
         
         styles = book_data.get("styles", {}) or {}
         fonts = set()
-        
-        # Extract font names from CSS style strings
-        # CSS format: "font-family: 'FontName'; font-size: 12pt; ..."
-        import re
-        font_pattern = re.compile(r"font-family:\s*['\"]?([^'\";\n]+)['\"]?(?:;|$)", re.IGNORECASE)
-        
-        for style_name, style_value in styles.items():
+
+        for _, style_value in styles.items():
             if isinstance(style_value, str):
-                matches = font_pattern.findall(style_value)
-                for match in matches:
-                    font_name = match.strip()
-                    if font_name:
-                        # Remove size info if present (e.g., "Arial 12pt" -> "Arial")
-                        parts = font_name.split()
-                        if parts:
-                            fonts.add(parts[0])
+                font_name = _extract_book_font_name(style_value)
+                if font_name:
+                    fonts.add(font_name)
         
         font_list = sorted(list(fonts))
         return jsonify({"status": "ok", "fonts": {f: f for f in font_list}}), 200

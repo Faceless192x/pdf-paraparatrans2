@@ -78,10 +78,11 @@ def load_symbolfont_dict(dict_path: str) -> Dict[str, Dict[str, str]]:
             if not key:
                 continue
 
-            # key: FontName.char (char は1文字想定だが、最後の '.' で分割)
+            # key: FontName.char
+            # 最初の '.' を区切りとして使い、後ろ側はそのまま保持する。
             if "." not in key:
                 continue
-            font_name, ch = key.rsplit(".", 1)
+            font_name, ch = key.split(".", 1)
             font_name = font_name.strip()
             if not font_name or ch == "":
                 continue

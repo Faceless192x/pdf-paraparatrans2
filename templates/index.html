@@ -120,7 +120,13 @@
             {% for idx, (pdf_name, item) in enumerate(pdf_dict.items()) %}
                 <tr>
                   <td>{{ idx+1 }}</td>
-                  <td>{% if item.get('book_type') == 'url' %}URL{% else %}PDF{% endif %}</td>
+                  <td>
+                    {% if item.get('book_type') == 'url' %}
+                      <span class="book-type-badge book-type-badge-url">URL</span>
+                    {% else %}
+                      <span class="book-type-badge book-type-badge-pdf">PDF</span>
+                    {% endif %}
+                  </td>
                   <td>
                     {{ item['title'] }}
                   </td>
