@@ -1462,6 +1462,9 @@ async function saveCurrentPageOrder() {
     }
 
     try {
+        if (typeof saveBookAutoToggleCache === 'function') {
+            saveBookAutoToggleCache();
+        }
         console.log("saveOrder: Sending updates:", sendParagraphs.length);
         await updateParagraphs(sendParagraphs); // updateParagraphsもasyncなのでawait
     } finally {

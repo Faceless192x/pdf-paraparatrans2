@@ -9,6 +9,105 @@ let urlPreviewZoom = 0.75;
 let srcPanelFontScale = 1.0;
 let urlPreviewCurrentUrl = '';
 let urlPreviewUrlWatchTimer = null;
+const BOOK_AUTO_TOGGLE_CACHE_PREFIX = 'ppt.bookAutoToggleStates.';
+
+function getBookAutoToggleCacheKey() {
+    if (!pdfName) return '';
+    return `${BOOK_AUTO_TOGGLE_CACHE_PREFIX}${encodeURIComponent(String(pdfName))}`;
+}
+
+function collectAutoToggleStatesFromDom() {
+    const states = {};
+    const autoToggles = document.querySelectorAll('.auto-toggle[id]');
+    autoToggles.forEach((container) => {
+        const containerId = container.id;
+        if (!containerId) return;
+        const checkbox = document.getElementById(`auto-toggle-input-${containerId}`);
+        if (!checkbox || checkbox.type !== 'checkbox') return;
+        states[containerId] = !!checkbox.checked;
+    });
+    return states;
+}
+
+function saveBookAutoToggleCache() {
+    try {
+        const cacheKey = getBookAutoToggleCacheKey();
+        if (!cacheKey) return false;
+        const states = collectAutoToggleStatesFromDom();
+        localStorage.setItem(cacheKey, JSON.stringify(states));
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+function applyBookAutoToggleCache() {
+    try {
+        const cacheKey = getBookAutoToggleCacheKey();
+        if (!cacheKey) return false;
+
+        const raw = localStorage.getItem(cacheKey);
+        if (!raw) return false;
+
+        const cachedStates = JSON.parse(raw);
+        if (!cachedStates || typeof cachedStates !== 'object') return false;
+
+        let applied = false;
+        for (const [toggleId, cachedValue] of Object.entries(cachedStates)) {
+            const checkbox = document.getElementById(`auto-toggle-input-${toggleId}`);
+            if (!checkbox || checkbox.type !== 'checkbox') continue;
+
+            const nextChecked = !!cachedValue;
+            if (checkbox.checked === nextChecked) continue;
+
+            checkbox.checked = nextChecked;
+            checkbox.dispatchEvent(new Event('change'));
+            applied = true;
+        }
+        return applied;
+    } catch (_) {
+        return false;
+    }
+}
+
+function shouldRestoreBookAutoToggleCacheOnLoad() {
+    const ref = document.referrer;
+    if (!ref) return false;
+    try {
+        const refUrl = new URL(ref);
+        if (refUrl.origin !== window.location.origin) return false;
+        const path = refUrl.pathname || '';
+        return path === '/' || path === '/index';
+    } catch (_) {
+        return false;
+    }
+}
+
+async function backToIndexWithSave() {
+    const backButton = document.getElementById('backToIndexButton');
+    const targetHref = backButton?.dataset?.href || '/';
+    if (!backButton) {
+        window.location.href = targetHref;
+        return;
+    }
+
+    const originalDisabled = backButton.disabled;
+    const originalText = backButton.textContent;
+    backButton.disabled = true;
+    backButton.textContent = '保存中...';
+
+    try {
+        if (typeof saveCurrentPageOrder === 'function') {
+            await saveCurrentPageOrder();
+        }
+    } catch (error) {
+        console.error('backToIndexWithSave failed:', error);
+    } finally {
+        backButton.disabled = originalDisabled;
+        backButton.textContent = originalText;
+        window.location.href = targetHref;
+    }
+}
 
 function normalizeUrlForImportCompare(raw) {
     const text = String(raw || '').trim();
@@ -570,6 +669,10 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('renderButton').addEventListener('click', renderParagraphs);
     // 構成保存
     document.getElementById('saveOrderButton').addEventListener('click', saveForce);
+    const backToIndexButton = document.getElementById('backToIndexButton');
+    if (backToIndexButton) {
+        backToIndexButton.addEventListener('click', backToIndexWithSave);
+    }
     // ページ翻訳
     document.getElementById('pageDictReplaceButton').addEventListener('click', dictReplacePage);
     document.getElementById('pageTransButton').addEventListener('click', transPage);
@@ -600,6 +703,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
     window.autoToggle.init();
+    if (shouldRestoreBookAutoToggleCacheOnLoad()) {
+        applyBookAutoToggleCache();
+    }
     // トグル/チェックボックスのカスタムイベント
     document.addEventListener('auto-toggle-change', autoToggleChanged);
 
