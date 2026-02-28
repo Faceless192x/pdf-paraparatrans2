@@ -805,7 +805,7 @@ header {
 
 /* 目次パネル・PDFパネルは固定サイズ・スクロールなし */
 #tocPanel {
-    width: 250px;         /* 初期幅 */
+    width: 280px;         /* 初期幅 */
     flex: 0 0 auto;
     overflow: hidden;
     height: 100%;
