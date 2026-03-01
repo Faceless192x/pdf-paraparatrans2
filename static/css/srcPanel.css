@@ -178,6 +178,10 @@
     color: var(--comment-fg);
 }
 
+.comment-text a {
+    cursor: pointer !important;
+}
+
 /* 各列の左ボーダー色 */
 .src-text {
     border-left: 4px solid #e74c3c; /* 原文: 赤 */

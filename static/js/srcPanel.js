@@ -353,6 +353,11 @@ function normalizeUrlForHref(urlText) {
     return null;
 }
 
+function getCommentTextForSave(commentEl) {
+    if (!commentEl || commentEl.nodeType !== Node.ELEMENT_NODE) return '';
+    return (commentEl.textContent || '').replace(/\r\n?/g, '\n');
+}
+
 function isUrlBookContext() {
     return !!(bookData && bookData.source_type === 'url');
 }
@@ -373,17 +378,21 @@ function isInternalUrl(url) {
 function linkifyTextNode(textNode) {
     const text = textNode.nodeValue;
     if (!text || !URL_PATTERN.test(text)) return;
+    const normalizedText = text.replace(
+        /\b((?:https?:\/\/|www\.)[^\s<"']+)\s*["'](?:>|&gt;)\s*\1\b/gi,
+        '$1'
+    );
     URL_PATTERN.lastIndex = 0;
 
     const frag = document.createDocumentFragment();
     let lastIndex = 0;
     let match;
-    while ((match = URL_PATTERN.exec(text)) !== null) {
+    while ((match = URL_PATTERN.exec(normalizedText)) !== null) {
         const urlText = match[1];
         const start = match.index;
         const end = start + urlText.length;
         if (start > lastIndex) {
-            frag.appendChild(document.createTextNode(text.slice(lastIndex, start)));
+            frag.appendChild(document.createTextNode(normalizedText.slice(lastIndex, start)));
         }
 
         const href = normalizeUrlForHref(urlText);
@@ -404,16 +413,17 @@ function linkifyTextNode(textNode) {
 
         lastIndex = end;
     }
-    if (lastIndex < text.length) {
-        frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+    if (lastIndex < normalizedText.length) {
+        frag.appendChild(document.createTextNode(normalizedText.slice(lastIndex)));
     }
 
     textNode.parentNode.replaceChild(frag, textNode);
 }
 
-function linkifyElement(el) {
+function linkifyElement(el, options = {}) {
+    const allowContentEditable = !!options.allowContentEditable;
     if (!el || el.nodeType !== Node.ELEMENT_NODE) return;
-    if (el.isContentEditable) return;
+    if (el.isContentEditable && !allowContentEditable) return;
 
     const walker = document.createTreeWalker(
         el,
@@ -424,7 +434,7 @@ function linkifyElement(el) {
                 const parent = node.parentElement;
                 if (!parent) return NodeFilter.FILTER_REJECT;
                 if (parent.closest('a')) return NodeFilter.FILTER_REJECT;
-                if (parent.isContentEditable) return NodeFilter.FILTER_REJECT;
+                if (parent.isContentEditable && !allowContentEditable) return NodeFilter.FILTER_REJECT;
                 return NodeFilter.FILTER_ACCEPT;
             }
         }
@@ -446,7 +456,17 @@ function linkifyParagraphBox(divSrc) {
 document.addEventListener('click', async (event) => {
     const anchor = event.target.closest('#srcPanel a');
     if (!anchor) return;
-    if (anchor.isContentEditable) return;
+    const isCommentAnchor = !!anchor.closest('.comment-text');
+    if (anchor.isContentEditable && !isCommentAnchor) return;
+
+    if (isCommentAnchor) {
+        const href = anchor.getAttribute('href') || anchor.dataset.url;
+        if (!href) return;
+        event.preventDefault();
+        window.open(href, '_blank', 'noopener,noreferrer');
+        return;
+    }
+
     if (!isUrlBookContext()) return;
 
     const targetUrl = anchor.dataset.url || anchor.getAttribute('href');
@@ -502,7 +522,7 @@ async function onSaveButtonClick(event, paragraph, divSrc, srcText, transText, b
         
         paragraphDict.src_text = srcText.innerHTML;
         paragraphDict.trans_text = transText.innerHTML;
-        paragraphDict.comment = commentText ? commentText.innerHTML : (paragraphDict.comment ?? "");
+        paragraphDict.comment = commentText ? getCommentTextForSave(commentText) : (paragraphDict.comment ?? "");
         paragraphDict.block_tag = blockTagSelect.value;
         paragraphDict.trans_status = selectedStatus ? selectedStatus.value : paragraphDict.trans_status;
 
@@ -548,7 +568,7 @@ async function onSaveButtonClick(event, paragraph, divSrc, srcText, transText, b
         // 保存成功後に「元の値」を更新（次回キャンセル時に戻す先）
         if (srcText) srcText.dataset.original = srcText.innerHTML;
         if (transText) transText.dataset.original = transText.innerHTML;
-        if (commentText) commentText.dataset.original = commentText.innerHTML;
+        if (commentText) commentText.dataset.original = getCommentTextForSave(commentText);
         updateEditUiBackground(divSrc, paragraphDict.trans_status);
 
         // 非編集表示に戻った後、URLをリンク化
@@ -694,7 +714,7 @@ function renderParagraphs(options = {}) {
             <div class='src-replaced'>${p.src_replaced}</div>
             <div class='trans-auto'>${p.trans_auto}</div>
             <div class='trans-text' data-original="${p.trans_text}">${p.trans_text}</div>
-            <div class='comment-text' data-original="${p.comment ?? ''}">${p.comment ?? ''}</div>
+            <div class='comment-text'></div>
             <div class='edit-box ${statusClass}'>
                 <div class='join ${joinClass}'></div>
                 <button class='edit-button'>...</button>
@@ -736,6 +756,13 @@ function renderParagraphs(options = {}) {
             </div>
         `;
         srcContainer.appendChild(divSrc);
+
+        const initialCommentText = divSrc.querySelector('.comment-text');
+        if (initialCommentText) {
+            const initialComment = String(p.comment ?? '');
+            initialCommentText.dataset.original = initialComment;
+            initialCommentText.textContent = initialComment;
+        }
 
         // 非編集表示のURLをリンク化（編集ボックス内は対象外）
         linkifyParagraphBox(divSrc);
@@ -786,15 +813,20 @@ function renderParagraphs(options = {}) {
             commentText.contentEditable = true;
             commentText.addEventListener('blur', async () => {
                 // コメント内容が変更されている場合、自動保存
-                const newComment = commentText.innerHTML;
-                if (p.comment !== newComment) {
-                    p.comment = newComment;
+                const newCommentText = getCommentTextForSave(commentText);
+                if (commentText.textContent !== newCommentText) {
+                    commentText.textContent = newCommentText;
+                }
+                linkifyElement(commentText, { allowContentEditable: true });
+
+                if (p.comment !== newCommentText) {
+                    p.comment = newCommentText;
                     paragraphDict = bookData["pages"][currentPage]["paragraphs"][p.id];
                     if (paragraphDict) {
-                        paragraphDict.comment = newComment;
+                        paragraphDict.comment = newCommentText;
                         try {
                             await saveParagraphData(paragraphDict);
-                            commentText.dataset.original = newComment;
+                            commentText.dataset.original = newCommentText;
                         } catch (error) {
                             console.error('Error saving comment:', error);
                             // エラー時は表示を戻す（自動的に重要でないため）
@@ -1543,7 +1575,7 @@ function toggleEditUI(divSrc) {
         // 編集時は「元の文字列」に戻す（リンク化で混入した <a> を編集させない）
         if (srcText?.dataset?.original != null) srcText.innerHTML = srcText.dataset.original;
         if (transText?.dataset?.original != null) transText.innerHTML = transText.dataset.original;
-        if (commentText?.dataset?.original != null) commentText.innerHTML = commentText.dataset.original;
+        if (commentText?.dataset?.original != null) commentText.textContent = commentText.dataset.original;
 
         editUI.style.display = 'block';
         if (srcText) srcText.contentEditable = true;
