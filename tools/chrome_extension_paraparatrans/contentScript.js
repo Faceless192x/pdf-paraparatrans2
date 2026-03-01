@@ -161,6 +161,18 @@ window.addEventListener("message", (event) => {
 
 window.addEventListener("message", (event) => {
   const data = event && event.data;
+  if (!data || data.type !== "ppt-sync-settings") return;
+  if (window !== window.top) return;
+
+  chrome.runtime.sendMessage({
+    type: "ppt-sync-settings",
+    baseUrl: data.baseUrl,
+    bookName: data.bookName,
+  });
+});
+
+window.addEventListener("message", (event) => {
+  const data = event && event.data;
   if (!data || data.type !== "ppt-capture-peek-url") return;
 
   const url = window.location.href || "";

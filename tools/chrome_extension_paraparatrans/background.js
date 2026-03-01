@@ -106,6 +106,32 @@ async function getSettings() {
   };
 }
 
+function isHttpUrl(value) {
+  return /^https?:\/\//i.test(String(value || ""));
+}
+
+async function updateSettingsFromPage(baseUrl, bookName = "") {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+  if (!normalizedBaseUrl || !isHttpUrl(normalizedBaseUrl)) {
+    return false;
+  }
+
+  const data = await chrome.storage.sync.get(STORAGE_KEY);
+  const current = data[STORAGE_KEY] || {};
+  const next = {
+    ...current,
+    baseUrl: normalizedBaseUrl,
+  };
+
+  const normalizedBookName = String(bookName || "").trim();
+  if (normalizedBookName) {
+    next.bookName = normalizedBookName;
+  }
+
+  await chrome.storage.sync.set({ [STORAGE_KEY]: next });
+  return true;
+}
+
 async function sendPayload(baseUrl, payload) {
   const apiUrl = `${baseUrl}/api/url_book/import_html`;
   const response = await fetch(apiUrl, {
@@ -405,6 +431,13 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender) => {
+  if (message && message.type === "ppt-sync-settings") {
+    updateSettingsFromPage(message.baseUrl, message.bookName).catch(() => {
+      setBadge("ERR", true);
+    });
+    return;
+  }
+
   if (!message || message.type !== "ppt-capture-request") {
     return;
   }

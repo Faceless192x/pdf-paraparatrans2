@@ -332,6 +332,12 @@ async function importCurrentUrlPage() {
     const importButton = document.getElementById('urlImportButton');
     if (importButton) importButton.disabled = true;
     try {
+        window.postMessage({
+            type: 'ppt-sync-settings',
+            baseUrl: window.location.origin,
+            bookName: pdfName,
+        }, '*');
+
         iframe.contentWindow.postMessage({
             type: 'ppt-capture-request',
             force: true,
