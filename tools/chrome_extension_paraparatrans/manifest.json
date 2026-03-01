@@ -3,8 +3,18 @@
   "name": "ParaParaTrans URL Capture",
   "version": "0.1.0",
   "description": "Send current page HTML to ParaParaTrans URL book.",
+  "icons": {
+    "16": "paraparatrans.ico",
+    "32": "paraparatrans.ico",
+    "48": "paraparatrans.ico",
+    "128": "paraparatrans.ico"
+  },
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "paraparatrans.ico",
+      "32": "paraparatrans.ico"
+    }
   },
   "background": {
     "service_worker": "background.js"

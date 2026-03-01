@@ -1,6 +1,14 @@
 # ParaParaTrans Chrome Extension (Local)
 
+ParaParaTrans project URL: https://github.com/runequest77/pdf-paraparatrans2
+
+ParaParaTrans は、PDFやWebページを段落単位で管理し、辞書置換・翻訳・推敲を一連で行うローカル翻訳ワークスペースです。
+
+この拡張機能の役割は、ブラウザで表示中のページHTMLを取得して ParaParaTrans の URLブックへ安全に受け渡し、取り込み作業を短時間で行えるようにすることです。
+
 This extension sends the current page HTML to a ParaParaTrans URL book via `http://localhost:5077`.
+
+You can also download a packaged zip from ParaParaTrans: `データ入出力` → `ブラウザ拡張をダウンロード`.
 
 ## Install (Chrome/Edge)
 

@@ -65,6 +65,32 @@ let lastUrlImportEventId = null;
 let lastOpenPageSaveTimer = null;
 let lastOpenPageSent = null;
 let pendingUrlImportProbeTimer = null;
+let urlImportExtensionState = 'unknown';
+
+function setUrlImportExtensionState(nextState) {
+    const normalized = (nextState === 'available' || nextState === 'unavailable') ? nextState : 'unknown';
+    if (urlImportExtensionState === normalized) return;
+    urlImportExtensionState = normalized;
+    window.urlImportExtensionState = normalized;
+    if (typeof updateUrlImportButtonLabel === 'function') {
+        updateUrlImportButtonLabel();
+    }
+}
+
+window.setUrlImportExtensionState = setUrlImportExtensionState;
+window.urlImportExtensionState = urlImportExtensionState;
+
+function showUrlImportExtensionSetupGuide() {
+    alert(
+        'ブラウザ拡張のセットアップが必要です。\n\n'
+        + '1) Chrome/Edge で extensions ページを開く\n'
+        + '   - chrome://extensions または edge://extensions\n'
+        + '2) デベロッパーモードを ON\n'
+        + '3) 「パッケージ化されていない拡張機能を読み込む」\n'
+        + '4) tools/chrome_extension_paraparatrans を選択\n\n'
+        + '詳細: docs/URL_BOOK_GUIDE.md'
+    );
+}
 
 function normalizePageNumberForSave(pageNum) {
     const page = parseInt(pageNum, 10);
@@ -165,6 +191,7 @@ async function processUrlImportEvent(event) {
         clearTimeout(pendingUrlImportProbeTimer);
         pendingUrlImportProbeTimer = null;
     }
+    setUrlImportExtensionState('available');
 
     if (event.kind === 'rule_update') {
         if (typeof loadUrlRuleDialog === 'function' && typeof isUrlRuleDialogOpen === 'function') {
@@ -338,6 +365,12 @@ async function importCurrentUrlPage() {
     const importButton = document.getElementById('urlImportButton');
     if (importButton) importButton.disabled = true;
 
+    if (urlImportExtensionState === 'unavailable') {
+        if (importButton) importButton.disabled = false;
+        showUrlImportExtensionSetupGuide();
+        return false;
+    }
+
     const flaskUrl = String(window.location.origin || '');
     let flaskPort = '';
     try {
@@ -371,6 +404,7 @@ async function importCurrentUrlPage() {
 
     pendingUrlImportProbeTimer = setTimeout(() => {
         if (beforeEventId === lastUrlImportEventId) {
+            setUrlImportExtensionState('unavailable');
             console.warn('[url_panel_import_extension_unavailable]', {
                 button: clickLabel,
                 flaskUrl,
@@ -378,12 +412,13 @@ async function importCurrentUrlPage() {
                 importUrl,
                 extensionState: 'not_available_or_no_response',
             });
-            alert('ブラウザ拡張が利用できないか、応答がありません。拡張の有効化状態を確認してください。');
+            showUrlImportExtensionSetupGuide();
         }
         pendingUrlImportProbeTimer = null;
     }, 3500);
 
     try {
+        setUrlImportExtensionState('unknown');
         window.postMessage({
             type: 'ppt-sync-settings',
             baseUrl: window.location.origin,
@@ -407,7 +442,8 @@ async function importCurrentUrlPage() {
             importUrl,
             error: String(e),
         });
-        alert('取込に失敗しました。拡張機能が有効か確認してください。');
+        setUrlImportExtensionState('unavailable');
+        showUrlImportExtensionSetupGuide();
         return false;
     } finally {
         // re-enable is handled by timeout for asynchronous extension flow
@@ -1601,6 +1637,16 @@ async function exportDocStructure() {
     } finally {
         // カーソルを元に戻す
         document.body.style.cursor = originalCursor || 'auto';
+    }
+}
+
+
+function downloadBrowserExtensionPackage() {
+    try {
+        window.location.href = '/api/download_extension/chrome';
+    } catch (error) {
+        console.error('Error downloading browser extension package:', error);
+        alert('ブラウザ拡張のダウンロード中にエラーが発生しました');
     }
 }
 

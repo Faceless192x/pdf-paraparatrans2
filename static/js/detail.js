@@ -329,6 +329,11 @@ function updateUrlImportButtonLabel(pageNum = currentPage) {
     const exists = (mappedPage !== '' || pageMapHasUrl);
 
     importButton.textContent = exists ? '再取込' : '取込';
+    if (String(window.urlImportExtensionState || 'unknown') === 'unavailable') {
+        importButton.title = 'ブラウザ拡張が未接続です。クリックするとセットアップ案内を表示します。';
+    } else {
+        importButton.title = '';
+    }
     importButton.disabled = false;
 }
 
@@ -725,6 +730,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!iframe || event.source !== iframe.contentWindow) return;
         const currentUrl = normalizeUrlForImportCompare(data.url);
         if (!currentUrl) return;
+        if (typeof window.setUrlImportExtensionState === 'function') {
+            window.setUrlImportExtensionState('available');
+        }
         urlPreviewCurrentUrl = currentUrl;
         updateUrlImportButtonLabel(currentPage);
     });

@@ -3,6 +3,7 @@ import os
 import json
 import datetime
 import io
+import zipfile
 import sys
 import threading
 import shutil
@@ -3011,6 +3012,43 @@ def download_structure_api(pdf_name):
     except TypeError:
         # Flask の古い版互換 (download_name 未対応)
         return send_file(out_path, as_attachment=True)
+
+
+@app.route("/api/download_extension/chrome")
+def download_chrome_extension_api():
+    """Chrome/Edge用ローカル拡張をZIPでダウンロードする。"""
+    ext_dir = os.path.join(APP_DIR, "tools", "chrome_extension_paraparatrans")
+    if not os.path.isdir(ext_dir):
+        return jsonify({"status": "error", "message": "拡張フォルダが見つかりません"}), 404
+
+    zip_buffer = io.BytesIO()
+    root_name = "chrome_extension_paraparatrans"
+
+    try:
+        with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for folder, _, files in os.walk(ext_dir):
+                rel_folder = os.path.relpath(folder, ext_dir)
+                for file_name in files:
+                    abs_path = os.path.join(folder, file_name)
+                    rel_path = os.path.join(rel_folder, file_name) if rel_folder != "." else file_name
+                    arcname = os.path.join(root_name, rel_path)
+                    zf.write(abs_path, arcname)
+
+        zip_buffer.seek(0)
+        return send_file(
+            zip_buffer,
+            as_attachment=True,
+            download_name="chrome_extension_paraparatrans.zip",
+            mimetype="application/zip",
+        )
+    except TypeError:
+        zip_buffer.seek(0)
+        return send_file(
+            zip_buffer,
+            as_attachment=True,
+            attachment_filename="chrome_extension_paraparatrans.zip",
+            mimetype="application/zip",
+        )
 
 
 @app.route("/api/import_structure/<path:pdf_name>", methods=["POST"])
