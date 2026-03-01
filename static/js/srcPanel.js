@@ -589,7 +589,7 @@ function isSrcJoinedNoTerminalPeriod(paragraph) {
     if (!paragraph || String(paragraph.block_tag || '').toLowerCase() !== 'p') return false;
     const joinedText = toPlainText(paragraph.src_joined);
     if (!joinedText) return false;
-    return !/[.!]\s*$/.test(joinedText);
+    return !/[.!?]\s*$/.test(joinedText);
 }
 
 function applySrcJoinedEndingClass(divSrc, paragraph) {
