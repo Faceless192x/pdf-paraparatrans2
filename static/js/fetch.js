@@ -64,6 +64,7 @@ let urlImportPollTimer = null;
 let lastUrlImportEventId = null;
 let lastOpenPageSaveTimer = null;
 let lastOpenPageSent = null;
+let pendingUrlImportProbeTimer = null;
 
 function normalizePageNumberForSave(pageNum) {
     const page = parseInt(pageNum, 10);
@@ -159,6 +160,11 @@ async function processUrlImportEvent(event) {
     if (!event || !event.id) return;
     if (lastUrlImportEventId === event.id) return;
     lastUrlImportEventId = event.id;
+
+    if (pendingUrlImportProbeTimer) {
+        clearTimeout(pendingUrlImportProbeTimer);
+        pendingUrlImportProbeTimer = null;
+    }
 
     if (event.kind === 'rule_update') {
         if (typeof loadUrlRuleDialog === 'function' && typeof isUrlRuleDialogOpen === 'function') {
@@ -331,6 +337,52 @@ async function importCurrentUrlPage() {
 
     const importButton = document.getElementById('urlImportButton');
     if (importButton) importButton.disabled = true;
+
+    const flaskUrl = String(window.location.origin || '');
+    let flaskPort = '';
+    try {
+        const parsed = new URL(flaskUrl);
+        flaskPort = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+    } catch (e) {
+        flaskPort = '';
+    }
+    const importUrl = String(
+        urlPreviewCurrentUrl
+        || iframe?.src
+        || bookData?.pages?.[String(currentPage)]?.url
+        || bookData?.page_url_map?.[String(currentPage)]
+        || ''
+    ).trim();
+    const clickLabel = String(importButton?.textContent || '').trim() || '取込';
+    const beforeEventId = lastUrlImportEventId;
+
+    console.info('[url_panel_import_click]', {
+        button: clickLabel,
+        flaskUrl,
+        flaskPort,
+        importUrl,
+        extensionState: 'requested',
+    });
+
+    if (pendingUrlImportProbeTimer) {
+        clearTimeout(pendingUrlImportProbeTimer);
+        pendingUrlImportProbeTimer = null;
+    }
+
+    pendingUrlImportProbeTimer = setTimeout(() => {
+        if (beforeEventId === lastUrlImportEventId) {
+            console.warn('[url_panel_import_extension_unavailable]', {
+                button: clickLabel,
+                flaskUrl,
+                flaskPort,
+                importUrl,
+                extensionState: 'not_available_or_no_response',
+            });
+            alert('ブラウザ拡張が利用できないか、応答がありません。拡張の有効化状態を確認してください。');
+        }
+        pendingUrlImportProbeTimer = null;
+    }, 3500);
+
     try {
         window.postMessage({
             type: 'ppt-sync-settings',
@@ -348,7 +400,13 @@ async function importCurrentUrlPage() {
         }, 1200);
         return true;
     } catch (e) {
-        console.error('importCurrentUrlPage failed:', e);
+        console.error('[url_panel_import_postmessage_failed]', {
+            button: clickLabel,
+            flaskUrl,
+            flaskPort,
+            importUrl,
+            error: String(e),
+        });
         alert('取込に失敗しました。拡張機能が有効か確認してください。');
         return false;
     } finally {
