@@ -181,6 +181,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('addMappingButton').addEventListener('click', addMappingRow);
   document.getElementById('fillCharacterCodesButton').addEventListener('click', fillMissingCharacterCodes);
   document.getElementById('saveMappingsButton').addEventListener('click', saveMappings);
+  const runSymbolReplacementButton = document.getElementById('runSymbolReplacementButton');
+  if (runSymbolReplacementButton) {
+    runSymbolReplacementButton.addEventListener('click', rebuildSrcTextForCurrentBook);
+  }
 });
 
 // CSS variable helper functions
@@ -190,6 +194,51 @@ function getThemeColor(propertyName, defaultValue = '#000000') {
     return value || defaultValue;
   } catch (e) {
     return defaultValue;
+  }
+}
+
+async function rebuildSrcTextForCurrentBook() {
+  if (!currentPdf) {
+    alert('対象ブックが指定されていません');
+    return;
+  }
+
+  let msg = '全ページの段落について src_html から src_text を作り直し、シンボル置換（symbolfont_dict）を適用します';
+  msg += '\n（辞書を更新した後に何度でも実行できます）';
+  msg += '\n\nよろしいですか？';
+  if (!confirm(msg)) return;
+
+  const statusEl = document.getElementById('loadStatus');
+  if (statusEl) {
+    statusEl.textContent = 'シンボル置換を実行中...';
+    statusEl.style.color = getThemeColor('--text-muted', '#666');
+  }
+
+  try {
+    const response = await fetch(`/api/rebuild_src_text/${encodePdfNamePath(currentPdf)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: ''
+    });
+    const result = await response.json();
+    if (result.status === 'ok') {
+      alert(result.message || 'シンボル置換が完了しました');
+      if (statusEl) {
+        statusEl.textContent = result.message || 'シンボル置換が完了しました';
+        statusEl.style.color = '#27ae60';
+      }
+    } else {
+      throw new Error(result.message || 'unknown');
+    }
+  } catch (error) {
+    console.error('rebuildSrcTextForCurrentBook error:', error);
+    alert(`シンボル置換エラー: ${error.message}`);
+    if (statusEl) {
+      statusEl.textContent = `エラー: ${error.message}`;
+      statusEl.style.color = '#e74c3c';
+    }
   }
 }
 
