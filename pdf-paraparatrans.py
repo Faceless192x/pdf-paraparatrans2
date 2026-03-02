@@ -127,6 +127,7 @@ from modules.parapara_url2json import (
 )
 from app.services.dict_service import DictService
 from app.services.chunked_upload_service import ChunkedUploadService, ChunkedUploadServiceError
+from app.blueprints.dict_bp import create_dict_blueprint
 
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -1004,6 +1005,16 @@ try:
     chunked_upload_service.cleanup_expired_sessions()
 except Exception as e:
     app.logger.warning(f"古い分割アップロードセッションのクリーンアップに失敗しました: {str(e)}")
+
+# 辞書管理 Blueprint を登録（app/blueprints/dict_bp.py）
+_bp_dict = create_dict_blueprint(
+    dict_service=dict_service,
+    get_paths=get_paths,
+    get_resource_path=get_resource_path,
+    translate_dict_entries=translate_dict_entries,
+    dict_create=dict_create,
+)
+app.register_blueprint(_bp_dict)
 
 
 def _sanitize_pdf_basename(original_filename: str) -> str:
@@ -4245,9 +4256,6 @@ def load_json(json_path: str):
     with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     return data
-@app.route("/dict_maintenance")
-def dict_maintenance_page():
-    return render_template("dict_maintenance.html")
 
 @app.route("/symbol_fonts_maintenance")
 def symbol_fonts_maintenance_page():
@@ -4256,129 +4264,6 @@ def symbol_fonts_maintenance_page():
 @app.route("/partials/data_export_dialog")
 def data_export_dialog_partial():
     return render_template("_data_export_dialog.html")
-
-
-@app.route("/api/dict/list", methods=["GET"])
-def dict_list_api():
-    dict_path = request.args.get("dict_path") or ""
-    try:
-        entries, dict_rel = dict_service.list_entries(dict_path or None)
-    except ValueError:
-        return jsonify({"status": "error", "message": "dict_path が不正です"}), 400
-    return jsonify({"status": "ok", "entries": entries, "dict_path": dict_rel}), 200
-
-
-@app.route("/api/dict/bulk_update", methods=["POST"])
-def dict_bulk_update_api():
-    payload = request.get_json(silent=True) or {}
-    entries = payload.get("entries")
-    dict_path = payload.get("dict_path") or ""
-    if not isinstance(entries, list):
-        return jsonify({"status": "error", "message": "entries が配列ではありません"}), 400
-    try:
-        count = dict_service.bulk_update(entries, dict_path or None)
-        return jsonify({"status": "ok", "count": count}), 200
-    except ValueError as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
-    except Exception as e:
-        app.logger.error(f"辞書ファイル書き込みエラー: {str(e)}")
-        return jsonify({"status": "error", "message": f"辞書ファイル書き込みエラー: {str(e)}"}), 500
-
-
-@app.route("/api/dict/catalog", methods=["GET"])
-def dict_catalog_api():
-    all_dicts, default_path = dict_service.catalog()
-    return jsonify({"status": "ok", "dicts": all_dicts, "default_path": default_path}), 200
-
-
-@app.route("/api/dict/compare", methods=["GET"])
-def dict_compare_api():
-    dict_path = request.args.get("dict_path") or ""
-    if not dict_path:
-        return jsonify({"status": "error", "message": "dict_path が必要です"}), 400
-    try:
-        entries, dict_rel = dict_service.compare(dict_path)
-    except ValueError:
-        return jsonify({"status": "error", "message": "dict_path が不正です"}), 400
-
-    return jsonify({"status": "ok", "entries": entries, "dict_path": dict_rel}), 200
-
-
-@app.route("/api/dict/auto_translate", methods=["POST"])
-def dict_auto_translate_api():
-    payload = request.get_json(silent=True) or {}
-    dict_path = payload.get("dict_path") or ""
-    entries = payload.get("entries")
-    if not isinstance(entries, list):
-        return jsonify({"status": "error", "message": "entries が配列ではありません"}), 400
-    try:
-        dict_rel, count = dict_service.auto_translate_selected(
-            dict_path or None,
-            entries,
-            translate_dict_entries,
-        )
-    except ValueError:
-        return jsonify({"status": "error", "message": "dict_path または entries が不正です"}), 400
-    except Exception as e:
-        app.logger.error(f"辞書自動翻訳エラー: {str(e)}")
-        return jsonify({"status": "error", "message": f"辞書自動翻訳エラー: {str(e)}"}), 500
-
-    return jsonify({"status": "ok", "message": f"自動翻訳を実行しました ({count} 件)", "dict_path": dict_rel, "count": count}), 200
-
-
-@app.route("/api/dict/create_book/<path:pdf_name>", methods=["POST"])
-def dict_create_book_api(pdf_name):
-    _, json_path = get_paths(pdf_name)
-    if not os.path.exists(json_path):
-        return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
-    COMMON_WORDS_PATH = get_resource_path(os.path.join("modules", "english_common_words.txt"))
-    try:
-        book_rel = dict_service.create_book_dict(pdf_name, json_path, COMMON_WORDS_PATH, dict_create)
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"辞書生成エラー: {str(e)}"}), 500
-
-    return jsonify({"status": "ok", "dict_path": book_rel}), 200
-
-
-@app.route("/api/dict/transfer", methods=["POST"])
-def dict_transfer_api():
-    payload = request.get_json(silent=True) or {}
-    action = str(payload.get("action") or "").lower()
-    source_path = payload.get("source_path") or ""
-    target_path = payload.get("target_path") or ""
-    entries = payload.get("entries")
-    try:
-        dict_service.transfer(action, source_path, target_path, entries)
-    except ValueError as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
-    except Exception as e:
-        app.logger.error(f"辞書ファイル書き込みエラー: {str(e)}")
-        return jsonify({"status": "error", "message": f"辞書ファイル書き込みエラー: {str(e)}"}), 500
-
-    return jsonify({"status": "ok", "message": "更新しました"}), 200
-
-
-@app.route("/api/dict/selection/<path:pdf_name>", methods=["GET"])
-def dict_selection_get_api(pdf_name):
-    config_dicts, book_dict, selected = dict_service.selection_get(pdf_name)
-    return jsonify(
-        {
-            "status": "ok",
-            "config_dicts": config_dicts,
-            "book_dict": book_dict,
-            "selected_paths": selected,
-        }
-    ), 200
-
-
-@app.route("/api/dict/selection/<path:pdf_name>", methods=["POST"])
-def dict_selection_save_api(pdf_name):
-    payload = request.get_json(silent=True) or {}
-    dict_paths = payload.get("dict_paths")
-    if not isinstance(dict_paths, list):
-        return jsonify({"status": "error", "message": "dict_paths が配列ではありません"}), 400
-    selected = dict_service.selection_save(pdf_name, dict_paths)
-    return jsonify({"status": "ok", "selected_paths": selected}), 200
 
 
 # API: ブック内のスタイル一覧を取得
@@ -4657,68 +4542,6 @@ def update_symbolfont_mappings_api():
     except Exception as e:
         app.logger.error(f"Error updating symbol font mappings: {str(e)}")
         return jsonify({"status": "error", "message": f"更新エラー: {str(e)}"}), 500
-
-
-def atomicsave_json(json_path, data):
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(json_path), suffix=".tmp", text=True)
-    with os.fdopen(tmp_fd, "w", encoding="utf-8") as tmp_file:
-        json.dump(data, tmp_file, ensure_ascii=False, indent=2)
-    os.replace(tmp_path, json_path)
-
-# API: 単語辞書検索
-@app.route("/api/dict/search", methods=["POST"])
-def dict_search_api():
-    data = request.get_json() or {}
-    word = data.get("word")
-    pdf_name = data.get("pdf_name")
-
-    if not word:
-        return jsonify({"status": "error", "message": "単語が指定されていません"}), 400
-
-    found_entry = dict_service.search(word, pdf_name)
-    if found_entry:
-        return jsonify({
-            "status": "ok",
-            "found": True,
-            "original_word": found_entry[0],
-            "translated_word": found_entry[1],
-            "status": found_entry[2]
-        }), 200
-    else:
-        # 見つからなかった場合は訳語ブランク、状態0を返す
-        return jsonify({
-            "status": "ok",
-            "found": False,
-            "original_word": word,
-            "translated_word": "",
-            "status": 0
-        }), 200
-
-# API: 単語辞書更新
-@app.route("/api/dict/update", methods=["POST"])
-def dict_update_api():
-    data = request.get_json() or {}
-    original_word = data.get("original_word")
-    translated_word = data.get("translated_word")
-    status = data.get("status", 0) # 状態の既定値は0
-    pdf_name = data.get("pdf_name")
-    dict_path = data.get("dict_path")
-
-    if not original_word:
-        return jsonify({"status": "error", "message": "原語が指定されていません"}), 400
-
-    if dict_path and not pdf_name:
-        return jsonify({"status": "error", "message": "dict_path 指定時は pdf_name が必要です"}), 400
-
-    try:
-        dict_service.update(original_word, translated_word, status, pdf_name, dict_path=dict_path)
-        app.logger.info(f"辞書更新: '{original_word}' -> '{translated_word}' (状態: {status})")
-        return jsonify({"status": "ok", "message": "辞書が更新されました"}), 200
-    except ValueError as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
-    except Exception as e:
-        app.logger.error(f"辞書ファイル書き込みエラー: {str(e)}")
-        return jsonify({"status": "error", "message": f"辞書ファイル書き込みエラー: {str(e)}"}), 500
 
 # PDFビューアーがChromeで読み込めなかったときに対策として入れてみた。
 # キャッシュクリアで治ったのでコメントアウト化。
