@@ -337,6 +337,32 @@ function updateUrlImportButtonLabel(pageNum = currentPage) {
     importButton.disabled = false;
 }
 
+function setUrlImportStatus(message, state = 'info', { clearAfterMs = 0 } = {}) {
+    const statusEl = document.getElementById('urlImportStatus');
+    if (!statusEl) return;
+
+    const text = String(message || '').trim();
+    statusEl.textContent = text;
+    statusEl.dataset.state = state;
+
+    if (setUrlImportStatus._timer) {
+        clearTimeout(setUrlImportStatus._timer);
+        setUrlImportStatus._timer = null;
+    }
+
+    if (text && clearAfterMs > 0) {
+        setUrlImportStatus._timer = setTimeout(() => {
+            if (statusEl.textContent === text) {
+                statusEl.textContent = '';
+                statusEl.dataset.state = 'info';
+            }
+            setUrlImportStatus._timer = null;
+        }, clearAfterMs);
+    }
+}
+
+window.setUrlImportStatus = setUrlImportStatus;
+
 function isUrlBook() {
     const bodyType = document.body?.dataset?.bookType;
     if (bodyType === 'url') return true;

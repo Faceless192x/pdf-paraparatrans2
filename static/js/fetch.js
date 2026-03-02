@@ -209,10 +209,17 @@ async function processUrlImportEvent(event) {
     if (!pageNum) return;
 
     if (event.exists) {
+        if (typeof window.setUrlImportStatus === 'function') {
+            window.setUrlImportStatus(`取込済みページです（${pageNum}）。`, 'warning', { clearAfterMs: 3000 });
+        }
         if (confirm('すでに取り込み済みです。移動しますか？')) {
             await jumpToPage(pageNum, { updateUrl: true, preserveScroll: false });
         }
         return;
+    }
+
+    if (typeof window.setUrlImportStatus === 'function') {
+        window.setUrlImportStatus(`取込が完了しました（${pageNum}ページ）。`, 'success', { clearAfterMs: 3500 });
     }
 
     if (event.page_count && bookData) {
@@ -365,8 +372,15 @@ async function importCurrentUrlPage() {
     const importButton = document.getElementById('urlImportButton');
     if (importButton) importButton.disabled = true;
 
+    if (typeof window.setUrlImportStatus === 'function') {
+        window.setUrlImportStatus('再取込を実行中です…（拡張機能応答待ち）', 'loading');
+    }
+
     if (urlImportExtensionState === 'unavailable') {
         if (importButton) importButton.disabled = false;
+        if (typeof window.setUrlImportStatus === 'function') {
+            window.setUrlImportStatus('拡張機能が未接続です。セットアップ案内を表示します。', 'error', { clearAfterMs: 5000 });
+        }
         showUrlImportExtensionSetupGuide();
         return false;
     }
@@ -412,6 +426,9 @@ async function importCurrentUrlPage() {
                 importUrl,
                 extensionState: 'not_available_or_no_response',
             });
+            if (typeof window.setUrlImportStatus === 'function') {
+                window.setUrlImportStatus('応答がありません。拡張機能の接続を確認してください。', 'error', { clearAfterMs: 6000 });
+            }
             showUrlImportExtensionSetupGuide();
         }
         pendingUrlImportProbeTimer = null;
@@ -443,6 +460,9 @@ async function importCurrentUrlPage() {
             error: String(e),
         });
         setUrlImportExtensionState('unavailable');
+        if (typeof window.setUrlImportStatus === 'function') {
+            window.setUrlImportStatus('再取込リクエスト送信に失敗しました。', 'error', { clearAfterMs: 6000 });
+        }
         showUrlImportExtensionSetupGuide();
         return false;
     } finally {

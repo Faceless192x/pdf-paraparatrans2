@@ -1079,7 +1079,33 @@ header {
 }
 
 #urlImportButton {
+    margin-left: 8px;
+}
+
+.url-import-status {
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 280px;
     margin-left: auto;
+}
+
+.url-import-status[data-state="loading"] {
+    color: var(--text-secondary);
+}
+
+.url-import-status[data-state="success"] {
+    color: var(--ok-text);
+}
+
+.url-import-status[data-state="warning"] {
+    color: var(--warn-text);
+}
+
+.url-import-status[data-state="error"] {
+    color: var(--danger-text);
 }
 
 .url-preview-iframe {
