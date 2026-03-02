@@ -62,7 +62,7 @@ modules/               ← ビジネスロジック（現状維持）
 
 ---
 
-### フェーズ 2: シンボルフォント Blueprint の分離
+### フェーズ 2: シンボルフォント Blueprint の分離 ✅（本PRで実施）
 
 **作業内容**
 - `app/services/symbolfont_service.py` を新規作成し、シンボルフォント読み書きロジックを集約
