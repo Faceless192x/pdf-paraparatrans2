@@ -217,7 +217,7 @@ const DictPopup = {
 
             if (data.status === 'ok' && data.found) {
                 this.translatedWordInput.value = data.translated_word;
-                this.statusSelect.value = data.status;
+                this.statusSelect.value = data.entry_status;
             } else {
                 // 見つからなかった場合、訳語は空、状態は既定値(0)のまま
                 console.log(`単語 '${word}' は辞書に見つかりませんでした。`);
