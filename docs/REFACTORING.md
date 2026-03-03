@@ -78,7 +78,7 @@ modules/               ← ビジネスロジック（現状維持）
 
 ---
 
-### フェーズ 3: ファイル管理 Blueprint の分離
+### フェーズ 3: ファイル管理 Blueprint の分離 ✅（本PRで実施）
 
 **作業内容**
 - `app/services/file_mgmt_service.py` を作成し、フォルダ/PDF 管理ロジックを集約
