@@ -64,7 +64,7 @@
             {% if node.children %}
               <details class="folder-node__details" {% if node.open %}open{% endif %}>
                 <summary class="folder-node__summary">
-                  <a href="{{ url_for('index', dir=node.path) if node.path else url_for('index') }}">{{ node.name }}</a>
+                  <a href="{{ url_for('file_mgmt.index', dir=node.path) if node.path else url_for('file_mgmt.index') }}">{{ node.name }}</a>
                   <span class="folder-count">{{ node.count }}</span>
                 </summary>
                 <ul class="folder-tree-list">
@@ -75,7 +75,7 @@
               </details>
             {% else %}
               <div class="folder-node__leaf">
-                <a href="{{ url_for('index', dir=node.path) if node.path else url_for('index') }}">{{ node.name }}</a>
+                <a href="{{ url_for('file_mgmt.index', dir=node.path) if node.path else url_for('file_mgmt.index') }}">{{ node.name }}</a>
                 <span class="folder-count">{{ node.count }}</span>
               </div>
             {% endif %}
@@ -103,13 +103,13 @@
             {% if loop.last %}
               <span>{{ crumb.name }}</span>
             {% else %}
-              <a href="{{ url_for('index', dir=crumb.path) }}">{{ crumb.name }}</a> /
+              <a href="{{ url_for('file_mgmt.index', dir=crumb.path) }}">{{ crumb.name }}</a> /
             {% endif %}
           {% endfor %}
         </div>
         {% if current_dir and parent_dir is not none %}
           <div class="folder-up">
-            <a href="{{ url_for('index', dir=parent_dir) }}">.. (上のフォルダ)</a>
+            <a href="{{ url_for('file_mgmt.index', dir=parent_dir) }}">.. (上のフォルダ)</a>
           </div>
         {% endif %}
         <table class="book-list">
