@@ -91,7 +91,7 @@ modules/               ← ビジネスロジック（現状維持）
 
 ---
 
-### フェーズ 4: URL ブック Blueprint の分離
+### フェーズ 4: URL ブック Blueprint の分離 ✅（本PRで実施）
 
 **作業内容**
 - `app/services/url_book_service.py` を作成し、URL ブックのクロール・インポートロジックを集約
