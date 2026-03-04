@@ -82,12 +82,9 @@ from modules.parapara_table_reextract import (
 )
 
 from modules.api_translate import (
-    get_current_translator,
-    get_supported_translators,
     set_current_translator,
-    translate_text,
 )
-from modules.parapara_trans import paraparatrans_json_file, recalc_trans_status_counts
+from modules.parapara_trans import recalc_trans_status_counts
 from modules.parapara_init import parapara_init  # parapara_initをインポート
 # スタイルによるblock_tag一括更新
 from modules.parapara_tagging_by_style import tag_paragraphs_by_style # 追加
@@ -97,13 +94,11 @@ from modules.parapara_tagging_by_style_y import tag_paragraphs_by_style_y_in_fil
 from modules.parapara_json2html import json2html
 from modules.parapara_align_trans_by_src_joined import (
     align_translations_by_src_joined,
-    align_translations_by_src_joined_collect_pages,
 )
 from modules.settings_sync import (
     load_settings,
     lazy_sync_settings_from_json_files,
     save_settings,
-    sync_one_pdf_settings_from_json,
 )
 from modules.parapara_structure import (
     ensure_backup_copy as structure_ensure_backup_copy,
@@ -130,10 +125,12 @@ from app.services.chunked_upload_service import ChunkedUploadService, ChunkedUpl
 from app.services.symbolfont_service import SymbolFontService
 from app.services.file_mgmt_service import FileMgmtService
 from app.services.url_book_service import UrlBookService
+from app.services.translate_service import TranslateService
 from app.blueprints.dict_bp import create_dict_blueprint
 from app.blueprints.symbol_font_bp import create_symbol_font_blueprint
 from app.blueprints.file_mgmt_bp import create_file_mgmt_blueprint
 from app.blueprints.url_book_bp import create_url_book_blueprint
+from app.blueprints.translate_bp import create_translate_blueprint
 
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -923,6 +920,20 @@ _bp_url_book = create_url_book_blueprint(
 )
 app.register_blueprint(_bp_url_book)
 
+# 翻訳 Blueprint を登録（app/blueprints/translate_bp.py）
+_translate_service = TranslateService(
+    dict_service=dict_service,
+    data_folder=DATA_FOLDER,
+    base_folder=BASE_FOLDER,
+)
+_bp_translate = create_translate_blueprint(
+    translate_service=_translate_service,
+    get_paths=get_paths,
+    load_app_settings=_load_app_settings,
+    save_app_settings=_save_app_settings,
+)
+app.register_blueprint(_bp_translate)
+
 
 # Flaskテンプレートでループのインデックスを取得するためのフィルタ
 @app.context_processor
@@ -1313,84 +1324,6 @@ def create_book_data_api(pdf_name):
         return jsonify({"status": "error", "message": f"パラグラフ抽出エラー: {str(e)}"}), 500
 
 
-# API:ファイル全翻訳
-@app.route("/api/translate_all/<path:pdf_name>", methods=["POST"])
-def translate_all_api(pdf_name):
-    pdf_path, json_path = get_paths(pdf_name)
-    if not os.path.exists(json_path):
-        return jsonify({"status": "error", "message": "JSONが存在しません"}), 400
-    try:
-        # 翻訳前に必ず文書全体へ対訳置換を適用
-        _apply_dict_replace_for_range(pdf_name, json_path)
-
-        _, stats = paraparatrans_json_file(json_path, 1, 9999)
-
-        # settingsの該当PDF分だけ同期（PDFごとのjson_mtimeで追従）
-        settings_path = os.path.join(DATA_FOLDER, "paraparatrans.settings.json")
-        sync_one_pdf_settings_from_json(
-            settings_path=settings_path,
-            base_folder=BASE_FOLDER,
-            pdf_name=pdf_name,
-            indent=4,
-        )
-        return jsonify({"status": "ok", "stats": stats}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"全翻訳エラー: {str(e)}"}), 500
-
-# API:短文翻訳
-@app.route("/api/translate_engine", methods=["GET", "POST"])
-def translate_engine_api():
-    if request.method == "GET":
-        return jsonify({
-            "status": "ok",
-            "engine": get_current_translator(),
-            "supported": get_supported_translators(),
-        }), 200
-
-    data = request.get_json(silent=True) or {}
-    requested = (data.get("engine") or "").strip().lower()
-    if not requested:
-        return jsonify({"status": "error", "message": "engineが指定されていません"}), 400
-
-    try:
-        active = set_current_translator(requested)
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"翻訳エンジン切替エラー: {str(e)}"}), 400
-
-    settings = _load_app_settings()
-    settings["translator"] = active
-    try:
-        _save_app_settings(settings)
-    except Exception as e:
-        app.logger.warning(f"translator setting save failed: {str(e)}")
-
-    return jsonify({
-        "status": "ok",
-        "engine": active,
-        "supported": get_supported_translators(),
-    }), 200
-
-
-@app.route("/api/translate", methods=["POST"])
-def translate_api():
-    data = request.get_json()
-    if not data or "text" not in data:
-        return jsonify({"status": "error", "message": "No text provided"}), 400
-
-    text = data["text"]
-    source = data.get("source", "EN")
-    target = data.get("target", "JA")
-
-    print(f"FOR DEBUG(LEFT50/1TRANS):{text[:50]}")
-
-    try:
-        translated_text = translate_text(text, source, target)
-        print(f"FOR DEBUG(LEFT50/1TRANS):{translated_text[:50]}")
-        return jsonify({"status": "ok", "translated_text": translated_text}), 200
-    except Exception as e:
-        app.logger.error(f"Translation error: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
 # パラグラフの翻訳を保存するAPI
 @app.route("/api/export_html/<path:pdf_name>", methods=["POST"])
 def export_html_api(pdf_name):
@@ -1758,102 +1691,6 @@ def dict_replace_paragraph_api(pdf_name):
     except Exception as e:
         return jsonify({"status": "error", "message": f"段落辞書適用中のエラー: {str(e)}"}), 500
 
-
-def _apply_dict_replace_for_range(pdf_name: str, json_path: str, start_page: int | None = None, end_page: int | None = None):
-    dict_paths = dict_service.get_active_dict_paths(pdf_name)
-    merged_path = dict_service.merged_dict_file(dict_paths)
-    try:
-        if start_page is None or end_page is None:
-            return file_replace_with_dict(json_path, merged_path)
-        return file_replace_with_dict(json_path, merged_path, start_page, end_page)
-    finally:
-        try:
-            os.remove(merged_path)
-        except OSError:
-            pass
-
-@app.route("/api/paraparatrans/<path:pdf_name>", methods=["POST"])
-def paraparatrans_api(pdf_name):
-    start_page = request.form.get("start_page", type=int)
-    end_page = request.form.get("end_page", type=int)
-    if not pdf_name or start_page is None or end_page is None:
-        return jsonify({"status": "error", "message": "pdf_name, start_page, end_page は必須です"}), 400
-    pdf_path, json_path = get_paths(pdf_name)
-    if not os.path.exists(json_path):
-        return jsonify({"status": "error", "message": "対象のJSONファイルが存在しません"}), 404
-
-    print ("json_path:" + json_path + " start_page:" + str(start_page) + " end_page:" + str(end_page))
-    try:
-        # 翻訳対象範囲に必ず対訳置換を適用してから翻訳する
-        _apply_dict_replace_for_range(pdf_name, json_path, start_page, end_page)
-
-        updated_data, stats = paraparatrans_json_file(json_path, start_page, end_page)
-
-        # 差分返却: 更新対象ページのみ返す（クライアント側で bookData にマージして全体再取得を避ける）
-        pages_delta = {}
-        pages = updated_data.get("pages", {})
-        for page in range(start_page, end_page + 1):
-            key = str(page)
-            if key in pages:
-                pages_delta[key] = pages[key]
-
-        delta = {
-            "pages": pages_delta,
-            "trans_status_counts": updated_data.get("trans_status_counts"),
-        }
-
-        # settingsの該当PDF分だけ同期（翻訳数表示の追従）
-        settings_path = os.path.join(DATA_FOLDER, "paraparatrans.settings.json")
-        sync_one_pdf_settings_from_json(
-            settings_path=settings_path,
-            base_folder=BASE_FOLDER,
-            pdf_name=pdf_name,
-            indent=4,
-        )
-        # 互換のため data も残す（旧クライアントは全体更新前提だったが、現状 data は未使用）
-        return jsonify({"status": "ok", "delta": delta, "data": delta, "stats": stats}), 200
-    except Exception as e:
-        app.logger.error(f"翻訳処理中にエラーが発生しました: {str(e)}")
-        return jsonify({"status": "error", "message": f"翻訳処理中にエラーが発生しました: {str(e)}"}), 500
-
-
-@app.route("/api/align_trans_by_src_joined/<path:pdf_name>", methods=["POST"])
-def align_trans_by_src_joined_api(pdf_name):
-    """同一 src_joined の訳を、より上位 trans_status の訳へ揃える。"""
-    _, json_path = get_paths(pdf_name)
-    if not os.path.exists(json_path):
-        return jsonify({"status": "error", "message": "対象のJSONファイルが存在しません"}), 404
-
-    try:
-        with open(json_path, "r", encoding="utf-8") as f:
-            book_data = json.load(f)
-
-        _, changed, pages_changed = align_translations_by_src_joined_collect_pages(book_data)
-        recalc_trans_status_counts(book_data)
-        atomicsave_json(json_path, book_data)
-
-        pages_delta = {}
-        pages = book_data.get("pages", {}) or {}
-        for key in pages_changed:
-            if key in pages:
-                pages_delta[key] = pages[key]
-
-        delta = {
-            "pages": pages_delta,
-            "trans_status_counts": book_data.get("trans_status_counts"),
-        }
-
-        return jsonify(
-            {
-                "status": "ok",
-                "changed": changed,
-                "trans_status_counts": book_data.get("trans_status_counts"),
-                "delta": delta,
-            }
-        ), 200
-    except Exception as e:
-        app.logger.error(f"訳揃え処理中にエラーが発生しました: {str(e)}")
-        return jsonify({"status": "error", "message": f"訳揃え処理中にエラーが発生しました: {str(e)}"}), 500
 
 # APIW:book_data取得
 @app.route("/api/reload_book_data/<path:pdf_name>", methods=["GET"])
