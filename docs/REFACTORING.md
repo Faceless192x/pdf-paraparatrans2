@@ -123,7 +123,7 @@ modules/               ← ビジネスロジック（現状維持）
 
 ---
 
-### フェーズ 7: 段落管理・タグ付け Blueprint の分離
+### フェーズ 7: 段落管理・タグ付け Blueprint の分離 ✅（本PRで実施）
 
 **作業内容**
 - `app/blueprints/paragraph_bp.py` を作成し以下を移行
