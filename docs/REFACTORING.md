@@ -111,7 +111,7 @@ modules/               ← ビジネスロジック（現状維持）
 
 ---
 
-### フェーズ 6: エクスポート Blueprint の分離
+### フェーズ 6: エクスポート Blueprint の分離 ✅（本PRで実施）
 
 **作業内容**
 - `app/blueprints/export_bp.py` を作成し以下を移行
