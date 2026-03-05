@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 
 # .env ファイルの内容を読み込む
 load_dotenv()
-_SUPPORTED_TRANSLATORS = ("google", "deepl", "google_v3")
+_SUPPORTED_TRANSLATORS = ("google", "deepl", "google_v3", "ollama")
 _TRANSLATOR_FUNCS = {}
 _CURRENT_TRANSLATOR = "google"
 
@@ -30,6 +30,13 @@ def _load_translator_func(translator_name):
             from .api_translate_google_v3 import translate_text as translate_text_env  # type: ignore
         except Exception:
             from api_translate_google_v3 import translate_text as translate_text_env  # type: ignore
+        return translate_text_env
+
+    if translator_name == "ollama":
+        try:
+            from .api_translate_ollama import translate_text as translate_text_env  # type: ignore
+        except Exception:
+            from api_translate_ollama import translate_text as translate_text_env  # type: ignore
         return translate_text_env
 
     try:
@@ -69,6 +76,8 @@ def _label_for_translator(name):
         return "DeepL"
     if name == "google_v3":
         return "Google v3"
+    if name == "ollama":
+        return "Ollama"
     return "Google"
 
 
@@ -105,6 +114,13 @@ def _resolve_translate_texts_func(translator_name):
             from .api_translate_google_v3 import translate_texts as translate_texts_env  # type: ignore
         except Exception:
             from api_translate_google_v3 import translate_texts as translate_texts_env  # type: ignore
+        return translate_texts_env
+
+    if translator_name == "ollama":
+        try:
+            from .api_translate_ollama import translate_texts as translate_texts_env  # type: ignore
+        except Exception:
+            from api_translate_ollama import translate_texts as translate_texts_env  # type: ignore
         return translate_texts_env
 
     try:
