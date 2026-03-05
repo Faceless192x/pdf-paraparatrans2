@@ -121,6 +121,8 @@ from app.blueprints.export_bp import create_export_blueprint
 from app.services.export_service import ExportService
 from app.blueprints.paragraph_bp import create_paragraph_blueprint
 from app.services.paragraph_service import ParagraphService
+from app.blueprints.book_bp import create_book_blueprint
+from app.services.book_service import BookService
 
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -847,6 +849,26 @@ _bp_paragraph = create_paragraph_blueprint(
 )
 app.register_blueprint(_bp_paragraph)
 
+# ブック閲覧 Blueprint を登録（app/blueprints/book_bp.py）
+_book_service = BookService(
+    get_paths=get_paths,
+    is_url_book_name=_is_url_book_name,
+    ensure_url_page_nav=_ensure_url_page_nav,
+    build_url_page_preview_map=_build_url_page_preview_map,
+    load_app_settings=_load_app_settings,
+    save_app_settings=_save_app_settings,
+)
+_bp_book = create_book_blueprint(
+    book_service=_book_service,
+    get_paths=get_paths,
+    normalize_pdf_name=_normalize_pdf_name,
+    is_url_book_name=_is_url_book_name,
+    url_book_prefix=URL_BOOK_PREFIX,
+    perf_api_enabled=_perf_api_enabled,
+    perf_log=_perf_log,
+)
+app.register_blueprint(_bp_book)
+
 
 # Flaskテンプレートでループのインデックスを取得するためのフィルタ
 @app.context_processor
@@ -854,387 +876,6 @@ def utility_processor():
     def enumerate_filter(iterable):
         return enumerate(iterable)
     return dict(enumerate=enumerate_filter)
-
-@app.route("/detail/<path:pdf_name>")
-@app.route("/detail/<path:pdf_name>/<int:page_number>")  # page_number をオプションに
-def detail(pdf_name, page_number=1):
-    normalized_pdf_name = _normalize_pdf_name(pdf_name)
-    if not normalized_pdf_name:
-        return "pdf_name が不正です", 400
-
-    pdf_name = normalized_pdf_name
-    is_url_book = _is_url_book_name(pdf_name)
-    book_type = "url" if is_url_book else "pdf"
-    if is_url_book:
-        book_rel = pdf_name[len(URL_BOOK_PREFIX):]
-        current_dir = os.path.dirname(book_rel).replace("\\", "/")
-    else:
-        current_dir = os.path.dirname(pdf_name).replace("\\", "/")
-    index_dir = current_dir if current_dir else None
-    pdf_path, json_path = get_paths(pdf_name)
-
-    if os.path.exists(json_path):
-        with open(json_path, "r", encoding="utf-8") as f:
-            book_data = json.load(f)
-        if isinstance(book_data, dict) and book_type == "url":
-            book_data.setdefault("source_type", "url")
-    else:
-        if is_url_book:
-            return "URLブックが存在しません", 404
-        book_data = {
-            "src_filename": pdf_name,
-            "title": pdf_name,
-            "styles": {},
-            "trans_status_counts": {"pending": 0, "auto": 0, "manual": 0, "fixed": 0},
-            "pages": []
-        }
-
-    updated_date = ""
-    if os.path.exists(json_path):
-        updated_date = datetime.datetime.fromtimestamp(os.path.getmtime(json_path)).strftime("%Y/%m/%d")
-    elif os.path.exists(pdf_path):
-        updated_date = datetime.datetime.fromtimestamp(os.path.getmtime(pdf_path)).strftime("%Y/%m/%d")
-
-    return render_template(
-        "detail.html",
-        pdf_name=pdf_name,
-        page_number=page_number,
-        book_data=book_data,
-        updated_date=updated_date,
-        index_dir=index_dir,
-        book_type=book_type,
-    )
-
-
-# API:book_dataデータ取得
-@app.route("/api/book_data/<path:pdf_name>")
-def get_book_data(pdf_name):
-    pdf_path, json_path = get_paths(pdf_name)
-    if not os.path.exists(json_path):
-        return jsonify({"status": "ok", "message": "JSONが存在しません"}), 206
-    with open(json_path, "r", encoding="utf-8") as f:
-        book_data = json.load(f)
-    if _is_url_book_name(pdf_name):
-        _ensure_url_page_nav(book_data)
-    return jsonify(book_data)
-
-
-# API: book_data のメタ情報のみ取得（初期ロード高速化用）
-@app.route("/api/book_meta/<path:pdf_name>")
-def get_book_meta(pdf_name):
-    _, json_path = get_paths(pdf_name)
-    if not os.path.exists(json_path):
-        return jsonify({"status": "ok", "message": "JSONが存在しません"}), 206
-
-    try:
-        json_mtime = os.path.getmtime(json_path)
-    except OSError:
-        json_mtime = None
-
-    with open(json_path, "r", encoding="utf-8") as f:
-        book_data = json.load(f)
-
-    if _is_url_book_name(pdf_name):
-        _ensure_url_page_nav(book_data)
-
-    last_open_page = book_data.get("last_open_page")
-    if not _is_url_book_name(pdf_name):
-        try:
-            settings = _load_app_settings()
-            files = (settings or {}).get("files", {}) or {}
-            settings_page = (files.get(pdf_name) or {}).get("last_open_page")
-            if settings_page is not None:
-                last_open_page = settings_page
-        except Exception:
-            pass
-
-    meta = {
-        "version": book_data.get("version"),
-        "src_filename": book_data.get("src_filename"),
-        "title": book_data.get("title"),
-        "page_count": book_data.get("page_count"),
-        "last_open_page": last_open_page,
-        "styles": book_data.get("styles") or {},
-        "trans_status_counts": book_data.get("trans_status_counts") or {},
-        "json_mtime": json_mtime,
-        "source_type": book_data.get("source_type") or "pdf",
-        "source_root_url": book_data.get("source_root_url"),
-        "source_host": book_data.get("source_host"),
-        "page_url_map": book_data.get("page_url_map") or {},
-        "url_to_page_id": book_data.get("url_to_page_id") or {},
-        "page_nav": book_data.get("page_nav") or {},
-        "page_preview_map": _build_url_page_preview_map(book_data) if _is_url_book_name(pdf_name) else {},
-    }
-    return jsonify({"status": "ok", "meta": meta})
-
-
-@app.route("/api/update_last_page/<path:pdf_name>", methods=["POST"])
-def update_last_page_api(pdf_name):
-    _, json_path = get_paths(pdf_name)
-    if not os.path.exists(json_path):
-        return jsonify({"status": "error", "message": "JSONが存在しません"}), 404
-
-    data = request.get_json(silent=True) or {}
-    page_number = data.get("page_number")
-    try:
-        page_number = int(page_number)
-    except Exception:
-        return jsonify({"status": "error", "message": "page_number が不正です"}), 400
-
-    if page_number < 1:
-        return jsonify({"status": "error", "message": "page_number は1以上で指定してください"}), 400
-
-    try:
-        with open(json_path, "r", encoding="utf-8") as f:
-            book_data = json.load(f)
-
-        try:
-            page_count = int(book_data.get("page_count") or 0)
-        except Exception:
-            page_count = 0
-        if page_count > 0:
-            page_number = max(1, min(page_number, page_count))
-
-        if _is_url_book_name(pdf_name):
-            if book_data.get("last_open_page") == page_number:
-                return jsonify({"status": "ok", "changed": 0, "stored_in": "book_data"}), 200
-
-            book_data["last_open_page"] = page_number
-
-            temp_file = f"{json_path}.{uuid.uuid4().hex}.tmp"
-            try:
-                with open(temp_file, "w", encoding="utf-8") as f:
-                    json.dump(book_data, f, ensure_ascii=False, indent=2)
-                os.replace(temp_file, json_path)
-            except Exception:
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-                raise
-
-            return jsonify({"status": "ok", "changed": 1, "last_open_page": page_number, "stored_in": "book_data"}), 200
-
-        settings = _load_app_settings()
-        files = settings.get("files") or {}
-        file_entry = files.get(pdf_name)
-        if not isinstance(file_entry, dict):
-            file_entry = {}
-            files[pdf_name] = file_entry
-            settings["files"] = files
-
-        try:
-            prev_page = int(file_entry.get("last_open_page")) if file_entry.get("last_open_page") is not None else None
-        except Exception:
-            prev_page = None
-        if prev_page == page_number:
-            return jsonify({"status": "ok", "changed": 0, "stored_in": "settings"}), 200
-
-        file_entry["last_open_page"] = page_number
-        _save_app_settings(settings)
-
-        return jsonify({"status": "ok", "changed": 1, "last_open_page": page_number, "stored_in": "settings"}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"最終ページ保存中にエラーが発生しました: {str(e)}"}), 500
-
-
-# API: 目次（見出し）情報のみ取得（初期ロード高速化用）
-@app.route("/api/book_toc/<path:pdf_name>")
-def get_book_toc(pdf_name):
-    _, json_path = get_paths(pdf_name)
-    if not os.path.exists(json_path):
-        return jsonify({"status": "error", "message": "JSONが存在しません"}), 404
-
-    try:
-        mtime = os.path.getmtime(json_path)
-    except OSError:
-        mtime = None
-
-    if mtime is not None:
-        with _BOOK_TOC_CACHE_LOCK:
-            cached = _BOOK_TOC_CACHE.get(pdf_name)
-            if cached and cached.get("mtime") == mtime and isinstance(cached.get("toc"), list):
-                return jsonify({"status": "ok", "toc": cached["toc"], "cached": True})
-
-    with open(json_path, "r", encoding="utf-8") as f:
-        book_data = json.load(f)
-
-    headlines = []
-    pages = book_data.get("pages", {}) or {}
-    for page_key, page in pages.items():
-        paragraphs = (page or {}).get("paragraphs", {}) or {}
-        for _pid, p in paragraphs.items():
-            block_tag = (p or {}).get("block_tag")
-            join_flag = int((p or {}).get("join", 0) or 0)
-            if join_flag == 1:
-                continue
-            if not isinstance(block_tag, str):
-                continue
-            if not re.match(r"^h[1-6]$", block_tag):
-                continue
-
-            page_number = (p or {}).get("page_number")
-            para_id = (p or {}).get("id")
-            try:
-                y0 = (p or {}).get("bbox")[1]
-            except Exception:
-                y0 = 0
-
-            headlines.append(
-                {
-                    "rowId": f"{page_number}_{para_id}",
-                    "page_number": page_number,
-                    "id": para_id,
-                    "order": (p or {}).get("order", 0) or 0,
-                    "column_order": (p or {}).get("column_order", 0) or 0,
-                    "y0": y0,
-                    "block_tag": block_tag,
-                    "src_joined": (p or {}).get("src_joined"),
-                    "trans_text": (p or {}).get("trans_text"),
-                    "join": join_flag,
-                }
-            )
-
-    def _toc_sort_key(item: dict):
-        try:
-            pn = int(item.get("page_number") or 0)
-        except Exception:
-            pn = 0
-        try:
-            order = int(item.get("order") or 0)
-        except Exception:
-            order = 0
-        try:
-            col = int(item.get("column_order") or 0)
-        except Exception:
-            col = 0
-        try:
-            y0 = float(item.get("y0") or 0)
-        except Exception:
-            y0 = 0
-        return (pn, order, col, y0)
-
-    headlines.sort(key=_toc_sort_key)
-
-    if mtime is not None:
-        with _BOOK_TOC_CACHE_LOCK:
-            _BOOK_TOC_CACHE[pdf_name] = {"mtime": mtime, "toc": headlines}
-
-    return jsonify({"status": "ok", "toc": headlines, "cached": False})
-
-
-# API: 指定ページだけ取得（差分更新用）
-@app.route("/api/book_page/<path:pdf_name>/<int:page_number>")
-def get_book_page(pdf_name, page_number: int):
-    t0 = time.perf_counter()
-    _, json_path = get_paths(pdf_name)
-    if not os.path.exists(json_path):
-        return jsonify({"status": "error", "message": "JSONが存在しません"}), 404
-    json_size = None
-    try:
-        json_size = os.path.getsize(json_path)
-    except Exception:
-        json_size = None
-
-    t_load_start = time.perf_counter()
-    with open(json_path, "r", encoding="utf-8") as f:
-        book_data = json.load(f)
-    t_load_end = time.perf_counter()
-
-    t_page_start = time.perf_counter()
-    page_key = str(page_number)
-    page = (book_data.get("pages", {}) or {}).get(page_key)
-    t_page_end = time.perf_counter()
-    if page is None:
-        return jsonify({"status": "error", "message": f"ページが存在しません: {page_number}"}), 404
-
-    t1 = time.perf_counter()
-    if _perf_api_enabled():
-        size_kb = (json_size / 1024.0) if isinstance(json_size, (int, float)) else None
-        size_note = f", json_kb={size_kb:.1f}" if size_kb is not None else ""
-        _perf_log(
-            f"[perf] book_page page={page_number} load_json={(t_load_end - t_load_start)*1000:.1f} ms "
-            f"select_page={(t_page_end - t_page_start)*1000:.1f} ms total={(t1 - t0)*1000:.1f} ms"
-            f"{size_note}"
-        )
-
-    response = jsonify(
-        {
-            "status": "ok",
-            "page_key": page_key,
-            "page": page,
-            "trans_status_counts": book_data.get("trans_status_counts"),
-            "page_count": book_data.get("page_count"),
-            "title": book_data.get("title"),
-        }
-    )
-
-    if _perf_api_enabled():
-        load_ms = (t_load_end - t_load_start) * 1000.0
-        select_ms = (t_page_end - t_page_start) * 1000.0
-        total_ms = (t1 - t0) * 1000.0
-        response.headers["Server-Timing"] = (
-            f"load_json;dur={load_ms:.1f}, "
-            f"select_page;dur={select_ms:.1f}, "
-            f"total;dur={total_ms:.1f}"
-        )
-
-    return response
-
-
-# API: 全文検索（src_joined/trans_text/trans_auto）
-@app.route("/api/search/<path:pdf_name>")
-def search_api(pdf_name: str):
-    _, json_path = get_paths(pdf_name)
-    if not os.path.exists(json_path):
-        return jsonify({"status": "error", "message": "JSONが存在しません"}), 404
-
-    query = (request.args.get("q") or "").strip()
-    try:
-        limit = int(request.args.get("limit") or 200)
-    except Exception:
-        limit = 200
-    limit = max(1, min(limit, 2000))
-
-    try:
-        results = search_paragraphs_in_book(json_path, query, limit=limit)
-    except Exception as e:
-        app.logger.exception("search failed")
-        return jsonify({"status": "error", "message": f"検索エラー: {str(e)}"}), 500
-
-    return jsonify({"status": "ok", "query": query, "count": len(results), "results": results})
-
-
-# API:PDFからbook_dataファイル生成
-@app.route("/api/extract_paragraphs/<path:pdf_name>", methods=["POST"])
-def create_book_data_api(pdf_name):
-    if _is_url_book_name(pdf_name):
-        return jsonify({"status": "error", "message": "URLブックはパラグラフ抽出不要です"}), 400
-    
-    pdf_path, json_path = get_paths(pdf_name)
-    
-    # リクエストボディから current_page を取得
-    data = request.get_json(silent=True) or {}
-    current_page = data.get("current_page")
-    
-    try:
-        if os.path.exists(json_path):
-            # 既存JSONがある場合：現在のページを再抽出
-            if not current_page:
-                return jsonify({"status": "error", "message": "current_page が指定されていません"}), 400
-            
-            try:
-                page_number = int(current_page)
-            except (ValueError, TypeError):
-                return jsonify({"status": "error", "message": "current_page が不正です"}), 400
-            
-            reextract_page(pdf_path, json_path, page_number)
-            return jsonify({"status": "ok", "message": f"ページ {page_number} を再抽出しました"}), 200
-        else:
-            # 新規抽出
-            extract_paragraphs(pdf_path, json_path)
-            return jsonify({"status": "ok", "message": "パラグラフ抽出完了"}), 200
-    except Exception as e:
-        app.logger.error(f"extract_paragraphs error: {str(e)}")
-        return jsonify({"status": "error", "message": f"パラグラフ抽出エラー: {str(e)}"}), 500
 
 
 # # API:ファイルへの辞書全置換
@@ -1354,52 +995,6 @@ def dict_replace_paragraph_api(pdf_name):
         return jsonify({"status": "error", "message": f"段落辞書適用中のエラー: {str(e)}"}), 500
 
 
-# APIW:book_data取得
-@app.route("/api/reload_book_data/<path:pdf_name>", methods=["GET"])
-def reload_book_data_api(pdf_name):
-    pdf_path, json_path = get_paths(pdf_name)
-    if not os.path.exists(json_path):
-        return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
-    with open(json_path, "r", encoding="utf-8") as f:
-        book_data = json.load(f)
-    return jsonify(book_data), 200
-
-@app.route("/pdf_view/<path:pdf_name>")
-def pdf_view(pdf_name):
-    pdf_path, _ = get_paths(pdf_name)
-    if not os.path.exists(pdf_path):
-        app.logger.error(f"File not found: {pdf_path}")
-        return "PDFファイルが見つかりません", 404
-
-    # BytesIO を返すと Range/条件付きリクエストが効かず PDF.js が遅くなりがちなので、
-    # 実ファイルパスを send_file で返してブラウザ側キャッシュ/Range を活かす。
-    resp = send_file(pdf_path, as_attachment=False, conditional=True)
-    try:
-        resp.cache_control.public = True
-        resp.cache_control.max_age = 3600
-    except Exception:
-        pass
-    return resp
-
-# PDFの指定ページを表示するAPI
-@app.route("/pdf_view/<path:pdf_name>/<int:page_number>")
-def pdf_view_page(pdf_name, page_number):
-    pdf_path, _ = get_paths(pdf_name)
-    if not os.path.exists(pdf_path):
-        app.logger.error(f"File not found: {pdf_path}")
-        return "PDFファイルが見つかりません", 404
-    with open(pdf_path, "rb") as f:
-        reader = PdfReader(f)
-        if page_number < 1 or page_number > len(reader.pages):
-            return "ページが存在しません", 404
-        writer = PdfWriter()
-        writer.add_page(reader.pages[page_number - 1])
-        output = io.BytesIO()
-        writer.write(output)
-        output.seek(0)
-        safe_name = os.path.splitext(os.path.basename(pdf_path))[0]
-        return send_file(output, download_name=f"{safe_name}_page_{page_number}.pdf", as_attachment=False)
-
 
 @app.route("/api/dict_create/<path:pdf_name>", methods=["POST"])
 def dict_create_api(pdf_name):
@@ -1432,24 +1027,6 @@ def dict_trans_api(pdf_name):
         return jsonify({"status": "error", "message": f"辞書翻訳エラー: {str(e)}"}), 500
     return jsonify({"status": "ok", "message": "辞書翻訳完了"}), 200
 
-
-# API: ブック内のスタイル一覧を取得
-@app.route("/api/book_styles/<path:pdf_name>")
-def get_book_styles_api(pdf_name):
-    """Get all styles from the book's JSON file."""
-    _, json_path = get_paths(pdf_name)
-    if not os.path.exists(json_path):
-        return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
-
-    try:
-        with open(json_path, "r", encoding="utf-8") as f:
-            book_data = json.load(f)
-        
-        styles = book_data.get("styles", {}) or {}
-        return jsonify({"status": "ok", "styles": styles}), 200
-    except Exception as e:
-        app.logger.error(f"Error getting book styles: {str(e)}")
-        return jsonify({"status": "error", "message": f"スタイル取得エラー: {str(e)}"}), 500
 
 
 # PDFビューアーがChromeで読み込めなかったときに対策として入れてみた。

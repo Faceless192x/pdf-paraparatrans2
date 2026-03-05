@@ -137,7 +137,7 @@ modules/               ← ビジネスロジック（現状維持）
 
 ---
 
-### フェーズ 8: ブック閲覧 Blueprint の分離
+### フェーズ 8: ブック閲覧 Blueprint の分離 ✅（本PRで実施）
 
 **作業内容**
 - `app/blueprints/book_bp.py` を作成し以下を移行
