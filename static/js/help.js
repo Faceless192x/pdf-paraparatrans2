@@ -18,14 +18,26 @@ const escapeHtml = (value) => String(value || '')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;');
 
-const slugifyHeading = (value) => String(value || '')
-  .trim()
-  .toLowerCase()
-  .replace(/[^\w\u3040-\u30ff\u3400-\u9fff -]+/g, '')
-  .replace(/\s+/g, '-')
-  .replace(/-+/g, '-');
+const slugifyHeading = (value) => {
+  const normalized = String(value == null ? '' : value).trim().toLowerCase().normalize('NFKC');
+  const chars = Array.from(normalized).map((ch) => {
+    if (/[a-z0-9_ぁ-んァ-ン一-龠]/.test(ch)) return ch;
+    if (/[-\s]/.test(ch)) return '-';
+    return '';
+  });
+  return chars.join('').replace(/-+/g, '-').replace(/^-|-$/g, '');
+};
 
-const normalizeInlineBreaks = (value) => String(value || '').replace(/<br\s*\/?>/gi, '\n');
+const normalizeInlineBreaks = (value) => String(value ?? '').replace(/<br\s*\/?>/gi, '\n');
+
+const markdownToPlainText = (markdownText) => String(markdownText ?? '')
+  .replace(/^#+\s*/gm, '')
+  .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)')
+  .replace(/`([^`]+)`/g, '$1')
+  .replace(/\*\*([^*]+)\*\*/g, '$1')
+  .replace(/\r/g, '')
+  .replace(/\n{3,}/g, '\n\n')
+  .trim();
 
 const renderInlineMarkdown = (value) => {
   let html = escapeHtml(normalizeInlineBreaks(value));
@@ -35,20 +47,21 @@ const renderInlineMarkdown = (value) => {
       if (!['http:', 'https:'].includes(url.protocol)) {
         return escapeHtml(text);
       }
-      return `<a href="${escapeHtml(url.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
+      return `<a href="${escapeHtml(url.href)}" target="_blank" rel="noopener noreferrer">${text}</a>`;
     } catch (_err) {
       return escapeHtml(text);
     }
   });
-  html = html.replace(/`([^`]+)`/g, (_match, codeText) => `<code>${escapeHtml(codeText)}</code>`);
-  html = html.replace(/\*\*([^*]+)\*\*/g, (_match, boldText) => `<strong>${escapeHtml(boldText)}</strong>`);
+  html = html.replace(/`([^`]+)`/g, (_match, codeText) => `<code>${codeText}</code>`);
+  html = html.replace(/\*\*([^*]+)\*\*/g, (_match, boldText) => `<strong>${boldText}</strong>`);
   return html.replace(/\n/g, '<br>');
 };
 
 const renderMarkdown = (markdownText) => {
-  const lines = String(markdownText || '').replace(/\r\n?/g, '\n').split('\n');
+  const lines = String(markdownText ?? '').replace(/\r\n?/g, '\n').split('\n');
   const htmlParts = [];
   const headings = [];
+  let headingCounter = 0;
   let paragraphLines = [];
   let listType = null;
   let inCodeBlock = false;
@@ -99,7 +112,8 @@ const renderMarkdown = (markdownText) => {
       closeList();
       const level = headingMatch[1].length;
       const text = headingMatch[2].trim();
-      const id = slugifyHeading(text) || `heading-${headings.length + 1}`;
+      headingCounter += 1;
+      const id = slugifyHeading(text) || `heading-${headingCounter}`;
       headings.push({ id, text, level });
       htmlParts.push(`<h${level} id="${id}">${renderInlineMarkdown(text)}</h${level}>`);
       continue;
@@ -143,7 +157,7 @@ const renderMarkdown = (markdownText) => {
 const parseHelpMarkdown = (markdownText) => {
   helpDebugLog('Parsing help markdown...');
   const sections = {};
-  const lines = String(markdownText || '').replace(/\r\n?/g, '\n').split('\n');
+  const lines = String(markdownText ?? '').replace(/\r\n?/g, '\n').split('\n');
   let currentId = null;
   let currentContent = [];
 
@@ -256,6 +270,13 @@ const showTooltip = (target) => {
 const bindHelpTooltips = () => {
   const elements = document.querySelectorAll('[data-help-id]');
   elements.forEach((element) => {
+    const helpId = element.getAttribute('data-help-id');
+    const section = helpSections[helpId];
+    if (section) {
+      const plainText = markdownToPlainText(section);
+      element.dataset.helpText = plainText;
+      element.setAttribute('title', plainText);
+    }
     element.addEventListener('mouseenter', () => showTooltip(element));
     element.addEventListener('focus', () => showTooltip(element));
     element.addEventListener('mouseleave', hideTooltip);
@@ -305,10 +326,11 @@ const showFullHelp = async () => {
 
     const modalHeader = document.createElement('div');
     modalHeader.classList.add('help-modal-header');
-    modalHeader.innerHTML = '<h2>Help Documentation</h2>';
+    modalHeader.innerHTML = '<h2>ヘルプ</h2>';
 
     const closeButton = document.createElement('button');
     closeButton.classList.add('help-modal-close');
+    closeButton.setAttribute('aria-label', '閉じる');
     closeButton.innerHTML = '&times;';
     closeButton.onclick = () => {
       document.body.removeChild(modalOverlay);
@@ -353,7 +375,7 @@ const showFullHelp = async () => {
     });
   } catch (error) {
     console.error('Failed to show full help:', error);
-    alert('Failed to load help documentation.');
+    alert('ヘルプを開けませんでした。');
   }
 };
 
