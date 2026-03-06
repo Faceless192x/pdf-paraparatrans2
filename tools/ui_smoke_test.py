@@ -109,6 +109,31 @@ def _assert(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def _run_help_checks(page) -> None:
+    page.locator('#show-full-help').click()
+    page.locator('.help-modal-overlay').wait_for(state='visible', timeout=5000)
+    modal_title = page.locator('.help-modal-header h2').inner_text().strip()
+    _assert(modal_title == 'ヘルプ', f"help modal title mismatch: {modal_title}")
+    help_content = page.locator('.help-content').inner_text()
+    _assert('各列の役割' in help_content or '列の見方' in help_content, 'help modal should describe column usage')
+    _assert('キーボードショートカット' in help_content, 'help modal should describe keyboard shortcuts')
+    page.locator('.help-modal-close').click()
+    page.locator('.help-modal-overlay').wait_for(state='hidden', timeout=3000)
+
+    toggle = page.locator('#toggleSrcJoined')
+    help_text = toggle.get_attribute('data-help-text') or ''
+    _assert('連結文' in help_text, 'inline help text for 連結文 should be bound')
+
+    page.locator('#openHotKeyButton').click()
+    page.locator('#hotkey-help').wait_for(state='visible', timeout=5000)
+    hotkey_table_text = page.locator('#hotkey-help').inner_text()
+    _assert('ショートカットキー一覧' in hotkey_table_text, 'hotkey help title missing')
+    _assert('Control+Shift+K' in hotkey_table_text, 'hotkey help should include KeyHUD shortcut')
+    _assert('Alt+/' in hotkey_table_text, 'hotkey help should include paragraph translate shortcut')
+    page.locator('#hotkey-help .hotkey-help-close').click()
+    page.locator('#hotkey-help').wait_for(state='hidden', timeout=3000)
+
+
 def _run_hotkey_checks(page) -> None:
     page.keyboard.press("Control+Shift+K")
     hud = page.locator("#hotkey-input-display")
@@ -428,6 +453,7 @@ def _run_ui_checks(
     base_url: str,
     pdf_name: str,
     headless: bool,
+    help_only: bool,
     hotkey_only: bool,
     dict_auto_translate_only: bool,
     resume_page_only: bool,
@@ -467,6 +493,13 @@ def _run_ui_checks(
         link.first.click()
 
         page.wait_for_url(f"**{detail_path}**", timeout=15000)
+
+        if help_only:
+            page.locator('#show-full-help').wait_for(timeout=10000)
+            _run_help_checks(page)
+            browser.close()
+            return
+
         page.locator("#srcParagraphs .paragraph-box").first.wait_for(timeout=15000)
 
         if hotkey_only:
@@ -551,6 +584,11 @@ def main() -> int:
         help="Port to use when starting the server.",
     )
     parser.add_argument(
+        "--help-only",
+        action="store_true",
+        help="Run only help modal and hotkey help checks.",
+    )
+    parser.add_argument(
         "--hotkey-only",
         action="store_true",
         help="Run only the hotkey HUD checks.",
@@ -599,6 +637,7 @@ def main() -> int:
             args.base_url,
             args.pdf_name,
             headless=args.headless,
+            help_only=args.help_only,
             hotkey_only=args.hotkey_only,
             dict_auto_translate_only=args.dict_auto_translate_only,
             resume_page_only=args.resume_page_only,
