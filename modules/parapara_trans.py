@@ -22,10 +22,18 @@ DICT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "
 
 try:
     # パッケージとして読み込まれる（Flaskアプリなど）ケース
-    from .api_translate import translate_text, translate_texts  # type: ignore
+    from .api_translate import (  # type: ignore
+        get_current_translator,
+        translate_text,
+        translate_texts,
+    )
 except Exception:
     # スクリプトとして直接実行されるケース（sys.path に modules が入っている前提）
-    from api_translate import translate_text, translate_texts  # type: ignore
+    from api_translate import (  # type: ignore
+        get_current_translator,
+        translate_text,
+        translate_texts,
+    )
 
 
 def _debug_pagetrans_enabled() -> bool:
@@ -39,8 +47,30 @@ def _pagetrans_debug(msg: str):
         print(f"[PAGETRANS_DEBUG] {msg}")
 
 
+DEFAULT_GROUP_MAX_CHARS = 4000
+MIN_GROUP_MAX_CHARS = 400
+MAX_GROUP_MAX_CHARS = 12000
+
+
+def _normalize_group_max_chars(value: Optional[int]) -> int:
+    if value is None:
+        return DEFAULT_GROUP_MAX_CHARS
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_GROUP_MAX_CHARS
+    if parsed < MIN_GROUP_MAX_CHARS:
+        return MIN_GROUP_MAX_CHARS
+    if parsed > MAX_GROUP_MAX_CHARS:
+        return MAX_GROUP_MAX_CHARS
+    return parsed
+
+
 @dataclass
 class TranslationStats:
+    translation_engine: str = ""
+    characters_used: int = 0
+    group_max_chars: int = DEFAULT_GROUP_MAX_CHARS
     pages_processed: int = 0
     paragraphs_total_in_range: int = 0
     paragraphs_target: int = 0
@@ -53,6 +83,18 @@ class TranslationStats:
     skipped_join_empty: int = 0
     missing_from_batch: int = 0
     groups: int = 0
+
+
+def _record_used_chars(stats: Optional[TranslationStats], text: str) -> None:
+    if stats is None:
+        return
+    stats.characters_used += len(str(text or ""))
+
+
+def _record_used_chars_many(stats: Optional[TranslationStats], texts: List[str]) -> None:
+    if stats is None:
+        return
+    stats.characters_used += sum(len(str(text or "")) for text in texts)
 
 
 _MARKER_RE = re.compile(r"【\s*([0-9]+[＿_][0-9]+)\s*】")
@@ -121,13 +163,16 @@ def _translate_table_row_paragraph(para: dict, stats: Optional[TranslationStats]
         translated_cells = translate_texts(cells, source="en", target="ja")
         if not isinstance(translated_cells, list) or len(translated_cells) != len(cells):
             raise ValueError("Unexpected translate_texts result length")
+        _record_used_chars_many(stats, cells)
     except Exception as e:
         print(f"Warning: テーブル行の一括翻訳に失敗。セルごとにフォールバックします: {e}")
         used_fallback = True
         translated_cells = []
         for cell in cells:
             try:
-                translated_cells.append(translate_text(cell, source="en", target="ja"))
+                translated = translate_text(cell, source="en", target="ja")
+                translated_cells.append(translated)
+                _record_used_chars(stats, cell)
             except Exception as ee:
                 if stats is not None:
                     stats.failed += 1
@@ -144,7 +189,7 @@ def _translate_table_row_paragraph(para: dict, stats: Optional[TranslationStats]
 
 def process_group(paragraphs_group: List[dict], stats: Optional[TranslationStats] = None):
     """
-    1. 指定グループの各段落の src_replaced の先頭に【id】を付与して連結し、5000文字以内となる翻訳前テキストを作成
+    1. 指定グループの各段落の src_replaced の先頭に【id】を付与して連結し、グループ上限文字数以内の翻訳前テキストを作成
     2. 翻訳関数 translate_text を呼び出し、翻訳結果を取得
     3. 翻訳結果から各部の id と翻訳文を抽出し、該当するパラグラフに trans_auto をセットする
        - trans_status が "none" の場合、"auto" に変更
@@ -176,12 +221,15 @@ def process_group(paragraphs_group: List[dict], stats: Optional[TranslationStats
 
     try:
         translated_text = translate_text(concatenated_text, source="en", target="ja")
+        _record_used_chars(stats, concatenated_text)
     except Exception as e:
         # グループ翻訳が落ちた場合は、段落単体へフォールバックする
         print(f"Warning: グループ翻訳に失敗。段落単体にフォールバックします: {e}")
         for pid, para in para_by_id.items():
             try:
-                t = translate_text(para.get("src_replaced", ""), source="en", target="ja")
+                src_replaced = para.get("src_replaced", "") or ""
+                t = translate_text(src_replaced, source="en", target="ja")
+                _record_used_chars(stats, src_replaced)
                 _apply_translation_to_paragraph(para, t)
                 if stats is not None:
                     stats.translated += 1
@@ -198,7 +246,9 @@ def process_group(paragraphs_group: List[dict], stats: Optional[TranslationStats
         print("Warning: 翻訳結果からマーカー抽出できません。段落単体にフォールバックします")
         for pid, para in para_by_id.items():
             try:
-                t = translate_text(para.get("src_replaced", ""), source="en", target="ja")
+                src_replaced = para.get("src_replaced", "") or ""
+                t = translate_text(src_replaced, source="en", target="ja")
+                _record_used_chars(stats, src_replaced)
                 _apply_translation_to_paragraph(para, t)
                 if stats is not None:
                     stats.translated += 1
@@ -230,7 +280,9 @@ def process_group(paragraphs_group: List[dict], stats: Optional[TranslationStats
         for pid in missing_ids:
             para = para_by_id[pid]
             try:
-                t = translate_text(para.get("src_replaced", ""), source="en", target="ja")
+                src_replaced = para.get("src_replaced", "") or ""
+                t = translate_text(src_replaced, source="en", target="ja")
+                _record_used_chars(stats, src_replaced)
                 _apply_translation_to_paragraph(para, t)
                 if stats is not None:
                     stats.translated += 1
@@ -256,26 +308,36 @@ def recalc_trans_status_counts(book_data):
 
     book_data["trans_status_counts"] = counts
 
-def paraparatrans_json_file(json_path, start_page, end_page):
+def paraparatrans_json_file(json_path, start_page, end_page, group_max_chars: Optional[int] = None):
     """
     JSONファイルを読み込み、指定したページ範囲内の段落について翻訳処理を行い、結果をファイルへ保存する。
     ・filepath: JSONファイルのパス
     ・start_page, end_page: ページ範囲（両端を含む）
-    各グループは5000文字以内に収まるように連結して翻訳される。
+    各グループは group_max_chars 以内に収まるように連結して翻訳される。
     """
     print(f"翻訳処理を開始します: {json_path} ({start_page} 〜 {end_page} ページ)")
 
     # JSONファイル読み込み
     book_data = load_json(json_path)
 
-    stats = TranslationStats()
+    effective_group_max_chars = _normalize_group_max_chars(group_max_chars)
+    stats = TranslationStats(
+        translation_engine=get_current_translator(),
+        group_max_chars=effective_group_max_chars,
+    )
 
     # start_pageからend_pageをループしてpagetransを実行
     for page in range(start_page, end_page + 1):
         # 存在しないページはスキップ（end_page=9999などの運用を許容）
         if str(page) not in book_data.get("pages", {}):
             continue
-        pagetrans(json_path, book_data, page, stats=stats)
+        pagetrans(
+            json_path,
+            book_data,
+            page,
+            stats=stats,
+            group_max_chars=effective_group_max_chars,
+        )
         stats.pages_processed += 1
 
     # 翻訳ステータスの集計を更新
@@ -284,7 +346,10 @@ def paraparatrans_json_file(json_path, start_page, end_page):
     
     # 翻訳終了メッセージ（SSEログにも流れる）
     print(
-        "翻訳完了: pages={pages} target={target} translated={translated} failed={failed} fallback={fallback} skipped_empty={skipped_empty} skipped_header_footer={skipped_hf}".format(
+        "翻訳完了: engine={engine} used_chars={used_chars} group_max_chars={group_max_chars} pages={pages} target={target} translated={translated} failed={failed} fallback={fallback} skipped_empty={skipped_empty} skipped_header_footer={skipped_hf}".format(
+            engine=stats.translation_engine,
+            used_chars=stats.characters_used,
+            group_max_chars=stats.group_max_chars,
             pages=stats.pages_processed,
             target=stats.paragraphs_target,
             translated=stats.translated,
@@ -371,11 +436,19 @@ def _migrate_auto_to_draft_if_low_content(paragraph: dict) -> bool:
     return True
 
 
-def pagetrans(filepath, book_data, page_number, stats: Optional[TranslationStats] = None):
+def pagetrans(
+    filepath,
+    book_data,
+    page_number,
+    stats: Optional[TranslationStats] = None,
+    group_max_chars: Optional[int] = None,
+):
     """
-    各グループは5000文字以内に収まるように連結して翻訳され、各グループ処理後に必ずファイルへ保存する。
+    各グループは group_max_chars 以内に収まるように連結して翻訳され、
+    各グループ処理後に必ずファイルへ保存する。
     """
     print(f"ページ {page_number} の翻訳を開始します...")
+    effective_group_max_chars = _normalize_group_max_chars(group_max_chars)
 
     paragraphs_dict = book_data["pages"][str(page_number)].get("paragraphs", {}) # 辞書として取得
     print(f"FOR DEBUG:段落数: {len(paragraphs_dict)}")
@@ -480,10 +553,10 @@ def pagetrans(filepath, book_data, page_number, stats: Optional[TranslationStats
 
     current_group = []
     current_length = 0
-    # 4000文字を上限にグループ化して翻訳処理を実施
+    # 上限文字数を超えないようにグループ化して翻訳処理を実施
     for para in normal_paragraphs:
         text_to_add = f"【{para['id']}】{para.get('src_replaced','')}"
-        if current_length + len(text_to_add) > 4000:
+        if current_length + len(text_to_add) > effective_group_max_chars:
             if current_group:
                 process_group(current_group, stats=stats)
                 current_group = []
@@ -568,6 +641,17 @@ if __name__ == '__main__':
     parser.add_argument("json_file", help="JSONファイルのパス")
     parser.add_argument("start_page", type=int, help="開始ページ（含む）")
     parser.add_argument("end_page", type=int, help="終了ページ（含む）")
+    parser.add_argument(
+        "--group-max-chars",
+        type=int,
+        default=DEFAULT_GROUP_MAX_CHARS,
+        help=f"1グループの最大文字数（{MIN_GROUP_MAX_CHARS}〜{MAX_GROUP_MAX_CHARS}、既定:{DEFAULT_GROUP_MAX_CHARS}）",
+    )
     args = parser.parse_args()
 
-    paraparatrans_json_file(args.json_file, args.start_page, args.end_page)
+    paraparatrans_json_file(
+        args.json_file,
+        args.start_page,
+        args.end_page,
+        group_max_chars=args.group_max_chars,
+    )

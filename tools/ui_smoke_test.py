@@ -58,7 +58,7 @@ def _ensure_extracted(base_url: str, pdf_name: str) -> None:
     encoded = urllib.parse.quote(pdf_name, safe="/")
     url = f"{base_url}/api/extract_paragraphs/{encoded}"
     try:
-        _post(url)
+        _post_json(url, {"current_page": 1})
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8") if exc.fp else ""
         raise RuntimeError(f"extract_paragraphs failed: {exc.code} {body}")
@@ -337,6 +337,49 @@ def _run_table_reextract_button_checks(page) -> None:
     page.wait_for_timeout(300)
 
 
+def _run_ollama_chunk_tuner_checks(page) -> None:
+    result = page.evaluate(
+        "() => {"
+        "  const key = 'ppt.ollama.chunk_profile.v1';"
+        "  try { window.localStorage.removeItem(key); } catch (e) {}"
+        "  currentTranslateEngine = 'ollama';"
+        "  const before = loadOllamaChunkProfile();"
+        "  const req = buildParaparatransRequestPayload(1, 1);"
+        "  updateOllamaChunkProfileWithResult({"
+        "    success: true,"
+        "    elapsedMs: 18000,"
+        "    stats: { failed: 0, missing_from_batch: 0, group_max_chars: req.groupMaxChars },"
+        "    requestedGroupMaxChars: req.groupMaxChars,"
+        "  });"
+        "  const afterSuccess = loadOllamaChunkProfile();"
+        "  updateOllamaChunkProfileWithResult({"
+        "    success: false,"
+        "    elapsedMs: 0,"
+        "    requestedGroupMaxChars: afterSuccess.chunk_max_chars,"
+        "  });"
+        "  const afterFailure = loadOllamaChunkProfile();"
+        "  return {"
+        "    body: req.body,"
+        "    groupMaxChars: req.groupMaxChars,"
+        "    beforeChunk: before.chunk_max_chars,"
+        "    afterSuccessChunk: afterSuccess.chunk_max_chars,"
+        "    afterFailureChunk: afterFailure.chunk_max_chars,"
+        "  };"
+        "}"
+    )
+
+    body = str(result.get("body") or "")
+    group_max_chars = int(result.get("groupMaxChars") or 0)
+    before_chunk = int(result.get("beforeChunk") or 0)
+    after_success_chunk = int(result.get("afterSuccessChunk") or 0)
+    after_failure_chunk = int(result.get("afterFailureChunk") or 0)
+
+    _assert("group_max_chars=" in body, "paraparatrans payload should include group_max_chars for ollama")
+    _assert(group_max_chars >= 600, f"group_max_chars should be >= 600, got {group_max_chars}")
+    _assert(after_success_chunk > before_chunk, "chunk size should increase after a fast successful translation")
+    _assert(after_failure_chunk < after_success_chunk, "chunk size should decrease after a failed translation")
+
+
 def _run_ui_checks(
     base_url: str,
     pdf_name: str,
@@ -345,6 +388,7 @@ def _run_ui_checks(
     dict_auto_translate_only: bool,
     resume_page_only: bool,
     table_reextract_only: bool,
+    ollama_chunk_only: bool,
 ) -> None:
     encoded = urllib.parse.quote(pdf_name, safe="/")
     detail_path = f"/detail/{encoded}"
@@ -392,6 +436,11 @@ def _run_ui_checks(
 
         if table_reextract_only:
             _run_table_reextract_button_checks(page)
+            browser.close()
+            return
+
+        if ollama_chunk_only:
+            _run_ollama_chunk_tuner_checks(page)
             browser.close()
             return
 
@@ -471,6 +520,11 @@ def main() -> int:
         action="store_true",
         help="Run only selected-rows table reextract button checks.",
     )
+    parser.add_argument(
+        "--ollama-chunk-only",
+        action="store_true",
+        help="Run only Ollama adaptive chunk tuner checks.",
+    )
 
     args = parser.parse_args()
     if not args.base_url:
@@ -494,6 +548,7 @@ def main() -> int:
             dict_auto_translate_only=args.dict_auto_translate_only,
             resume_page_only=args.resume_page_only,
             table_reextract_only=args.table_reextract_only,
+            ollama_chunk_only=args.ollama_chunk_only,
         )
     except BaseException as exc:
         error = exc

@@ -86,10 +86,20 @@ class TranslateService:
     # 全翻訳
     # ------------------------------------------------------------------
 
-    def translate_all(self, pdf_name: str, json_path: str) -> dict:
+    def translate_all(
+        self,
+        pdf_name: str,
+        json_path: str,
+        group_max_chars: Optional[int] = None,
+    ) -> dict:
         """PDF 全体を翻訳し、stats を返す。"""
         self.apply_dict_replace_for_range(pdf_name, json_path)
-        _, stats = paraparatrans_json_file(json_path, 1, 9999)
+        _, stats = paraparatrans_json_file(
+            json_path,
+            1,
+            9999,
+            group_max_chars=group_max_chars,
+        )
         settings_path = os.path.join(self.data_folder, "paraparatrans.settings.json")
         sync_one_pdf_settings_from_json(
             settings_path=settings_path,
@@ -104,11 +114,21 @@ class TranslateService:
     # ------------------------------------------------------------------
 
     def paraparatrans(
-        self, pdf_name: str, json_path: str, start_page: int, end_page: int
+        self,
+        pdf_name: str,
+        json_path: str,
+        start_page: int,
+        end_page: int,
+        group_max_chars: Optional[int] = None,
     ) -> Tuple[dict, dict]:
         """指定ページ範囲を翻訳し、(delta, stats) を返す。"""
         self.apply_dict_replace_for_range(pdf_name, json_path, start_page, end_page)
-        updated_data, stats = paraparatrans_json_file(json_path, start_page, end_page)
+        updated_data, stats = paraparatrans_json_file(
+            json_path,
+            start_page,
+            end_page,
+            group_max_chars=group_max_chars,
+        )
 
         pages_delta: dict = {}
         pages = updated_data.get("pages", {})

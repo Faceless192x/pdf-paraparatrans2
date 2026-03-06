@@ -129,6 +129,38 @@
     --src-panel-font-scale: 1;
 }
 
+.src-translate-progress {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel-bg);
+}
+
+.src-translate-progress__label {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.src-translate-progress__track {
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    overflow: hidden;
+}
+
+.src-translate-progress__bar {
+    width: 0%;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent);
+    transition: width 0.25s ease;
+}
+
 #srcPanel .paragraph-box.block-tag-p .src-html,
 #srcPanel .paragraph-box.block-tag-p .src-text,
 #srcPanel .paragraph-box.block-tag-p .src-joined,

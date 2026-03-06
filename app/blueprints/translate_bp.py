@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Callable, Tuple
+from typing import Callable, Optional, Tuple
 
 from flask import Blueprint, current_app, jsonify, request
 
@@ -20,6 +20,18 @@ def create_translate_blueprint(
     """
 
     bp = Blueprint("translate", __name__)
+
+    def _parse_optional_group_max_chars() -> Optional[int]:
+        raw = (request.values.get("group_max_chars") or "").strip()
+        if not raw and request.is_json:
+            payload = request.get_json(silent=True) or {}
+            raw = str(payload.get("group_max_chars") or "").strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            raise ValueError("group_max_chars は整数で指定してください")
 
     # ------------------------------------------------------------------
     # /api/translate_engine — 翻訳エンジンの取得・切替
@@ -85,7 +97,15 @@ def create_translate_blueprint(
         if not os.path.exists(json_path):
             return jsonify({"status": "error", "message": "JSONが存在しません"}), 400
         try:
-            stats = translate_service.translate_all(pdf_name, json_path)
+            group_max_chars = _parse_optional_group_max_chars()
+        except ValueError as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
+        try:
+            stats = translate_service.translate_all(
+                pdf_name,
+                json_path,
+                group_max_chars=group_max_chars,
+            )
             return jsonify({"status": "ok", "stats": stats}), 200
         except Exception as e:
             return jsonify({"status": "error", "message": f"全翻訳エラー: {str(e)}"}), 500
@@ -98,6 +118,10 @@ def create_translate_blueprint(
     def paraparatrans_api(pdf_name):
         start_page = request.form.get("start_page", type=int)
         end_page = request.form.get("end_page", type=int)
+        try:
+            group_max_chars = _parse_optional_group_max_chars()
+        except ValueError as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
         if not pdf_name or start_page is None or end_page is None:
             return jsonify({"status": "error", "message": "pdf_name, start_page, end_page は必須です"}), 400
         _, json_path = get_paths(pdf_name)
@@ -106,7 +130,13 @@ def create_translate_blueprint(
 
         current_app.logger.debug("json_path:" + json_path + " start_page:" + str(start_page) + " end_page:" + str(end_page))
         try:
-            delta, stats = translate_service.paraparatrans(pdf_name, json_path, start_page, end_page)
+            delta, stats = translate_service.paraparatrans(
+                pdf_name,
+                json_path,
+                start_page,
+                end_page,
+                group_max_chars=group_max_chars,
+            )
             # 互換のため data も残す（旧クライアントは全体更新前提だったが、現状 data は未使用）
             return jsonify({"status": "ok", "delta": delta, "data": delta, "stats": stats}), 200
         except Exception as e:
