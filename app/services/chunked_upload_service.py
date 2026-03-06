@@ -47,6 +47,18 @@ class ChunkedUploadService:
     def _chunk_path(self, upload_id: str, chunk_index: int) -> str:
         return os.path.join(self._session_dir(upload_id), f"chunk_{chunk_index:06d}.part")
 
+    def _validate_declared_size(self, *, total_size: int, total_chunks: int) -> None:
+        if total_size <= 0 or total_size > self.max_total_size_bytes:
+            raise ChunkedUploadServiceError("アップロードサイズが不正です")
+        if total_chunks <= 0:
+            raise ChunkedUploadServiceError("total_chunks が不正です")
+        # declared size must fit within the advertised chunk count/size envelope.
+        if total_size > total_chunks * self.chunk_size_bytes:
+            raise ChunkedUploadServiceError("アップロードサイズがチャンク総容量を超えています")
+        # if more than one chunk is declared, the file must be larger than one fewer full chunks.
+        if total_chunks > 1 and total_size <= (total_chunks - 1) * self.chunk_size_bytes:
+            raise ChunkedUploadServiceError("アップロードサイズがチャンク構成に対して小さすぎます")
+
     def _write_meta(self, upload_id: str, meta: Dict[str, Any]) -> None:
         meta_path = self._meta_path(upload_id)
         os.makedirs(os.path.dirname(meta_path), exist_ok=True)
@@ -122,8 +134,7 @@ class ChunkedUploadService:
             raise ChunkedUploadServiceError("size が不正です")
         if total_size > self.max_total_size_bytes:
             raise ChunkedUploadServiceError("PDFサイズ上限を超えています")
-        if total_chunks <= 0:
-            raise ChunkedUploadServiceError("total_chunks が不正です")
+        self._validate_declared_size(total_size=total_size, total_chunks=total_chunks)
 
         dest_pdf_path = os.path.abspath(dest_pdf_path)
         if os.path.commonpath([self.base_folder, dest_pdf_path]) != self.base_folder:
@@ -193,10 +204,7 @@ class ChunkedUploadService:
 
         total_chunks = int(meta.get("total_chunks") or 0)
         total_size = int(meta.get("total_size") or 0)
-        if total_chunks <= 0:
-            raise ChunkedUploadServiceError("チャンク情報が不正です")
-        if total_size <= 0 or total_size > self.max_total_size_bytes:
-            raise ChunkedUploadServiceError("アップロードサイズが不正です")
+        self._validate_declared_size(total_size=total_size, total_chunks=total_chunks)
 
         os.makedirs(os.path.dirname(dest_pdf_path), exist_ok=True)
         tmp_fd, tmp_path = tempfile.mkstemp(prefix="upload_chunked_", suffix=".pdf", dir=self.base_folder)
@@ -211,12 +219,13 @@ class ChunkedUploadService:
                         raise ChunkedUploadServiceError(f"チャンクが不足しています: {idx + 1}/{total_chunks}")
                     part_size = os.path.getsize(part_path)
                     written_bytes += part_size
+                    # 宣言 total_size と実データの両面から超過を防ぐ（defense in depth）。
                     if written_bytes > total_size or written_bytes > self.max_total_size_bytes:
-                        raise ChunkedUploadServiceError("アップロードサイズが不正です")
+                        raise ChunkedUploadServiceError("アップロード実サイズが宣言サイズを超えています")
                     with open(part_path, "rb") as f:
                         shutil.copyfileobj(f, out)
             if written_bytes != total_size:
-                raise ChunkedUploadServiceError("アップロードサイズが不正です")
+                raise ChunkedUploadServiceError("アップロード実サイズが宣言サイズと一致しません")
 
             os.replace(tmp_path, dest_pdf_path)
 

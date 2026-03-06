@@ -155,7 +155,14 @@ def _assert_safe_fetch_url(url: str) -> None:
         raise ValueError("user info in URL is not allowed")
 
     try:
-        addrinfo = socket.getaddrinfo(parsed.hostname, parsed.port or None, type=socket.SOCK_STREAM)
+        host_ip = ipaddress.ip_address(host)
+    except ValueError:
+        host_ip = None
+    if host_ip is not None and not host_ip.is_global:
+        raise ValueError("local/private network URL is not allowed")
+
+    try:
+        addrinfo = socket.getaddrinfo(host, parsed.port or None, type=socket.SOCK_STREAM)
     except socket.gaierror as exc:
         raise ValueError(f"host resolve failed: {exc}") from exc
 
@@ -189,15 +196,16 @@ def _http_get_with_safe_redirects(
         if 300 <= response.status_code < 400:
             location = response.headers.get("Location")
             if not location:
-                response.raise_for_status()
-            next_url = normalize_url(urljoin(current_url, location or ""))
+                response.close()
+                raise ValueError("redirect response missing Location header")
+            next_url = normalize_url(urljoin(current_url, location))
             response.close()
             if not next_url:
                 raise ValueError("redirect URL is invalid")
             current_url = next_url
             continue
         return response
-    raise ValueError("too many redirects")
+    raise ValueError(f"too many redirects (max: {_MAX_REDIRECTS})")
 
 
 def fetch_html(url: str, timeout: int = 15, *, preferred_encoding: Optional[str] = None) -> str:

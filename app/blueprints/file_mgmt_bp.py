@@ -384,12 +384,6 @@ def create_file_mgmt_blueprint(
         if not file or not getattr(file, "filename", ""):
             return jsonify({"status": "error", "message": "ファイル名が不正です"}), 400
 
-        try:
-            if int(request.content_length or 0) > max_pdf_upload_bytes:
-                return jsonify({"status": "error", "message": _pdf_size_limit_message()}), 413
-        except Exception:
-            pass
-
         original_filename = file.filename
         if not original_filename.lower().endswith(".pdf"):
             return jsonify({"status": "error", "message": "PDFファイルのみアップロード可能です"}), 400

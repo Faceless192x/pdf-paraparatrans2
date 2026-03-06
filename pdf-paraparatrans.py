@@ -181,6 +181,8 @@ def _is_allowed_cors_origin(origin: str) -> bool:
         return False
     if _origin_is_loopback_http(origin):
         return True
+    # ブラウザ拡張（同梱 Chrome/Edge 拡張）からの import_html/current API を許可する。
+    # 任意の Web origin ではなく、拡張 origin のみを許可対象に残す意図。
     if origin.startswith(_EXTENSION_ORIGIN_PREFIXES):
         return True
     for allowed in _EXTRA_CORS_ALLOWED_ORIGINS:
@@ -267,6 +269,7 @@ CHUNK_UPLOAD_THRESHOLD_MB = _get_env_int("CHUNK_UPLOAD_THRESHOLD_MB", 15, minimu
 CHUNK_UPLOAD_THRESHOLD_BYTES = CHUNK_UPLOAD_THRESHOLD_MB * 1024 * 1024
 MAX_PDF_UPLOAD_MB = _get_env_int("MAX_PDF_UPLOAD_MB", 300, minimum=1)
 MAX_PDF_UPLOAD_BYTES = MAX_PDF_UPLOAD_MB * 1024 * 1024
+# multipart/form-data の boundary / ヘッダぶんだけ少し余裕を持たせる。
 MAX_PDF_REQUEST_OVERHEAD_BYTES = 2 * 1024 * 1024
 app.config["MAX_CONTENT_LENGTH"] = MAX_PDF_UPLOAD_BYTES + MAX_PDF_REQUEST_OVERHEAD_BYTES
 

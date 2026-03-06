@@ -29,7 +29,7 @@ const normalizeInlineBreaks = (value) => String(value || '').replace(/<br\s*\/?>
 
 const renderInlineMarkdown = (value) => {
   let html = escapeHtml(normalizeInlineBreaks(value));
-  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_match, text, href) => {
+  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, text, href) => {
     try {
       const url = new URL(href);
       if (!['http:', 'https:'].includes(url.protocol)) {
@@ -40,8 +40,8 @@ const renderInlineMarkdown = (value) => {
       return escapeHtml(text);
     }
   });
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/`([^`]+)`/g, (_match, codeText) => `<code>${escapeHtml(codeText)}</code>`);
+  html = html.replace(/\*\*([^*]+)\*\*/g, (_match, boldText) => `<strong>${escapeHtml(boldText)}</strong>`);
   return html.replace(/\n/g, '<br>');
 };
 
