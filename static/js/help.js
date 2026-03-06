@@ -18,13 +18,15 @@ const escapeHtml = (value) => String(value ?? '')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;');
 
-const slugifyHeading = (text) => String(text ?? '')
-  .trim()
-  .toLowerCase()
-  .replace(/<[^>]*>/g, '')
-  .replace(/[`*_~]/g, '')
-  .replace(/\s+/g, '-')
-  .replace(/[^\w\-ぁ-んァ-ン一-龠]/g, '-');
+const slugifyHeading = (text) => {
+  const normalized = String(text == null ? '' : text).trim().toLowerCase().normalize('NFKC');
+  const chars = Array.from(normalized).map((ch) => {
+    if (/[a-z0-9_ぁ-んァ-ン一-龠]/.test(ch)) return ch;
+    if (/[-\s]/.test(ch)) return '-';
+    return '';
+  });
+  return chars.join('').replace(/-+/g, '-').replace(/^-|-$/g, '');
+};
 
 const renderInlineMarkdown = (text) => {
   let html = escapeHtml(text);
