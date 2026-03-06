@@ -14,6 +14,8 @@ from PyPDF2 import PdfReader, PdfWriter
 import uuid  # ファイル名の一意性を確保するために追加
 import tempfile
 import re
+from urllib.parse import urlsplit
+from werkzeug.exceptions import RequestEntityTooLarge
 
 # modulesディレクトリをPythonのモジュール検索パスに追加
 sys.path.append(os.path.join(os.path.dirname(__file__), 'modules'))
@@ -148,11 +150,57 @@ def _get_env_int(name: str, default: int, minimum: int = 1) -> int:
     return value
 
 
+def _get_env_csv(name: str) -> list[str]:
+    raw = os.getenv(name, "")
+    if not raw.strip():
+        return []
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+_EXTENSION_ORIGIN_PREFIXES = (
+    "chrome-extension://",
+    "moz-extension://",
+    "edge-extension://",
+)
+_EXTRA_CORS_ALLOWED_ORIGINS = tuple(_get_env_csv("PARAPARATRANS_CORS_ALLOWED_ORIGINS"))
+
+
+def _origin_is_loopback_http(origin: str) -> bool:
+    try:
+        parsed = urlsplit(origin)
+    except Exception:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = (parsed.hostname or "").strip().lower().rstrip(".")
+    return host in ("localhost", "127.0.0.1", "::1")
+
+
+def _is_allowed_cors_origin(origin: str) -> bool:
+    if not origin:
+        return False
+    if _origin_is_loopback_http(origin):
+        return True
+    if origin.startswith(_EXTENSION_ORIGIN_PREFIXES):
+        return True
+    for allowed in _EXTRA_CORS_ALLOWED_ORIGINS:
+        if allowed.endswith("*"):
+            if origin.startswith(allowed[:-1]):
+                return True
+        elif origin == allowed:
+            return True
+    return False
+
+
 def _corsify_response(resp):
-    resp.headers["Access-Control-Allow-Origin"] = "*"
+    origin = str(request.headers.get("Origin") or "").strip()
+    if not _is_allowed_cors_origin(origin):
+        return resp
+    resp.headers["Access-Control-Allow-Origin"] = origin
     resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
     resp.headers["Access-Control-Max-Age"] = "600"
+    resp.headers.add("Vary", "Origin")
     return resp
 
 
@@ -217,6 +265,10 @@ SETTINGS_PATH = os.path.join(DATA_FOLDER, "paraparatrans.settings.json")
 
 CHUNK_UPLOAD_THRESHOLD_MB = _get_env_int("CHUNK_UPLOAD_THRESHOLD_MB", 15, minimum=1)
 CHUNK_UPLOAD_THRESHOLD_BYTES = CHUNK_UPLOAD_THRESHOLD_MB * 1024 * 1024
+MAX_PDF_UPLOAD_MB = _get_env_int("MAX_PDF_UPLOAD_MB", 300, minimum=1)
+MAX_PDF_UPLOAD_BYTES = MAX_PDF_UPLOAD_MB * 1024 * 1024
+MAX_PDF_REQUEST_OVERHEAD_BYTES = 2 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = MAX_PDF_UPLOAD_BYTES + MAX_PDF_REQUEST_OVERHEAD_BYTES
 
 DICT_PATH = os.path.join(CONFIG_FOLDER, "dict.txt")
 SIMBLE_DICT_PATH = os.path.join(CONFIG_FOLDER, "symbolfonts.txt")
@@ -747,7 +799,10 @@ dict_service = DictService(
     should_skip_dir=_should_skip_dir,
 )
 
-chunked_upload_service = ChunkedUploadService(base_folder=BASE_FOLDER)
+chunked_upload_service = ChunkedUploadService(
+    base_folder=BASE_FOLDER,
+    max_total_size_bytes=MAX_PDF_UPLOAD_BYTES,
+)
 try:
     chunked_upload_service.cleanup_expired_sessions()
 except Exception as e:
@@ -796,6 +851,8 @@ _bp_file_mgmt = create_file_mgmt_blueprint(
     get_current_url_book=_url_book_service.get_current_url_book,
     set_current_url_book=_url_book_service.set_current_url_book,
     chunk_upload_threshold_bytes=CHUNK_UPLOAD_THRESHOLD_BYTES,
+    max_pdf_upload_bytes=MAX_PDF_UPLOAD_BYTES,
+    max_pdf_upload_mb=MAX_PDF_UPLOAD_MB,
 )
 app.register_blueprint(_bp_file_mgmt)
 
@@ -1073,6 +1130,16 @@ def gzip_compress_response(response):
         return response
     except Exception:
         return response
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_request_entity_too_large(_error):
+    message = f"PDFサイズ上限({MAX_PDF_UPLOAD_MB}MB)を超えています"
+    if request.path.startswith("/api/"):
+        response = jsonify({"status": "error", "message": message})
+        response.status_code = 413
+        return response
+    return message, 413
 
 if __name__ == "__main__":
     # portはenvファイルの設定に従う。未指定の場合は5077

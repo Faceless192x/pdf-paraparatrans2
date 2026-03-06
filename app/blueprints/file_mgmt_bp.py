@@ -25,6 +25,8 @@ def create_file_mgmt_blueprint(
     get_current_url_book: Callable[[], str],
     set_current_url_book: Callable[[str], None],
     chunk_upload_threshold_bytes: int,
+    max_pdf_upload_bytes: int,
+    max_pdf_upload_mb: int,
 ) -> Blueprint:
     """ファイル管理 API の Blueprint を生成して返す。
 
@@ -35,6 +37,9 @@ def create_file_mgmt_blueprint(
 
     data_folder = file_mgmt_service.data_folder
     base_folder = file_mgmt_service.base_folder
+
+    def _pdf_size_limit_message() -> str:
+        return f"PDFサイズ上限({max_pdf_upload_mb}MB)を超えています"
 
     # ------------------------------------------------------------------
     # Index page (一覧画面)
@@ -165,6 +170,8 @@ def create_file_mgmt_blueprint(
             all_dirs=all_dirs,
             folder_tree=folder_tree,
             chunk_upload_threshold_bytes=chunk_upload_threshold_bytes,
+            max_pdf_upload_bytes=max_pdf_upload_bytes,
+            max_pdf_upload_mb=max_pdf_upload_mb,
         )
 
     # ------------------------------------------------------------------
@@ -377,6 +384,12 @@ def create_file_mgmt_blueprint(
         if not file or not getattr(file, "filename", ""):
             return jsonify({"status": "error", "message": "ファイル名が不正です"}), 400
 
+        try:
+            if int(request.content_length or 0) > max_pdf_upload_bytes:
+                return jsonify({"status": "error", "message": _pdf_size_limit_message()}), 413
+        except Exception:
+            pass
+
         original_filename = file.filename
         if not original_filename.lower().endswith(".pdf"):
             return jsonify({"status": "error", "message": "PDFファイルのみアップロード可能です"}), 400
@@ -401,6 +414,12 @@ def create_file_mgmt_blueprint(
         os.close(tmp_fd)
         try:
             file.save(tmp_path)
+            if os.path.getsize(tmp_path) > max_pdf_upload_bytes:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+                return jsonify({"status": "error", "message": _pdf_size_limit_message()}), 413
             if os.path.exists(dest_pdf_path):
                 try:
                     os.remove(tmp_path)
@@ -447,6 +466,8 @@ def create_file_mgmt_blueprint(
             total_size = 0
         if total_size <= 0:
             return jsonify({"status": "error", "message": "size が不正です"}), 400
+        if total_size > max_pdf_upload_bytes:
+            return jsonify({"status": "error", "message": _pdf_size_limit_message()}), 413
 
         pdf_name = file_mgmt_service.sanitize_pdf_basename(original_filename)
         if not pdf_name:

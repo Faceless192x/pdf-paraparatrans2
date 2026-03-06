@@ -161,6 +161,9 @@
     </div>
     <script src="{{ url_for('static', filename='js/chunked_upload.js') }}"></script>
     <script>
+      window.MAX_PDF_UPLOAD_BYTES = {{ max_pdf_upload_bytes|tojson }};
+      window.MAX_PDF_UPLOAD_MB = {{ max_pdf_upload_mb|tojson }};
+
         async function refreshBookList() {
             const url = window.location.pathname + window.location.search;
             fetch(url, { method: "POST" })
@@ -249,6 +252,13 @@
           return;
         }
         const file = uploadInput.files[0];
+        const maxPdfUploadBytes = Number(window.MAX_PDF_UPLOAD_BYTES || 0);
+        const maxPdfUploadMb = Number(window.MAX_PDF_UPLOAD_MB || 0);
+        if (maxPdfUploadBytes > 0 && file.size > maxPdfUploadBytes) {
+          setUploadStatus(`PDFサイズ上限(${maxPdfUploadMb || Math.floor(maxPdfUploadBytes / (1024 * 1024))}MB)を超えています`);
+          uploadInput.value = '';
+          return;
+        }
 
         uploadButton.disabled = true;
         uploadButton.classList.add('is-busy');

@@ -424,10 +424,39 @@ def _run_translate_progress_checks(page) -> None:
     _assert(aria_now >= 30, f"aria-valuenow should be >= 30, got: {aria_now}")
 
 
+def _run_help_checks(base_url: str, page) -> None:
+    console_messages = []
+
+    def _handle_console(msg) -> None:
+        console_messages.append(msg.text)
+
+    page.on("console", _handle_console)
+    page.goto(base_url, wait_until="networkidle")
+
+    refresh_button = page.get_by_role("button", name="一覧を更新")
+    refresh_button.wait_for(timeout=10000)
+    refresh_button.hover()
+    tooltip = page.locator(".help-tooltip-popup")
+    tooltip.wait_for(state="visible", timeout=5000)
+    _assert(tooltip.inner_text().strip() != "", "help tooltip should contain text")
+
+    page.locator("#show-full-help").click()
+    modal = page.locator(".help-modal-overlay")
+    modal.wait_for(state="visible", timeout=5000)
+    _assert(page.locator(".help-content h1").first.inner_text().strip() != "", "help modal should render headings")
+
+    disallowed_logs = [
+        message for message in console_messages
+        if "Failed to load libraries" in message or "ERR_BLOCKED_BY_CLIENT" in message
+    ]
+    _assert(not disallowed_logs, f"help UI should not rely on blocked CDN assets: {disallowed_logs}")
+
+
 def _run_ui_checks(
     base_url: str,
     pdf_name: str,
     headless: bool,
+    help_only: bool,
     hotkey_only: bool,
     dict_auto_translate_only: bool,
     resume_page_only: bool,
@@ -444,6 +473,11 @@ def _run_ui_checks(
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=headless)
         page = browser.new_page()
+
+        if help_only:
+            _run_help_checks(base_url, page)
+            browser.close()
+            return
 
         if dict_auto_translate_only:
             _run_dict_auto_translate_selected_checks(base_url, page)
@@ -551,6 +585,11 @@ def main() -> int:
         help="Port to use when starting the server.",
     )
     parser.add_argument(
+        "--help-only",
+        action="store_true",
+        help="Run only Help tooltip/modal checks.",
+    )
+    parser.add_argument(
         "--hotkey-only",
         action="store_true",
         help="Run only the hotkey HUD checks.",
@@ -594,11 +633,13 @@ def main() -> int:
         else:
             _wait_for_http(args.base_url)
 
-        _ensure_extracted(args.base_url, args.pdf_name)
+        if not args.help_only:
+            _ensure_extracted(args.base_url, args.pdf_name)
         _run_ui_checks(
             args.base_url,
             args.pdf_name,
             headless=args.headless,
+            help_only=args.help_only,
             hotkey_only=args.hotkey_only,
             dict_auto_translate_only=args.dict_auto_translate_only,
             resume_page_only=args.resume_page_only,
