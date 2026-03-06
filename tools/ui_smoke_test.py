@@ -113,7 +113,7 @@ def _run_help_checks(page) -> None:
     page.locator('#show-full-help').click()
     page.locator('.help-modal-overlay').wait_for(state='visible', timeout=5000)
     modal_title = page.locator('.help-modal-header h2').inner_text().strip()
-    _assert(modal_title == 'ヘルプ', f"help modal title mismatch: {modal_title}")
+    _assert(modal_title == 'ヘルプ', f"help modal title mismatch: expected 'ヘルプ', got '{modal_title}'")
     help_content = page.locator('.help-content').inner_text()
     _assert('各列の役割' in help_content or '列の見方' in help_content, 'help modal should describe column usage')
     _assert('キーボードショートカット' in help_content, 'help modal should describe keyboard shortcuts')
