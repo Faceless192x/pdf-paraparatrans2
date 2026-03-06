@@ -105,6 +105,7 @@
                 <option value="google">Google</option>
                 <option value="deepl">DeepL</option>
                 <option value="google_v3">Google v3</option>
+                <option value="ollama">Ollama</option>
               </select>
               <button type="button" onclick="saveTranslationEngineFromDialog()">保存</button>
             </span>
@@ -212,6 +213,12 @@
         <div id="resizer2" class="resizer"></div>
 
         <div class="panel flex-panel" id="srcPanel">
+            <div id="srcTranslateProgress" class="src-translate-progress" style="display:none" aria-live="polite">
+              <div id="srcTranslateProgressLabel" class="src-translate-progress__label">翻訳中...</div>
+              <div id="srcTranslateProgressTrack" class="src-translate-progress__track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <div id="srcTranslateProgressBar" class="src-translate-progress__bar"></div>
+              </div>
+            </div>
             <div id="srcParagraphs"></div>
         </div>
     </div>

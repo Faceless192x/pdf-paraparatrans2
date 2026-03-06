@@ -6,6 +6,24 @@ function canUseSessionStorage() {
     }
 }
 
+function canUseLocalStorage() {
+    try {
+        return typeof window !== 'undefined' && !!window.localStorage;
+    } catch (e) {
+        return false;
+    }
+}
+
+const OLLAMA_CHUNK_PROFILE_KEY = 'ppt.ollama.chunk_profile.v1';
+const OLLAMA_CHUNK_DEFAULT = 1200;
+const OLLAMA_CHUNK_MIN = 600;
+const OLLAMA_CHUNK_MAX = 4000;
+const OLLAMA_CHUNK_STEP = 200;
+const OLLAMA_CHUNK_FAST_MS = 25000;
+const OLLAMA_CHUNK_SLOW_MS = 90000;
+const OLLAMA_CHUNK_FAST_PER_GROUP_MS = 12000;
+const OLLAMA_CHUNK_SLOW_PER_GROUP_MS = 20000;
+
 function getPageCacheKey() {
     return `ppt.pages.${encodeURIComponent(pdfName || '')}`;
 }
@@ -848,6 +866,452 @@ async function ensurePageFresh(pageNum) {
     return ok;
 }
 
+let srcTranslateProgressHideTimer = null;
+let srcTranslateProgressValue = 0;
+let srcTranslateProgressMode = 'page';
+let srcTranslateProgressSse = null;
+let srcTranslateProgressRequestId = '';
+let srcTranslateProgressElapsedTimer = null;
+let srcTranslateProgressStartedAtMs = 0;
+let srcTranslateProgressDone = 0;
+let srcTranslateProgressTotal = 0;
+let srcTranslateProgressPage = 0;
+let srcTranslateProgressPhase = 'start';
+let srcTranslateProgressMeasuredItems = 0;
+let srcTranslateProgressMeasuredMs = 0;
+let srcTranslateProgressLastDoneAtMs = 0;
+let srcTranslateProgressEstimatedFinishAtMs = 0;
+
+function createSrcTranslateProgressRequestId() {
+    return `trans-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function stopSrcTranslateProgressStream() {
+    if (!srcTranslateProgressSse) return;
+    try {
+        srcTranslateProgressSse.close();
+    } catch (e) {
+        // ignore
+    }
+    srcTranslateProgressSse = null;
+}
+
+function stopSrcTranslateProgressElapsedTimer() {
+    if (!srcTranslateProgressElapsedTimer) return;
+    clearInterval(srcTranslateProgressElapsedTimer);
+    srcTranslateProgressElapsedTimer = null;
+}
+
+function formatClockHms(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '--:--:--';
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    const ss = String(date.getSeconds()).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+}
+
+function getSrcTranslateElapsedSeconds() {
+    if (!srcTranslateProgressStartedAtMs) return 0;
+    return Math.max(0, Math.floor((Date.now() - srcTranslateProgressStartedAtMs) / 1000));
+}
+
+function updateSrcTranslateProgressTiming(nextDone, nextTotal, phase = 'step') {
+    const now = Date.now();
+    if (!srcTranslateProgressStartedAtMs) {
+        srcTranslateProgressStartedAtMs = now;
+    }
+    if (!srcTranslateProgressLastDoneAtMs) {
+        srcTranslateProgressLastDoneAtMs = srcTranslateProgressStartedAtMs;
+    }
+
+    const prevDone = Math.max(0, Math.floor(Number(srcTranslateProgressDone) || 0));
+    const done = Math.max(0, Math.floor(Number(nextDone) || 0));
+    const total = Math.max(0, Math.floor(Number(nextTotal) || 0));
+    const completedDelta = Math.max(0, done - prevDone);
+
+    if (completedDelta > 0) {
+        const segmentMs = Math.max(0, now - srcTranslateProgressLastDoneAtMs);
+        srcTranslateProgressMeasuredMs += segmentMs;
+        srcTranslateProgressMeasuredItems += completedDelta;
+        srcTranslateProgressLastDoneAtMs = now;
+    }
+
+    if (phase === 'done' || (total > 0 && done >= total)) {
+        srcTranslateProgressEstimatedFinishAtMs = now;
+        return;
+    }
+
+    if (total > 0 && srcTranslateProgressMeasuredItems > 0) {
+        const perItemMs = srcTranslateProgressMeasuredMs / srcTranslateProgressMeasuredItems;
+        srcTranslateProgressEstimatedFinishAtMs = srcTranslateProgressStartedAtMs + (perItemMs * total);
+        return;
+    }
+
+    srcTranslateProgressEstimatedFinishAtMs = 0;
+}
+
+function computeSrcTranslateEta() {
+    const etaAtMs = Number(srcTranslateProgressEstimatedFinishAtMs || 0);
+    if (!Number.isFinite(etaAtMs) || etaAtMs <= 0) return '--:--:--';
+    return formatClockHms(new Date(etaAtMs));
+}
+
+function buildSrcTranslateProgressLabel(isFailed = false) {
+    const inProgressLabel = srcTranslateProgressMode === 'all' ? '全ページ翻訳中' : 'ページ翻訳中';
+    const doneLabel = srcTranslateProgressMode === 'all' ? '全ページ翻訳完了' : 'ページ翻訳完了';
+    const done = Math.max(0, Math.floor(Number(srcTranslateProgressDone) || 0));
+    const total = Math.max(0, Math.floor(Number(srcTranslateProgressTotal) || 0));
+    const elapsedSec = getSrcTranslateElapsedSeconds();
+    const eta = computeSrcTranslateEta();
+
+    const head = srcTranslateProgressPhase === 'done' ? doneLabel : inProgressLabel;
+    let label = `${head} ${done}/${total || '-'} | 経過 ${elapsedSec}秒 | 予想完了 ${eta}`;
+    if (srcTranslateProgressPage > 0 && srcTranslateProgressPhase !== 'done') {
+        label += ` (P${srcTranslateProgressPage})`;
+    }
+    if (isFailed) {
+        label += ' [失敗]';
+    }
+    return label;
+}
+
+function refreshSrcTranslateProgressLabel(isFailed = false) {
+    setSrcTranslateProgress(srcTranslateProgressValue, buildSrcTranslateProgressLabel(isFailed));
+}
+
+function startSrcTranslateProgressElapsedTimer() {
+    stopSrcTranslateProgressElapsedTimer();
+    srcTranslateProgressElapsedTimer = setInterval(() => {
+        if (srcTranslateProgressPhase === 'done') return;
+        refreshSrcTranslateProgressLabel(false);
+    }, 1000);
+}
+
+function applyLiveSrcTranslateProgress(payload) {
+    if (!payload || typeof payload !== 'object') return;
+
+    const kind = String(payload.kind || '').toLowerCase();
+    if (kind !== 'translation') return;
+
+    const payloadId = String(payload.id || '').trim();
+    if (srcTranslateProgressRequestId) {
+        if (!payloadId || payloadId !== srcTranslateProgressRequestId) return;
+    }
+
+    const phase = String(payload.phase || '').toLowerCase();
+    const done = Math.max(0, Math.floor(Number(payload.done ?? 0) || 0));
+    const total = Math.max(0, Math.floor(Number(payload.total ?? 0) || 0));
+    const page = Math.max(0, Math.floor(Number(payload.page ?? 0) || 0));
+
+    updateSrcTranslateProgressTiming(done, total, phase || 'step');
+
+    srcTranslateProgressPhase = phase || 'step';
+    srcTranslateProgressDone = done;
+    srcTranslateProgressTotal = total;
+    if (page > 0) {
+        srcTranslateProgressPage = page;
+    }
+
+    let nextValue = 0;
+    if (phase === 'done') {
+        nextValue = 100;
+    } else if (total > 0) {
+        nextValue = (done / total) * 100;
+    }
+
+    setSrcTranslateProgress(nextValue, buildSrcTranslateProgressLabel(false));
+}
+
+function handleSrcTranslateProgressLine(line) {
+    const marker = '[PROGRESS]';
+    const markerIndex = String(line || '').indexOf(marker);
+    if (markerIndex < 0) return;
+
+    const payloadText = String(line || '').slice(markerIndex + marker.length).trim();
+    if (!payloadText || !payloadText.startsWith('{')) return;
+
+    try {
+        const payload = JSON.parse(payloadText);
+        applyLiveSrcTranslateProgress(payload);
+    } catch (e) {
+        // ignore malformed progress payloads
+    }
+}
+
+function startSrcTranslateProgressStream(requestId = '') {
+    stopSrcTranslateProgressStream();
+    srcTranslateProgressRequestId = String(requestId || '').trim();
+
+    if (typeof EventSource === 'undefined') return;
+
+    const sse = new EventSource('/logstream');
+    srcTranslateProgressSse = sse;
+
+    sse.onmessage = (event) => {
+        const lines = String(event?.data || '').split('\n');
+        for (const line of lines) {
+            if (!line || !line.trim()) continue;
+            handleSrcTranslateProgressLine(line);
+        }
+    };
+
+    sse.onerror = () => {
+        // EventSource は自動再接続されるため、ここでは何もしない
+    };
+}
+
+function getSrcTranslateProgressElements() {
+    return {
+        container: document.getElementById('srcTranslateProgress'),
+        label: document.getElementById('srcTranslateProgressLabel'),
+        track: document.getElementById('srcTranslateProgressTrack'),
+        bar: document.getElementById('srcTranslateProgressBar'),
+    };
+}
+
+function setSrcTranslateProgress(value, labelText = null) {
+    const { label, track, bar } = getSrcTranslateProgressElements();
+    if (!track || !bar) return;
+
+    const normalized = Math.max(0, Math.min(100, Number(value) || 0));
+    srcTranslateProgressValue = normalized;
+    bar.style.width = `${normalized}%`;
+    track.setAttribute('aria-valuenow', String(Math.round(normalized)));
+
+    if (label && typeof labelText === 'string') {
+        label.textContent = labelText;
+    }
+}
+
+function startSrcTranslateProgress(mode = 'page', requestId = '') {
+    const { container } = getSrcTranslateProgressElements();
+    if (!container) return;
+
+    srcTranslateProgressMode = mode === 'all' ? 'all' : 'page';
+    stopSrcTranslateProgressStream();
+    stopSrcTranslateProgressElapsedTimer();
+
+    if (srcTranslateProgressHideTimer) {
+        clearTimeout(srcTranslateProgressHideTimer);
+        srcTranslateProgressHideTimer = null;
+    }
+
+    srcTranslateProgressStartedAtMs = Date.now();
+    srcTranslateProgressDone = 0;
+    srcTranslateProgressTotal = 0;
+    srcTranslateProgressPage = 0;
+    srcTranslateProgressPhase = 'start';
+    srcTranslateProgressMeasuredItems = 0;
+    srcTranslateProgressMeasuredMs = 0;
+    srcTranslateProgressLastDoneAtMs = srcTranslateProgressStartedAtMs;
+    srcTranslateProgressEstimatedFinishAtMs = 0;
+
+    container.style.display = 'block';
+    setSrcTranslateProgress(0, buildSrcTranslateProgressLabel(false));
+
+    startSrcTranslateProgressStream(requestId);
+    startSrcTranslateProgressElapsedTimer();
+}
+
+function finishSrcTranslateProgress(success, customLabel = '') {
+    const { container } = getSrcTranslateProgressElements();
+    if (!container) return;
+
+    stopSrcTranslateProgressStream();
+    stopSrcTranslateProgressElapsedTimer();
+    srcTranslateProgressRequestId = '';
+
+    if (srcTranslateProgressHideTimer) {
+        clearTimeout(srcTranslateProgressHideTimer);
+        srcTranslateProgressHideTimer = null;
+    }
+
+    if (success) {
+        srcTranslateProgressPhase = 'done';
+        if (srcTranslateProgressTotal > 0) {
+            srcTranslateProgressDone = srcTranslateProgressTotal;
+        }
+        srcTranslateProgressEstimatedFinishAtMs = Date.now();
+    }
+
+    const defaultLabel = success ? buildSrcTranslateProgressLabel(false) : buildSrcTranslateProgressLabel(true);
+    const finalLabel = customLabel || defaultLabel;
+
+    if (success) {
+        setSrcTranslateProgress(100, finalLabel);
+    } else {
+        setSrcTranslateProgress(srcTranslateProgressValue, finalLabel);
+    }
+
+    srcTranslateProgressHideTimer = setTimeout(() => {
+        container.style.display = 'none';
+        setSrcTranslateProgress(0, '');
+    }, success ? 700 : 1400);
+}
+
+function normalizeOllamaChunkChars(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return OLLAMA_CHUNK_DEFAULT;
+    const floored = Math.floor(numeric);
+    const clamped = Math.max(OLLAMA_CHUNK_MIN, Math.min(OLLAMA_CHUNK_MAX, floored));
+    const stepped = Math.round(clamped / OLLAMA_CHUNK_STEP) * OLLAMA_CHUNK_STEP;
+    return Math.max(OLLAMA_CHUNK_MIN, Math.min(OLLAMA_CHUNK_MAX, stepped));
+}
+
+function getCurrentTranslateEngineValue() {
+    const cached = String(currentTranslateEngine || '').trim().toLowerCase();
+    if (cached) return cached;
+    const select = document.getElementById('dataExportTranslator');
+    const selected = String(select?.value || '').trim().toLowerCase();
+    return selected || 'google';
+}
+
+function getDefaultOllamaChunkProfile() {
+    return {
+        chunk_max_chars: OLLAMA_CHUNK_DEFAULT,
+        success_streak: 0,
+        updated_at: '',
+    };
+}
+
+function loadOllamaChunkProfile() {
+    const fallback = getDefaultOllamaChunkProfile();
+    if (!canUseLocalStorage()) return fallback;
+
+    try {
+        const raw = window.localStorage.getItem(OLLAMA_CHUNK_PROFILE_KEY);
+        if (!raw) return fallback;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return fallback;
+        return {
+            chunk_max_chars: normalizeOllamaChunkChars(parsed.chunk_max_chars),
+            success_streak: Math.max(0, Math.floor(Number(parsed.success_streak) || 0)),
+            updated_at: String(parsed.updated_at || ''),
+            last_elapsed_ms: Math.max(0, Math.floor(Number(parsed.last_elapsed_ms) || 0)),
+            last_success: Boolean(parsed.last_success),
+            last_failed_count: Math.max(0, Math.floor(Number(parsed.last_failed_count) || 0)),
+            last_missing_count: Math.max(0, Math.floor(Number(parsed.last_missing_count) || 0)),
+        };
+    } catch (e) {
+        return fallback;
+    }
+}
+
+function saveOllamaChunkProfile(profile) {
+    if (!canUseLocalStorage()) return false;
+    try {
+        window.localStorage.setItem(OLLAMA_CHUNK_PROFILE_KEY, JSON.stringify(profile));
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function buildParaparatransRequestPayload(startPage, endPage, progressId = '') {
+    const params = new URLSearchParams();
+    params.set('start_page', String(startPage));
+    params.set('end_page', String(endPage));
+    if (progressId) {
+        params.set('progress_id', String(progressId));
+    }
+
+    const engine = getCurrentTranslateEngineValue();
+    let groupMaxChars = null;
+    if (engine === 'ollama') {
+        const profile = loadOllamaChunkProfile();
+        groupMaxChars = normalizeOllamaChunkChars(profile.chunk_max_chars);
+        params.set('group_max_chars', String(groupMaxChars));
+    }
+
+    return {
+        engine,
+        groupMaxChars,
+        body: params.toString(),
+    };
+}
+
+function updateOllamaChunkProfileWithResult({ success, elapsedMs = 0, stats = null, requestedGroupMaxChars = null }) {
+    const profile = loadOllamaChunkProfile();
+    const failed = Math.max(0, Math.floor(Number(stats?.failed ?? 0) || 0));
+    const missing = Math.max(0, Math.floor(Number(stats?.missing_from_batch ?? 0) || 0));
+    const elapsedTotalMs = Math.max(0, Math.floor(Number(elapsedMs) || 0));
+    const groupsRaw = Number(stats?.groups ?? 0);
+    const groups = Number.isFinite(groupsRaw) && groupsRaw > 0
+        ? Math.max(1, Math.floor(groupsRaw))
+        : 0;
+
+    const tuningMode = groups > 0 ? 'per_group' : 'total';
+    const tuningElapsedMs = groups > 0
+        ? Math.max(1, Math.floor(elapsedTotalMs / groups))
+        : elapsedTotalMs;
+    const fastThresholdMs = groups > 0 ? OLLAMA_CHUNK_FAST_PER_GROUP_MS : OLLAMA_CHUNK_FAST_MS;
+    const slowThresholdMs = groups > 0 ? OLLAMA_CHUNK_SLOW_PER_GROUP_MS : OLLAMA_CHUNK_SLOW_MS;
+
+    const statsGroupRaw = Number(stats?.group_max_chars ?? 0);
+    const statsGroup = Number.isFinite(statsGroupRaw) && statsGroupRaw > 0
+        ? normalizeOllamaChunkChars(statsGroupRaw)
+        : null;
+
+    const requestedRaw = Number(requestedGroupMaxChars ?? 0);
+    const requested = Number.isFinite(requestedRaw) && requestedRaw > 0
+        ? normalizeOllamaChunkChars(requestedRaw)
+        : null;
+
+    const current = normalizeOllamaChunkChars(statsGroup || requested || profile.chunk_max_chars);
+
+    let next = current;
+    let successStreak = Math.max(0, Math.floor(Number(profile.success_streak) || 0));
+
+    if (!success) {
+        next = current - (OLLAMA_CHUNK_STEP * 2);
+        successStreak = 0;
+    } else if (failed > 0 || missing > 0) {
+        next = current - OLLAMA_CHUNK_STEP;
+        successStreak = 0;
+    } else if (tuningElapsedMs >= slowThresholdMs) {
+        next = current - OLLAMA_CHUNK_STEP;
+        successStreak = 0;
+    } else {
+        successStreak += 1;
+        const isFast = tuningElapsedMs > 0 && tuningElapsedMs <= fastThresholdMs;
+        if (isFast || successStreak >= 2) {
+            next = current + OLLAMA_CHUNK_STEP;
+            successStreak = 0;
+        }
+    }
+
+    next = normalizeOllamaChunkChars(next);
+    const updated = {
+        ...profile,
+        chunk_max_chars: next,
+        success_streak: successStreak,
+        updated_at: new Date().toISOString(),
+        last_elapsed_ms: elapsedTotalMs,
+        last_tuning_elapsed_ms: tuningElapsedMs,
+        last_tuning_mode: tuningMode,
+        last_groups: groups,
+        last_success: Boolean(success),
+        last_failed_count: failed,
+        last_missing_count: missing,
+    };
+    saveOllamaChunkProfile(updated);
+
+    console.info('[OLLAMA_CHUNK_TUNER]', {
+        success,
+        elapsed_ms: updated.last_elapsed_ms,
+        tuning_mode: tuningMode,
+        groups,
+        tuning_elapsed_ms: tuningElapsedMs,
+        fast_threshold_ms: fastThresholdMs,
+        slow_threshold_ms: slowThresholdMs,
+        failed,
+        missing,
+        previous_chunk_max_chars: current,
+        next_chunk_max_chars: next,
+        success_streak: successStreak,
+    });
+}
+
 /** @function transPage */
 async function transPage() {
     await saveCurrentPageOrder(); // 順序を保存してから翻訳 (saveOrderもasyncにする必要あり)
@@ -855,6 +1319,11 @@ async function transPage() {
     showLog();
 
     let applied = false;
+    let translationSucceeded = false;
+    const progressRequestId = createSrcTranslateProgressRequestId();
+    const translateRequest = buildParaparatransRequestPayload(currentPage, currentPage, progressRequestId);
+    startSrcTranslateProgress('page', progressRequestId);
+    const requestStartedAt = Date.now();
 
     try {
         const response = await fetch(`/api/paraparatrans/${encodePdfNamePath(pdfName)}`, {
@@ -862,13 +1331,21 @@ async function transPage() {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: '&start_page=' + encodeURIComponent(currentPage) +
-                '&end_page=' + encodeURIComponent(currentPage)
+            body: translateRequest.body
         });
         const data = await response.json();
         if (data.status === "ok") {
             console.log('翻訳が成功しました。');
             applied = applyBookDelta(data.delta || data.data);
+            translationSucceeded = true;
+            if (translateRequest.engine === 'ollama') {
+                updateOllamaChunkProfileWithResult({
+                    success: true,
+                    elapsedMs: Date.now() - requestStartedAt,
+                    stats: data.stats || null,
+                    requestedGroupMaxChars: translateRequest.groupMaxChars,
+                });
+            }
             if (data.stats) {
                 alert(formatTranslationStatsMessage("ページ翻訳が完了しました", data.stats));
             } else {
@@ -876,11 +1353,26 @@ async function transPage() {
             }
         } else {
             console.error('エラー:', data.message);
+            if (translateRequest.engine === 'ollama') {
+                updateOllamaChunkProfileWithResult({
+                    success: false,
+                    elapsedMs: Date.now() - requestStartedAt,
+                    stats: data.stats || null,
+                    requestedGroupMaxChars: translateRequest.groupMaxChars,
+                });
+            }
             alert('翻訳エラー(response): ' + data.message);
         }
         hideLog();
     } catch (error) {
         console.error('Error:', error);
+        if (translateRequest.engine === 'ollama') {
+            updateOllamaChunkProfileWithResult({
+                success: false,
+                elapsedMs: Date.now() - requestStartedAt,
+                requestedGroupMaxChars: translateRequest.groupMaxChars,
+            });
+        }
         alert('翻訳中にエラー(catch)');
     } finally {
         // 成功時は差分適用で全体再取得を回避。適用できなかった場合のみ従来通り全体再取得する。
@@ -889,6 +1381,7 @@ async function transPage() {
         } else {
             await fetchBookData();
         }
+        finishSrcTranslateProgress(translationSucceeded);
     }
 }
 
@@ -1018,6 +1511,11 @@ async function transAllPages() {
     showLog();
 
     let applied = false;
+    let translationSucceeded = false;
+    const progressRequestId = createSrcTranslateProgressRequestId();
+    const translateRequest = buildParaparatransRequestPayload(1, totalPages, progressRequestId);
+    startSrcTranslateProgress('all', progressRequestId);
+    const requestStartedAt = Date.now();
 
     try {
         const response = await fetch(`/api/paraparatrans/${encodePdfNamePath(pdfName)}`, {
@@ -1025,13 +1523,21 @@ async function transAllPages() {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: '&start_page=' + encodeURIComponent(1) +
-                '&end_page=' + encodeURIComponent(totalPages)
+            body: translateRequest.body
         });
         const data = await response.json();
         if (data.status === "ok") {
             console.log('翻訳が成功しました。');
             applied = applyBookDelta(data.delta || data.data);
+            translationSucceeded = true;
+            if (translateRequest.engine === 'ollama') {
+                updateOllamaChunkProfileWithResult({
+                    success: true,
+                    elapsedMs: Date.now() - requestStartedAt,
+                    stats: data.stats || null,
+                    requestedGroupMaxChars: translateRequest.groupMaxChars,
+                });
+            }
             await fetchAndApplyToc();
             showToc();
             if (data.stats) {
@@ -1041,10 +1547,25 @@ async function transAllPages() {
             }
         } else {
             console.error('エラー:', data.message);
+            if (translateRequest.engine === 'ollama') {
+                updateOllamaChunkProfileWithResult({
+                    success: false,
+                    elapsedMs: Date.now() - requestStartedAt,
+                    stats: data.stats || null,
+                    requestedGroupMaxChars: translateRequest.groupMaxChars,
+                });
+            }
             alert('翻訳エラー(response): ' + data.message);
         }
     } catch (error) {
         console.error('Error:', error);
+        if (translateRequest.engine === 'ollama') {
+            updateOllamaChunkProfileWithResult({
+                success: false,
+                elapsedMs: Date.now() - requestStartedAt,
+                requestedGroupMaxChars: translateRequest.groupMaxChars,
+            });
+        }
         alert('翻訳中にエラー(catch)');
     } finally {
         if (applied) {
@@ -1052,10 +1573,16 @@ async function transAllPages() {
         } else {
             await fetchBookData();
         }
+        finishSrcTranslateProgress(translationSucceeded);
     }
 }
 
 function formatTranslationStatsMessage(title, stats) {
+    const engine = String(stats.translation_engine || '').trim();
+    const groupMaxCharsRaw = Number(stats.group_max_chars ?? 0);
+    const groupMaxChars = Number.isFinite(groupMaxCharsRaw) ? Math.max(0, Math.floor(groupMaxCharsRaw)) : 0;
+    const usedCharsRaw = Number(stats.characters_used ?? 0);
+    const usedChars = Number.isFinite(usedCharsRaw) ? Math.max(0, Math.floor(usedCharsRaw)) : 0;
     const pages = stats.pages_processed ?? 0;
     const target = stats.paragraphs_target ?? 0;
     const translated = stats.translated ?? 0;
@@ -1066,6 +1593,9 @@ function formatTranslationStatsMessage(title, stats) {
     const missing = stats.missing_from_batch ?? 0;
 
     let msg = `${title}\n`;
+    if (engine) msg += `翻訳エンジン: ${formatTranslateEngineLabel(engine)}\n`;
+    if (groupMaxChars > 0) msg += `グループ上限文字数: ${groupMaxChars.toLocaleString('ja-JP')}\n`;
+    msg += `利用文字数: ${usedChars.toLocaleString('ja-JP')}\n`;
     msg += `ページ数: ${pages}\n`;
     msg += `対象段落: ${target}\n`;
     msg += `翻訳成功: ${translated}\n`;
@@ -1701,10 +2231,13 @@ async function openDataExportDialog() {
 }
 
 
+let currentTranslateEngine = 'google';
+
 function formatTranslateEngineLabel(engine) {
     const value = String(engine || '').toLowerCase();
     if (value === 'deepl') return 'DeepL';
     if (value === 'google_v3') return 'Google v3';
+    if (value === 'ollama') return 'Ollama';
     if (value === 'google') return 'Google';
     return value || '-';
 }
@@ -1745,10 +2278,12 @@ async function reloadTranslationEngineSelection() {
         if (data.engine) {
             select.value = data.engine;
         }
+        currentTranslateEngine = String(data.engine || select.value || 'google').toLowerCase();
         updateCurrentTranslateEngineLabel(data.engine || select.value);
         setTranslateEngineStatus(`現在: ${select.options[select.selectedIndex]?.text || select.value}`, false);
     } catch (error) {
         console.error('translate engine load error:', error);
+        currentTranslateEngine = String(select.value || currentTranslateEngine || 'google').toLowerCase();
         updateCurrentTranslateEngineLabel('取得失敗');
         setTranslateEngineStatus(String(error), true);
     }
@@ -1777,10 +2312,12 @@ async function saveTranslationEngineFromDialog() {
         if (data.engine) {
             select.value = data.engine;
         }
+        currentTranslateEngine = String(data.engine || select.value || currentTranslateEngine || 'google').toLowerCase();
         updateCurrentTranslateEngineLabel(data.engine || select.value);
         setTranslateEngineStatus(`保存しました: ${select.options[select.selectedIndex]?.text || select.value}`, false);
     } catch (error) {
         console.error('translate engine save error:', error);
+        currentTranslateEngine = String(select.value || currentTranslateEngine || 'google').toLowerCase();
         setTranslateEngineStatus(String(error), true);
     }
 }
