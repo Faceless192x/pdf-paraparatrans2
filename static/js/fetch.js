@@ -868,6 +868,104 @@ let srcTranslateProgressTimer = null;
 let srcTranslateProgressHideTimer = null;
 let srcTranslateProgressValue = 0;
 let srcTranslateProgressMode = 'page';
+let srcTranslateProgressSse = null;
+let srcTranslateProgressRequestId = '';
+
+function createSrcTranslateProgressRequestId() {
+    return `trans-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function stopSrcTranslateProgressStream() {
+    if (!srcTranslateProgressSse) return;
+    try {
+        srcTranslateProgressSse.close();
+    } catch (e) {
+        // ignore
+    }
+    srcTranslateProgressSse = null;
+}
+
+function applyLiveSrcTranslateProgress(payload) {
+    if (!payload || typeof payload !== 'object') return;
+
+    const kind = String(payload.kind || '').toLowerCase();
+    if (kind !== 'translation') return;
+
+    const payloadId = String(payload.id || '').trim();
+    if (srcTranslateProgressRequestId) {
+        if (!payloadId || payloadId !== srcTranslateProgressRequestId) return;
+    }
+
+    if (srcTranslateProgressTimer) {
+        clearInterval(srcTranslateProgressTimer);
+        srcTranslateProgressTimer = null;
+    }
+
+    const phase = String(payload.phase || '').toLowerCase();
+    const done = Math.max(0, Math.floor(Number(payload.done ?? 0) || 0));
+    const total = Math.max(0, Math.floor(Number(payload.total ?? 0) || 0));
+    const page = Math.max(0, Math.floor(Number(payload.page ?? 0) || 0));
+
+    let nextValue = srcTranslateProgressValue;
+    if (total > 0) {
+        const ratio = (done / total) * 100;
+        nextValue = Math.max(srcTranslateProgressValue, Math.min(99, ratio));
+    }
+    if (phase === 'done') {
+        nextValue = 100;
+    }
+
+    let labelText = srcTranslateProgressMode === 'all' ? '全ページ翻訳中...' : 'ページ翻訳中...';
+    if (total > 0 && phase !== 'done') {
+        labelText = `${srcTranslateProgressMode === 'all' ? '全ページ翻訳中' : 'ページ翻訳中'} ${done}/${total}`;
+    }
+    if (page > 0 && phase !== 'done') {
+        labelText += ` (P${page})`;
+    }
+    if (phase === 'done') {
+        labelText = srcTranslateProgressMode === 'all' ? '全ページ翻訳完了' : 'ページ翻訳完了';
+    }
+
+    setSrcTranslateProgress(nextValue, labelText);
+}
+
+function handleSrcTranslateProgressLine(line) {
+    const marker = '[PROGRESS]';
+    const markerIndex = String(line || '').indexOf(marker);
+    if (markerIndex < 0) return;
+
+    const payloadText = String(line || '').slice(markerIndex + marker.length).trim();
+    if (!payloadText || !payloadText.startsWith('{')) return;
+
+    try {
+        const payload = JSON.parse(payloadText);
+        applyLiveSrcTranslateProgress(payload);
+    } catch (e) {
+        // ignore malformed progress payloads
+    }
+}
+
+function startSrcTranslateProgressStream(requestId = '') {
+    stopSrcTranslateProgressStream();
+    srcTranslateProgressRequestId = String(requestId || '').trim();
+
+    if (typeof EventSource === 'undefined') return;
+
+    const sse = new EventSource('/logstream');
+    srcTranslateProgressSse = sse;
+
+    sse.onmessage = (event) => {
+        const lines = String(event?.data || '').split('\n');
+        for (const line of lines) {
+            if (!line || !line.trim()) continue;
+            handleSrcTranslateProgressLine(line);
+        }
+    };
+
+    sse.onerror = () => {
+        // EventSource は自動再接続されるため、ここでは何もしない
+    };
+}
 
 function getSrcTranslateProgressElements() {
     return {
@@ -892,11 +990,12 @@ function setSrcTranslateProgress(value, labelText = null) {
     }
 }
 
-function startSrcTranslateProgress(mode = 'page') {
+function startSrcTranslateProgress(mode = 'page', requestId = '') {
     const { container } = getSrcTranslateProgressElements();
     if (!container) return;
 
     srcTranslateProgressMode = mode === 'all' ? 'all' : 'page';
+    stopSrcTranslateProgressStream();
 
     if (srcTranslateProgressTimer) {
         clearInterval(srcTranslateProgressTimer);
@@ -920,11 +1019,16 @@ function startSrcTranslateProgress(mode = 'page') {
         const delta = Math.max(minDelta, remaining * 0.12);
         setSrcTranslateProgress(Math.min(maxBeforeDone, srcTranslateProgressValue + delta));
     }, 400);
+
+    startSrcTranslateProgressStream(requestId);
 }
 
 function finishSrcTranslateProgress(success, customLabel = '') {
     const { container } = getSrcTranslateProgressElements();
     if (!container) return;
+
+    stopSrcTranslateProgressStream();
+    srcTranslateProgressRequestId = '';
 
     if (srcTranslateProgressTimer) {
         clearInterval(srcTranslateProgressTimer);
@@ -1010,10 +1114,13 @@ function saveOllamaChunkProfile(profile) {
     }
 }
 
-function buildParaparatransRequestPayload(startPage, endPage) {
+function buildParaparatransRequestPayload(startPage, endPage, progressId = '') {
     const params = new URLSearchParams();
     params.set('start_page', String(startPage));
     params.set('end_page', String(endPage));
+    if (progressId) {
+        params.set('progress_id', String(progressId));
+    }
 
     const engine = getCurrentTranslateEngineValue();
     let groupMaxChars = null;
@@ -1097,11 +1204,12 @@ async function transPage() {
     await saveCurrentPageOrder(); // 順序を保存してから翻訳 (saveOrderもasyncにする必要あり)
     if (!confirm("現在のページを翻訳します。よろしいですか？")) return;
     showLog();
-    startSrcTranslateProgress('page');
 
     let applied = false;
     let translationSucceeded = false;
-    const translateRequest = buildParaparatransRequestPayload(currentPage, currentPage);
+    const progressRequestId = createSrcTranslateProgressRequestId();
+    const translateRequest = buildParaparatransRequestPayload(currentPage, currentPage, progressRequestId);
+    startSrcTranslateProgress('page', progressRequestId);
     const requestStartedAt = Date.now();
 
     try {
@@ -1288,11 +1396,12 @@ async function transAllPages() {
     const totalPages = bookData.page_count;
     if (!confirm(`全 ${totalPages} ページを翻訳します。よろしいですか？`)) return;
     showLog();
-    startSrcTranslateProgress('all');
 
     let applied = false;
     let translationSucceeded = false;
-    const translateRequest = buildParaparatransRequestPayload(1, totalPages);
+    const progressRequestId = createSrcTranslateProgressRequestId();
+    const translateRequest = buildParaparatransRequestPayload(1, totalPages, progressRequestId);
+    startSrcTranslateProgress('all', progressRequestId);
     const requestStartedAt = Date.now();
 
     try {

@@ -380,6 +380,31 @@ def _run_ollama_chunk_tuner_checks(page) -> None:
     _assert(after_failure_chunk < after_success_chunk, "chunk size should decrease after a failed translation")
 
 
+def _run_translate_progress_checks(page) -> None:
+    result = page.evaluate(
+        "() => {"
+        "  const markerId = 'test-progress-id';"
+        "  startSrcTranslateProgress('page', markerId);"
+        "  handleSrcTranslateProgressLine('2026-03-06 00:00:00 [INFO] [PROGRESS] {\\\"kind\\\":\\\"translation\\\",\\\"phase\\\":\\\"start\\\",\\\"id\\\":\\\"test-progress-id\\\",\\\"done\\\":0,\\\"total\\\":10}');"
+        "  handleSrcTranslateProgressLine('2026-03-06 00:00:01 [INFO] [PROGRESS] {\\\"kind\\\":\\\"translation\\\",\\\"phase\\\":\\\"step\\\",\\\"id\\\":\\\"test-progress-id\\\",\\\"done\\\":3,\\\"total\\\":10,\\\"page\\\":1}');"
+        "  const label = String(document.getElementById('srcTranslateProgressLabel')?.textContent || '');"
+        "  const width = String(document.getElementById('srcTranslateProgressBar')?.style.width || '0%');"
+        "  const ariaNow = String(document.getElementById('srcTranslateProgressTrack')?.getAttribute('aria-valuenow') || '0');"
+        "  finishSrcTranslateProgress(true);"
+        "  return { label, width, ariaNow };"
+        "}"
+    )
+
+    label = str(result.get("label") or "")
+    width_text = str(result.get("width") or "0%").replace("%", "")
+    aria_now = int(float(str(result.get("ariaNow") or "0")))
+    width = float(width_text) if width_text else 0.0
+
+    _assert("3/10" in label, f"progress label should contain 3/10, got: {label}")
+    _assert(width >= 30.0, f"progress bar width should be >= 30%, got: {width}")
+    _assert(aria_now >= 30, f"aria-valuenow should be >= 30, got: {aria_now}")
+
+
 def _run_ui_checks(
     base_url: str,
     pdf_name: str,
@@ -389,6 +414,7 @@ def _run_ui_checks(
     resume_page_only: bool,
     table_reextract_only: bool,
     ollama_chunk_only: bool,
+    translate_progress_only: bool,
 ) -> None:
     encoded = urllib.parse.quote(pdf_name, safe="/")
     detail_path = f"/detail/{encoded}"
@@ -441,6 +467,11 @@ def _run_ui_checks(
 
         if ollama_chunk_only:
             _run_ollama_chunk_tuner_checks(page)
+            browser.close()
+            return
+
+        if translate_progress_only:
+            _run_translate_progress_checks(page)
             browser.close()
             return
 
@@ -525,6 +556,11 @@ def main() -> int:
         action="store_true",
         help="Run only Ollama adaptive chunk tuner checks.",
     )
+    parser.add_argument(
+        "--translate-progress-only",
+        action="store_true",
+        help="Run only translation progress bar live-update checks.",
+    )
 
     args = parser.parse_args()
     if not args.base_url:
@@ -549,6 +585,7 @@ def main() -> int:
             resume_page_only=args.resume_page_only,
             table_reextract_only=args.table_reextract_only,
             ollama_chunk_only=args.ollama_chunk_only,
+            translate_progress_only=args.translate_progress_only,
         )
     except BaseException as exc:
         error = exc

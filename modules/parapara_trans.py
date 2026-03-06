@@ -12,7 +12,7 @@ import unicodedata
 from datetime import datetime
 import tempfile
 from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 # 対訳辞書置換用
 from modules.parapara_dict_replacer import load_dictionary, replace_with_dict
@@ -95,6 +95,84 @@ def _record_used_chars_many(stats: Optional[TranslationStats], texts: List[str])
     if stats is None:
         return
     stats.characters_used += sum(len(str(text or "")) for text in texts)
+
+
+def _emit_progress(payload: Dict[str, object]) -> None:
+    try:
+        print("[PROGRESS] " + json.dumps(payload, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+def _emit_translation_progress(
+    progress_state: Optional[Dict[str, object]],
+    phase: str,
+    page_number: Optional[int] = None,
+) -> None:
+    if not progress_state:
+        return
+
+    done = int(progress_state.get("done") or 0)
+    total = int(progress_state.get("total") or 0)
+    payload: Dict[str, object] = {
+        "kind": "translation",
+        "phase": str(phase),
+        "id": str(progress_state.get("id") or ""),
+        "done": done,
+        "total": total,
+    }
+    if page_number is not None:
+        payload["page"] = int(page_number)
+    _emit_progress(payload)
+
+
+def _advance_translation_progress(
+    progress_state: Optional[Dict[str, object]],
+    amount: int = 1,
+    page_number: Optional[int] = None,
+) -> None:
+    if not progress_state:
+        return
+
+    done = int(progress_state.get("done") or 0)
+    total = int(progress_state.get("total") or 0)
+    done += max(0, int(amount))
+    if done > total:
+        total = done
+
+    progress_state["done"] = done
+    progress_state["total"] = total
+    _emit_translation_progress(progress_state, phase="step", page_number=page_number)
+
+
+def _estimate_translation_targets(book_data: dict, start_page: int, end_page: int) -> int:
+    total = 0
+    pages = (book_data or {}).get("pages", {}) or {}
+
+    for page in range(start_page, end_page + 1):
+        page_data = pages.get(str(page), {}) or {}
+        paragraphs = page_data.get("paragraphs", {}) or {}
+        for paragraph in paragraphs.values():
+            trans_status = paragraph.get("trans_status") or "none"
+            if trans_status != "none":
+                continue
+            if paragraph.get("block_tag") in ("header", "footer"):
+                continue
+
+            src_joined = paragraph.get("src_joined", "") or ""
+            if src_joined == "":
+                continue
+
+            src_replaced = paragraph.get("src_replaced", "") or src_joined
+            if src_replaced == "":
+                continue
+
+            if _should_auto_translate_as_draft(src_replaced):
+                continue
+
+            total += 1
+
+    return total
 
 
 _MARKER_RE = re.compile(r"【\s*([0-9]+[＿_][0-9]+)\s*】")
@@ -187,7 +265,11 @@ def _translate_table_row_paragraph(para: dict, stats: Optional[TranslationStats]
             stats.translated_fallback += 1
     return True
 
-def process_group(paragraphs_group: List[dict], stats: Optional[TranslationStats] = None):
+def process_group(
+    paragraphs_group: List[dict],
+    stats: Optional[TranslationStats] = None,
+    on_paragraph_done: Optional[Callable[[], None]] = None,
+):
     """
     1. 指定グループの各段落の src_replaced の先頭に【id】を付与して連結し、グループ上限文字数以内の翻訳前テキストを作成
     2. 翻訳関数 translate_text を呼び出し、翻訳結果を取得
@@ -198,6 +280,13 @@ def process_group(paragraphs_group: List[dict], stats: Optional[TranslationStats
     """
     if stats is not None:
         stats.groups += 1
+
+    def _mark_paragraph_done() -> None:
+        if callable(on_paragraph_done):
+            try:
+                on_paragraph_done()
+            except Exception:
+                pass
 
 
     # --- 追加: 単体パラグラフ翻訳前にも対訳辞書置換を適用 ---
@@ -238,6 +327,8 @@ def process_group(paragraphs_group: List[dict], stats: Optional[TranslationStats
                 if stats is not None:
                     stats.failed += 1
                 print(f"Warning: 段落単体翻訳にも失敗しました id={pid}: {ee}")
+            finally:
+                _mark_paragraph_done()
         return
 
     extracted = _extract_translations_by_marker(translated_text)
@@ -259,6 +350,8 @@ def process_group(paragraphs_group: List[dict], stats: Optional[TranslationStats
                     stats.failed += 1
                     stats.missing_from_batch += 1
                 print(f"Warning: 段落単体翻訳にも失敗しました id={pid}: {ee}")
+            finally:
+                _mark_paragraph_done()
         return
 
     matched = 0
@@ -266,6 +359,7 @@ def process_group(paragraphs_group: List[dict], stats: Optional[TranslationStats
         if pid in para_by_id:
             _apply_translation_to_paragraph(para_by_id[pid], content)
             matched += 1
+            _mark_paragraph_done()
         else:
             print(f"Warning: 翻訳結果のid {pid} に対応する段落が見つかりません。")
 
@@ -291,6 +385,8 @@ def process_group(paragraphs_group: List[dict], stats: Optional[TranslationStats
                 if stats is not None:
                     stats.failed += 1
                 print(f"Warning: 段落単体翻訳にも失敗しました id={pid}: {ee}")
+            finally:
+                _mark_paragraph_done()
 
 def recalc_trans_status_counts(book_data):
     """
@@ -308,7 +404,13 @@ def recalc_trans_status_counts(book_data):
 
     book_data["trans_status_counts"] = counts
 
-def paraparatrans_json_file(json_path, start_page, end_page, group_max_chars: Optional[int] = None):
+def paraparatrans_json_file(
+    json_path,
+    start_page,
+    end_page,
+    group_max_chars: Optional[int] = None,
+    progress_id: Optional[str] = None,
+):
     """
     JSONファイルを読み込み、指定したページ範囲内の段落について翻訳処理を行い、結果をファイルへ保存する。
     ・filepath: JSONファイルのパス
@@ -326,6 +428,14 @@ def paraparatrans_json_file(json_path, start_page, end_page, group_max_chars: Op
         group_max_chars=effective_group_max_chars,
     )
 
+    estimated_total = _estimate_translation_targets(book_data, start_page, end_page)
+    progress_state: Dict[str, object] = {
+        "id": str(progress_id or ""),
+        "done": 0,
+        "total": max(0, int(estimated_total)),
+    }
+    _emit_translation_progress(progress_state, phase="start")
+
     # start_pageからend_pageをループしてpagetransを実行
     for page in range(start_page, end_page + 1):
         # 存在しないページはスキップ（end_page=9999などの運用を許容）
@@ -337,12 +447,16 @@ def paraparatrans_json_file(json_path, start_page, end_page, group_max_chars: Op
             page,
             stats=stats,
             group_max_chars=effective_group_max_chars,
+            progress_state=progress_state,
         )
         stats.pages_processed += 1
 
     # 翻訳ステータスの集計を更新
     recalc_trans_status_counts(book_data)
     atomicsave_json(json_path, book_data)
+
+    progress_state["done"] = int(progress_state.get("total") or 0)
+    _emit_translation_progress(progress_state, phase="done")
     
     # 翻訳終了メッセージ（SSEログにも流れる）
     print(
@@ -442,6 +556,7 @@ def pagetrans(
     page_number,
     stats: Optional[TranslationStats] = None,
     group_max_chars: Optional[int] = None,
+    progress_state: Optional[Dict[str, object]] = None,
 ):
     """
     各グループは group_max_chars 以内に収まるように連結して翻訳され、
@@ -550,6 +665,7 @@ def pagetrans(
         ok = _translate_table_row_paragraph(para, stats=stats)
         if not ok and stats is not None:
             stats.failed += 1
+        _advance_translation_progress(progress_state, amount=1, page_number=page_number)
 
     current_group = []
     current_length = 0
@@ -558,7 +674,15 @@ def pagetrans(
         text_to_add = f"【{para['id']}】{para.get('src_replaced','')}"
         if current_length + len(text_to_add) > effective_group_max_chars:
             if current_group:
-                process_group(current_group, stats=stats)
+                process_group(
+                    current_group,
+                    stats=stats,
+                    on_paragraph_done=lambda: _advance_translation_progress(
+                        progress_state,
+                        amount=1,
+                        page_number=page_number,
+                    ),
+                )
                 current_group = []
                 current_length = 0
         current_group.append(para)
@@ -566,7 +690,15 @@ def pagetrans(
     
     # 残ったグループがあれば処理
     if current_group:
-        process_group(current_group, stats=stats)
+        process_group(
+            current_group,
+            stats=stats,
+            on_paragraph_done=lambda: _advance_translation_progress(
+                progress_state,
+                amount=1,
+                page_number=page_number,
+            ),
+        )
 
     atomicsave_json(filepath, book_data)  # 最後にアトミックセーブ
     print(f"ページ {page_number} の翻訳が完了しました。")
