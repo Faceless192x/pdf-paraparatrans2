@@ -1,6 +1,5 @@
 // help.js
 // Debug: set `window.HELP_DEBUG = true` to enable console logs.
-// This file will contain the JavaScript code for displaying help tooltips.
 
 const helpDebugLog = (...args) => {
   if (window.HELP_DEBUG) {
@@ -8,81 +7,287 @@ const helpDebugLog = (...args) => {
   }
 };
 
-// Load marked.js and Tippy.js from CDN
-const loadScript = (url) => {
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = url;
-    script.onload = resolve;
-    script.onerror = reject;
-    document.head.appendChild(script);
+let helpSections = {};
+let helpTooltipEl = null;
+let activeHelpTarget = null;
+
+const escapeHtml = (value) => String(value || '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const slugifyHeading = (value) => String(value || '')
+  .trim()
+  .toLowerCase()
+  .replace(/[^\w\u3040-\u30ff\u3400-\u9fff -]+/g, '')
+  .replace(/\s+/g, '-')
+  .replace(/-+/g, '-');
+
+const normalizeInlineBreaks = (value) => String(value || '').replace(/<br\s*\/?>/gi, '\n');
+
+const renderInlineMarkdown = (value) => {
+  let html = escapeHtml(normalizeInlineBreaks(value));
+  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, text, href) => {
+    try {
+      const url = new URL(href);
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        return escapeHtml(text);
+      }
+      return `<a href="${escapeHtml(url.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
+    } catch (_err) {
+      return escapeHtml(text);
+    }
   });
+  html = html.replace(/`([^`]+)`/g, (_match, codeText) => `<code>${escapeHtml(codeText)}</code>`);
+  html = html.replace(/\*\*([^*]+)\*\*/g, (_match, boldText) => `<strong>${escapeHtml(boldText)}</strong>`);
+  return html.replace(/\n/g, '<br>');
 };
 
-let helpSections = {};
+const renderMarkdown = (markdownText) => {
+  const lines = String(markdownText || '').replace(/\r\n?/g, '\n').split('\n');
+  const htmlParts = [];
+  const headings = [];
+  let paragraphLines = [];
+  let listType = null;
+  let inCodeBlock = false;
+  let codeLines = [];
 
-const initializeHelp = async () => {
-  // Fetch and parse help.md
-  try {
-    const response = await fetch('/static/parapara-help.md');
-    const text = await response.text();
-    helpSections = parseHelpMarkdown(text);
-    helpDebugLog('Help sections loaded and parsed.');
-  } catch (error) {
-    console.error('Failed to fetch or parse help.md:', error);
+  const flushParagraph = () => {
+    if (!paragraphLines.length) return;
+    htmlParts.push(`<p>${renderInlineMarkdown(paragraphLines.join('\n'))}</p>`);
+    paragraphLines = [];
+  };
+
+  const closeList = () => {
+    if (!listType) return;
+    htmlParts.push(listType === 'ol' ? '</ol>' : '</ul>');
+    listType = null;
+  };
+
+  const flushCodeBlock = () => {
+    htmlParts.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+    codeLines = [];
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\t/g, '    ');
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('```')) {
+      flushParagraph();
+      closeList();
+      if (inCodeBlock) {
+        flushCodeBlock();
+        inCodeBlock = false;
+      } else {
+        inCodeBlock = true;
+        codeLines = [];
+      }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeLines.push(rawLine);
+      continue;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      flushParagraph();
+      closeList();
+      const level = headingMatch[1].length;
+      const text = headingMatch[2].trim();
+      const id = slugifyHeading(text) || `heading-${headings.length + 1}`;
+      headings.push({ id, text, level });
+      htmlParts.push(`<h${level} id="${id}">${renderInlineMarkdown(text)}</h${level}>`);
+      continue;
+    }
+
+    const listMatch = line.match(/^\s*((?:[-*])|(?:\d+\.))\s+(.+)$/);
+    if (listMatch) {
+      flushParagraph();
+      const nextListType = /\d+\./.test(listMatch[1]) ? 'ol' : 'ul';
+      if (listType !== nextListType) {
+        closeList();
+        htmlParts.push(nextListType === 'ol' ? '<ol>' : '<ul>');
+        listType = nextListType;
+      }
+      htmlParts.push(`<li>${renderInlineMarkdown(listMatch[2].trim())}</li>`);
+      continue;
+    }
+
+    if (!trimmed) {
+      flushParagraph();
+      closeList();
+      continue;
+    }
+
+    closeList();
+    paragraphLines.push(trimmed);
   }
 
-  // Initialize Tippy.js for elements with data-help-id
-  tippy('[data-help-id]', {
-    content: (reference) => {
-      const helpId = reference.getAttribute('data-help-id');
-      const section = helpSections[helpId];
-      if (section) {
-        return marked.parse(section);
-      }
-      return 'Help section not found.';
-    },
-    allowHTML: true,
-    theme: 'light-border',
-    placement: 'bottom',
-    interactive: true,
-    delay: [200, 0], // Add delay: [show, hide]
-    appendTo: document.body, // Append tooltip to the body
-    maxWidth: 800, // Set maximum width using Tippy.js option
-  });
+  flushParagraph();
+  closeList();
+  if (inCodeBlock) {
+    flushCodeBlock();
+  }
+
+  return {
+    html: htmlParts.join('\n'),
+    headings,
+  };
 };
 
 const parseHelpMarkdown = (markdownText) => {
-  helpDebugLog('Parsing markdown text...');
+  helpDebugLog('Parsing help markdown...');
   const sections = {};
-  const lines = markdownText.trim().split('\n'); // Trim the whole text
+  const lines = String(markdownText || '').replace(/\r\n?/g, '\n').split('\n');
   let currentId = null;
   let currentContent = [];
 
   for (const line of lines) {
-    const trimmedLine = line.trim(); // Trim each line
-    const sectionMatch = trimmedLine.match(/^##\s*(.+)$/);
+    const trimmed = line.trim();
+    const sectionMatch = trimmed.match(/^##\s*(.+)$/);
     if (sectionMatch) {
       if (currentId && currentContent.length > 0) {
         sections[currentId] = currentContent.join('\n').trim();
       }
       currentId = sectionMatch[1].trim();
       currentContent = [];
-      helpDebugLog(`Found section: ${currentId}`);
     } else if (currentId !== null) {
-      currentContent.push(line); // Keep original line content for section body
+      currentContent.push(line);
     }
   }
 
-  // Add the last section
   if (currentId && currentContent.length > 0) {
     sections[currentId] = currentContent.join('\n').trim();
   }
-  helpDebugLog('Markdown parsing complete. Resulting sections:', sections);
   return sections;
 };
 
-// Function to show the full help content in a modal
+const buildTocTree = (headings) => {
+  const root = [];
+  const stack = [{ level: 0, children: root }];
+  headings.forEach((heading) => {
+    while (stack.length > 1 && heading.level <= stack[stack.length - 1].level) {
+      stack.pop();
+    }
+    const node = { ...heading, children: [] };
+    stack[stack.length - 1].children.push(node);
+    stack.push(node);
+  });
+  return root;
+};
+
+const buildTocHtml = (items) => {
+  if (!items.length) return '';
+  let html = '<ul>';
+  items.forEach((item) => {
+    html += `<li class="level-${item.level}"><a href="#${item.id}">${escapeHtml(item.text)}</a>`;
+    html += buildTocHtml(item.children || []);
+    html += '</li>';
+  });
+  html += '</ul>';
+  return html;
+};
+
+const ensureTooltipElement = () => {
+  if (helpTooltipEl) return helpTooltipEl;
+  helpTooltipEl = document.createElement('div');
+  helpTooltipEl.className = 'help-tooltip-popup';
+  helpTooltipEl.setAttribute('role', 'tooltip');
+  document.body.appendChild(helpTooltipEl);
+  return helpTooltipEl;
+};
+
+const hideTooltip = () => {
+  if (!helpTooltipEl) return;
+  helpTooltipEl.classList.remove('is-visible');
+  activeHelpTarget = null;
+};
+
+const positionTooltip = (target) => {
+  if (!helpTooltipEl || !target) return;
+  const rect = target.getBoundingClientRect();
+  const margin = 10;
+  const maxWidth = Math.min(window.innerWidth - 24, 720);
+  helpTooltipEl.style.maxWidth = `${maxWidth}px`;
+  helpTooltipEl.style.left = '12px';
+  helpTooltipEl.style.top = '12px';
+
+  const tooltipRect = helpTooltipEl.getBoundingClientRect();
+  let left = rect.left;
+  if (left + tooltipRect.width > window.innerWidth - margin) {
+    left = window.innerWidth - tooltipRect.width - margin;
+  }
+  if (left < margin) {
+    left = margin;
+  }
+
+  let top = rect.bottom + margin;
+  if (top + tooltipRect.height > window.innerHeight - margin) {
+    top = rect.top - tooltipRect.height - margin;
+  }
+  if (top < margin) {
+    top = margin;
+  }
+
+  helpTooltipEl.style.left = `${Math.round(left)}px`;
+  helpTooltipEl.style.top = `${Math.round(top)}px`;
+};
+
+const showTooltip = (target) => {
+  const helpId = target.getAttribute('data-help-id');
+  const section = helpSections[helpId];
+  if (!section) {
+    hideTooltip();
+    return;
+  }
+
+  const tooltip = ensureTooltipElement();
+  tooltip.innerHTML = `<div class="help-tooltip-title">${escapeHtml(helpId)}</div><div class="help-tooltip-body">${renderMarkdown(section).html}</div>`;
+  tooltip.classList.add('is-visible');
+  activeHelpTarget = target;
+  positionTooltip(target);
+};
+
+const bindHelpTooltips = () => {
+  const elements = document.querySelectorAll('[data-help-id]');
+  elements.forEach((element) => {
+    element.addEventListener('mouseenter', () => showTooltip(element));
+    element.addEventListener('focus', () => showTooltip(element));
+    element.addEventListener('mouseleave', hideTooltip);
+    element.addEventListener('blur', hideTooltip);
+  });
+  window.addEventListener('scroll', () => {
+    if (activeHelpTarget) {
+      positionTooltip(activeHelpTarget);
+    }
+  }, true);
+  window.addEventListener('resize', () => {
+    if (activeHelpTarget) {
+      positionTooltip(activeHelpTarget);
+    }
+  });
+};
+
+const initializeHelp = async () => {
+  try {
+    const response = await fetch('/static/parapara-help.md');
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const text = await response.text();
+    helpSections = parseHelpMarkdown(text);
+    bindHelpTooltips();
+    helpDebugLog('Help sections loaded and tooltips initialized.');
+  } catch (error) {
+    console.error('Failed to fetch or parse help.md:', error);
+  }
+};
+
 const showFullHelp = async () => {
   try {
     const response = await fetch('/static/parapara-help.md');
@@ -90,100 +295,8 @@ const showFullHelp = async () => {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     const markdownText = await response.text();
+    const rendered = renderMarkdown(markdownText);
 
-    // Configure marked.js to generate IDs for headings
-    marked.setOptions({
-      headerIds: true,
-      headerPrefix: '', // Optional: add a prefix to IDs
-    });
-
-    const htmlContent = marked.parse(markdownText);
-
-    // Extract headings and build a hierarchical structure
-    const lines = markdownText.trim().split('\n');
-    const headings = [];
-    const headingRegex = /^(#+)\s*(.+)$/;
-    let currentLevel = 0;
-    let currentHierarchy = headings;
-
-    helpDebugLog('Starting heading extraction and hierarchy building...');
-
-    lines.forEach((line, index) => {
-      const trimmedLine = line.trim(); // Trim each line before matching
-      helpDebugLog(`Processing line ${index + 1}: "${trimmedLine}"`);
-      const match = trimmedLine.match(headingRegex);
-      if (match) {
-        const level = match[1].length;
-        const text = match[2].trim();
-        const id = text.toLowerCase().replace(/\s+/g, '-');
-
-        const heading = { id: id, text: text, level: level, children: [] };
-        helpDebugLog(`Matched heading: Level ${level}, Text: "${text}", ID: "${id}"`);
-
-        if (level > currentLevel) {
-          // Deeper level
-          helpDebugLog(`Moving to deeper level from ${currentLevel} to ${level}`);
-          if (currentHierarchy.length > 0) {
-            const lastSibling = currentHierarchy[currentHierarchy.length - 1];
-            lastSibling.children.push(heading);
-            currentHierarchy = lastSibling.children;
-            helpDebugLog('Added as child:', heading);
-          } else {
-             // Should not happen with valid markdown starting from #
-             console.warn('Unexpected hierarchy structure: Deeper level with empty currentHierarchy.');
-             headings.push(heading);
-             currentHierarchy = headings;
-             helpDebugLog('Added to root as deeper level:', heading);
-          }
-        } else if (level < currentLevel) {
-          // Higher level
-          helpDebugLog(`Moving to higher level from ${currentLevel} to ${level}`);
-          let parentHierarchy = headings;
-          // Navigate up the hierarchy
-          for (let i = 1; i < level; i++) { // Corrected loop condition
-             if (parentHierarchy.length > 0 && parentHierarchy[parentHierarchy.length - 1].children.length > 0) {
-                parentHierarchy = parentHierarchy[parentHierarchy.length - 1].children;
-             } else {
-                console.warn(`Unexpected hierarchy structure: Cannot find parent for level ${level}.`);
-                break; // Should not happen with valid markdown
-             }
-          }
-          parentHierarchy.push(heading);
-          currentHierarchy = parentHierarchy;
-          helpDebugLog('Added to higher level:', heading);
-
-        } else {
-          // Same level
-          helpDebugLog(`Staying at same level ${level}`);
-          currentHierarchy.push(heading);
-          helpDebugLog('Added to current level:', heading);
-        }
-        currentLevel = level;
-        helpDebugLog('Current hierarchy:', currentHierarchy);
-      } else {
-        helpDebugLog('No heading match.');
-      }
-    });
-
-    helpDebugLog('Heading extraction and hierarchy building complete. Resulting headings:', headings);
-
-
-    // Function to build nested TOC HTML
-    const buildTocHtml = (items) => {
-      let html = '<ul>';
-      items.forEach(item => {
-        html += `<li class="level-${item.level}"><a href="#${item.id}">${item.text}</a>`;
-        if (item.children.length > 0) {
-          html += buildTocHtml(item.children);
-        }
-        html += '</li>';
-      });
-      html += '</ul>';
-      return html;
-    };
-
-
-    // Create modal elements
     const modalOverlay = document.createElement('div');
     modalOverlay.classList.add('help-modal-overlay');
 
@@ -206,71 +319,55 @@ const showFullHelp = async () => {
     const modalBody = document.createElement('div');
     modalBody.classList.add('help-modal-body');
 
-    // Create table of contents
     const tocNav = document.createElement('nav');
     tocNav.classList.add('help-toc');
-    tocNav.innerHTML = buildTocHtml(headings);
+    tocNav.innerHTML = buildTocHtml(buildTocTree(rendered.headings));
 
     const contentDiv = document.createElement('div');
     contentDiv.classList.add('help-content');
-    contentDiv.innerHTML = htmlContent;
+    contentDiv.innerHTML = rendered.html;
 
     modalBody.appendChild(tocNav);
     modalBody.appendChild(contentDiv);
 
-
     modalContent.appendChild(modalHeader);
     modalContent.appendChild(modalBody);
     modalOverlay.appendChild(modalContent);
+    modalOverlay.addEventListener('click', (event) => {
+      if (event.target === modalOverlay) {
+        document.body.removeChild(modalOverlay);
+      }
+    });
 
     document.body.appendChild(modalOverlay);
 
-    // Add click event listeners to TOC links for smooth scrolling
-    tocNav.querySelectorAll('a').forEach(link => {
-      link.onclick = (e) => {
-        e.preventDefault();
+    tocNav.querySelectorAll('a').forEach((link) => {
+      link.onclick = (event) => {
+        event.preventDefault();
         const targetId = link.getAttribute('href').substring(1);
-        const targetElement = contentDiv.querySelector(`#${targetId}`);
-        if (targetElement) {
-          targetElement.scrollIntoView({ behavior: 'smooth' });
+        const targetElement = document.getElementById(targetId);
+        if (targetElement && contentDiv.contains(targetElement)) {
+          targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
       };
     });
-
-
   } catch (error) {
     console.error('Failed to show full help:', error);
     alert('Failed to load help documentation.');
   }
 };
 
+const onHelpReady = () => {
+  initializeHelp();
 
-// Add event listener to the "Help" button after DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
   const fullHelpButton = document.getElementById('show-full-help');
-  console.log('Attempting to find button with ID "show-full-help":', fullHelpButton);
   if (fullHelpButton) {
     fullHelpButton.addEventListener('click', showFullHelp);
-    console.log('"show-full-help" button found and event listener attached.');
-  } else {
-    console.log('"show-full-help" button not found.');
   }
-});
+};
 
-loadScript('https://cdn.jsdelivr.net/npm/marked@4.0.10/marked.min.js')
-  .then(() => loadScript('https://unpkg.com/@popperjs/core@2'))
-  .then(() => loadScript('https://unpkg.com/tippy.js@6'))
-  .then(() => {
-    console.log('Marked.js and Tippy.js loaded.');
-    // Initialize help functionality after libraries are loaded
-    initializeHelp();
-    // showFullHelp is now defined and marked is loaded, attach event listener
-    const fullHelpButton = document.getElementById('show-full-help');
-    if (fullHelpButton) {
-      fullHelpButton.addEventListener('click', showFullHelp);
-      console.log('"show-full-help" button event listener attached after library load.');
-    }
-  })
-  .catch(error => {
-    console.error('Failed to load libraries:', error);
-  });
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', onHelpReady);
+} else {
+  onHelpReady();
+}
