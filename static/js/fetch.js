@@ -21,6 +21,8 @@ const OLLAMA_CHUNK_MAX = 4000;
 const OLLAMA_CHUNK_STEP = 200;
 const OLLAMA_CHUNK_FAST_MS = 25000;
 const OLLAMA_CHUNK_SLOW_MS = 90000;
+const OLLAMA_CHUNK_FAST_PER_GROUP_MS = 12000;
+const OLLAMA_CHUNK_SLOW_PER_GROUP_MS = 20000;
 
 function getPageCacheKey() {
     return `ppt.pages.${encodeURIComponent(pdfName || '')}`;
@@ -864,12 +866,21 @@ async function ensurePageFresh(pageNum) {
     return ok;
 }
 
-let srcTranslateProgressTimer = null;
 let srcTranslateProgressHideTimer = null;
 let srcTranslateProgressValue = 0;
 let srcTranslateProgressMode = 'page';
 let srcTranslateProgressSse = null;
 let srcTranslateProgressRequestId = '';
+let srcTranslateProgressElapsedTimer = null;
+let srcTranslateProgressStartedAtMs = 0;
+let srcTranslateProgressDone = 0;
+let srcTranslateProgressTotal = 0;
+let srcTranslateProgressPage = 0;
+let srcTranslateProgressPhase = 'start';
+let srcTranslateProgressMeasuredItems = 0;
+let srcTranslateProgressMeasuredMs = 0;
+let srcTranslateProgressLastDoneAtMs = 0;
+let srcTranslateProgressEstimatedFinishAtMs = 0;
 
 function createSrcTranslateProgressRequestId() {
     return `trans-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -885,6 +896,97 @@ function stopSrcTranslateProgressStream() {
     srcTranslateProgressSse = null;
 }
 
+function stopSrcTranslateProgressElapsedTimer() {
+    if (!srcTranslateProgressElapsedTimer) return;
+    clearInterval(srcTranslateProgressElapsedTimer);
+    srcTranslateProgressElapsedTimer = null;
+}
+
+function formatClockHms(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '--:--:--';
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    const ss = String(date.getSeconds()).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+}
+
+function getSrcTranslateElapsedSeconds() {
+    if (!srcTranslateProgressStartedAtMs) return 0;
+    return Math.max(0, Math.floor((Date.now() - srcTranslateProgressStartedAtMs) / 1000));
+}
+
+function updateSrcTranslateProgressTiming(nextDone, nextTotal, phase = 'step') {
+    const now = Date.now();
+    if (!srcTranslateProgressStartedAtMs) {
+        srcTranslateProgressStartedAtMs = now;
+    }
+    if (!srcTranslateProgressLastDoneAtMs) {
+        srcTranslateProgressLastDoneAtMs = srcTranslateProgressStartedAtMs;
+    }
+
+    const prevDone = Math.max(0, Math.floor(Number(srcTranslateProgressDone) || 0));
+    const done = Math.max(0, Math.floor(Number(nextDone) || 0));
+    const total = Math.max(0, Math.floor(Number(nextTotal) || 0));
+    const completedDelta = Math.max(0, done - prevDone);
+
+    if (completedDelta > 0) {
+        const segmentMs = Math.max(0, now - srcTranslateProgressLastDoneAtMs);
+        srcTranslateProgressMeasuredMs += segmentMs;
+        srcTranslateProgressMeasuredItems += completedDelta;
+        srcTranslateProgressLastDoneAtMs = now;
+    }
+
+    if (phase === 'done' || (total > 0 && done >= total)) {
+        srcTranslateProgressEstimatedFinishAtMs = now;
+        return;
+    }
+
+    if (total > 0 && srcTranslateProgressMeasuredItems > 0) {
+        const perItemMs = srcTranslateProgressMeasuredMs / srcTranslateProgressMeasuredItems;
+        srcTranslateProgressEstimatedFinishAtMs = srcTranslateProgressStartedAtMs + (perItemMs * total);
+        return;
+    }
+
+    srcTranslateProgressEstimatedFinishAtMs = 0;
+}
+
+function computeSrcTranslateEta() {
+    const etaAtMs = Number(srcTranslateProgressEstimatedFinishAtMs || 0);
+    if (!Number.isFinite(etaAtMs) || etaAtMs <= 0) return '--:--:--';
+    return formatClockHms(new Date(etaAtMs));
+}
+
+function buildSrcTranslateProgressLabel(isFailed = false) {
+    const inProgressLabel = srcTranslateProgressMode === 'all' ? '全ページ翻訳中' : 'ページ翻訳中';
+    const doneLabel = srcTranslateProgressMode === 'all' ? '全ページ翻訳完了' : 'ページ翻訳完了';
+    const done = Math.max(0, Math.floor(Number(srcTranslateProgressDone) || 0));
+    const total = Math.max(0, Math.floor(Number(srcTranslateProgressTotal) || 0));
+    const elapsedSec = getSrcTranslateElapsedSeconds();
+    const eta = computeSrcTranslateEta();
+
+    const head = srcTranslateProgressPhase === 'done' ? doneLabel : inProgressLabel;
+    let label = `${head} ${done}/${total || '-'} | 経過 ${elapsedSec}秒 | 予想完了 ${eta}`;
+    if (srcTranslateProgressPage > 0 && srcTranslateProgressPhase !== 'done') {
+        label += ` (P${srcTranslateProgressPage})`;
+    }
+    if (isFailed) {
+        label += ' [失敗]';
+    }
+    return label;
+}
+
+function refreshSrcTranslateProgressLabel(isFailed = false) {
+    setSrcTranslateProgress(srcTranslateProgressValue, buildSrcTranslateProgressLabel(isFailed));
+}
+
+function startSrcTranslateProgressElapsedTimer() {
+    stopSrcTranslateProgressElapsedTimer();
+    srcTranslateProgressElapsedTimer = setInterval(() => {
+        if (srcTranslateProgressPhase === 'done') return;
+        refreshSrcTranslateProgressLabel(false);
+    }, 1000);
+}
+
 function applyLiveSrcTranslateProgress(payload) {
     if (!payload || typeof payload !== 'object') return;
 
@@ -896,37 +998,28 @@ function applyLiveSrcTranslateProgress(payload) {
         if (!payloadId || payloadId !== srcTranslateProgressRequestId) return;
     }
 
-    if (srcTranslateProgressTimer) {
-        clearInterval(srcTranslateProgressTimer);
-        srcTranslateProgressTimer = null;
-    }
-
     const phase = String(payload.phase || '').toLowerCase();
     const done = Math.max(0, Math.floor(Number(payload.done ?? 0) || 0));
     const total = Math.max(0, Math.floor(Number(payload.total ?? 0) || 0));
     const page = Math.max(0, Math.floor(Number(payload.page ?? 0) || 0));
 
-    let nextValue = srcTranslateProgressValue;
-    if (total > 0) {
-        const ratio = (done / total) * 100;
-        nextValue = Math.max(srcTranslateProgressValue, Math.min(99, ratio));
+    updateSrcTranslateProgressTiming(done, total, phase || 'step');
+
+    srcTranslateProgressPhase = phase || 'step';
+    srcTranslateProgressDone = done;
+    srcTranslateProgressTotal = total;
+    if (page > 0) {
+        srcTranslateProgressPage = page;
     }
+
+    let nextValue = 0;
     if (phase === 'done') {
         nextValue = 100;
+    } else if (total > 0) {
+        nextValue = (done / total) * 100;
     }
 
-    let labelText = srcTranslateProgressMode === 'all' ? '全ページ翻訳中...' : 'ページ翻訳中...';
-    if (total > 0 && phase !== 'done') {
-        labelText = `${srcTranslateProgressMode === 'all' ? '全ページ翻訳中' : 'ページ翻訳中'} ${done}/${total}`;
-    }
-    if (page > 0 && phase !== 'done') {
-        labelText += ` (P${page})`;
-    }
-    if (phase === 'done') {
-        labelText = srcTranslateProgressMode === 'all' ? '全ページ翻訳完了' : 'ページ翻訳完了';
-    }
-
-    setSrcTranslateProgress(nextValue, labelText);
+    setSrcTranslateProgress(nextValue, buildSrcTranslateProgressLabel(false));
 }
 
 function handleSrcTranslateProgressLine(line) {
@@ -996,31 +1089,28 @@ function startSrcTranslateProgress(mode = 'page', requestId = '') {
 
     srcTranslateProgressMode = mode === 'all' ? 'all' : 'page';
     stopSrcTranslateProgressStream();
+    stopSrcTranslateProgressElapsedTimer();
 
-    if (srcTranslateProgressTimer) {
-        clearInterval(srcTranslateProgressTimer);
-        srcTranslateProgressTimer = null;
-    }
     if (srcTranslateProgressHideTimer) {
         clearTimeout(srcTranslateProgressHideTimer);
         srcTranslateProgressHideTimer = null;
     }
 
+    srcTranslateProgressStartedAtMs = Date.now();
+    srcTranslateProgressDone = 0;
+    srcTranslateProgressTotal = 0;
+    srcTranslateProgressPage = 0;
+    srcTranslateProgressPhase = 'start';
+    srcTranslateProgressMeasuredItems = 0;
+    srcTranslateProgressMeasuredMs = 0;
+    srcTranslateProgressLastDoneAtMs = srcTranslateProgressStartedAtMs;
+    srcTranslateProgressEstimatedFinishAtMs = 0;
+
     container.style.display = 'block';
-    const startLabel = srcTranslateProgressMode === 'all' ? '全ページ翻訳中...' : 'ページ翻訳中...';
-    setSrcTranslateProgress(4, startLabel);
-
-    const maxBeforeDone = srcTranslateProgressMode === 'all' ? 94 : 88;
-    const minDelta = srcTranslateProgressMode === 'all' ? 0.8 : 1.0;
-
-    srcTranslateProgressTimer = setInterval(() => {
-        const remaining = maxBeforeDone - srcTranslateProgressValue;
-        if (remaining <= 0) return;
-        const delta = Math.max(minDelta, remaining * 0.12);
-        setSrcTranslateProgress(Math.min(maxBeforeDone, srcTranslateProgressValue + delta));
-    }, 400);
+    setSrcTranslateProgress(0, buildSrcTranslateProgressLabel(false));
 
     startSrcTranslateProgressStream(requestId);
+    startSrcTranslateProgressElapsedTimer();
 }
 
 function finishSrcTranslateProgress(success, customLabel = '') {
@@ -1028,20 +1118,23 @@ function finishSrcTranslateProgress(success, customLabel = '') {
     if (!container) return;
 
     stopSrcTranslateProgressStream();
+    stopSrcTranslateProgressElapsedTimer();
     srcTranslateProgressRequestId = '';
 
-    if (srcTranslateProgressTimer) {
-        clearInterval(srcTranslateProgressTimer);
-        srcTranslateProgressTimer = null;
-    }
     if (srcTranslateProgressHideTimer) {
         clearTimeout(srcTranslateProgressHideTimer);
         srcTranslateProgressHideTimer = null;
     }
 
-    const defaultLabel = success
-        ? (srcTranslateProgressMode === 'all' ? '全ページ翻訳完了' : 'ページ翻訳完了')
-        : (srcTranslateProgressMode === 'all' ? '全ページ翻訳失敗' : 'ページ翻訳失敗');
+    if (success) {
+        srcTranslateProgressPhase = 'done';
+        if (srcTranslateProgressTotal > 0) {
+            srcTranslateProgressDone = srcTranslateProgressTotal;
+        }
+        srcTranslateProgressEstimatedFinishAtMs = Date.now();
+    }
+
+    const defaultLabel = success ? buildSrcTranslateProgressLabel(false) : buildSrcTranslateProgressLabel(true);
     const finalLabel = customLabel || defaultLabel;
 
     if (success) {
@@ -1141,6 +1234,18 @@ function updateOllamaChunkProfileWithResult({ success, elapsedMs = 0, stats = nu
     const profile = loadOllamaChunkProfile();
     const failed = Math.max(0, Math.floor(Number(stats?.failed ?? 0) || 0));
     const missing = Math.max(0, Math.floor(Number(stats?.missing_from_batch ?? 0) || 0));
+    const elapsedTotalMs = Math.max(0, Math.floor(Number(elapsedMs) || 0));
+    const groupsRaw = Number(stats?.groups ?? 0);
+    const groups = Number.isFinite(groupsRaw) && groupsRaw > 0
+        ? Math.max(1, Math.floor(groupsRaw))
+        : 0;
+
+    const tuningMode = groups > 0 ? 'per_group' : 'total';
+    const tuningElapsedMs = groups > 0
+        ? Math.max(1, Math.floor(elapsedTotalMs / groups))
+        : elapsedTotalMs;
+    const fastThresholdMs = groups > 0 ? OLLAMA_CHUNK_FAST_PER_GROUP_MS : OLLAMA_CHUNK_FAST_MS;
+    const slowThresholdMs = groups > 0 ? OLLAMA_CHUNK_SLOW_PER_GROUP_MS : OLLAMA_CHUNK_SLOW_MS;
 
     const statsGroupRaw = Number(stats?.group_max_chars ?? 0);
     const statsGroup = Number.isFinite(statsGroupRaw) && statsGroupRaw > 0
@@ -1163,12 +1268,12 @@ function updateOllamaChunkProfileWithResult({ success, elapsedMs = 0, stats = nu
     } else if (failed > 0 || missing > 0) {
         next = current - OLLAMA_CHUNK_STEP;
         successStreak = 0;
-    } else if (elapsedMs >= OLLAMA_CHUNK_SLOW_MS) {
+    } else if (tuningElapsedMs >= slowThresholdMs) {
         next = current - OLLAMA_CHUNK_STEP;
         successStreak = 0;
     } else {
         successStreak += 1;
-        const isFast = elapsedMs > 0 && elapsedMs <= OLLAMA_CHUNK_FAST_MS;
+        const isFast = tuningElapsedMs > 0 && tuningElapsedMs <= fastThresholdMs;
         if (isFast || successStreak >= 2) {
             next = current + OLLAMA_CHUNK_STEP;
             successStreak = 0;
@@ -1181,7 +1286,10 @@ function updateOllamaChunkProfileWithResult({ success, elapsedMs = 0, stats = nu
         chunk_max_chars: next,
         success_streak: successStreak,
         updated_at: new Date().toISOString(),
-        last_elapsed_ms: Math.max(0, Math.floor(Number(elapsedMs) || 0)),
+        last_elapsed_ms: elapsedTotalMs,
+        last_tuning_elapsed_ms: tuningElapsedMs,
+        last_tuning_mode: tuningMode,
+        last_groups: groups,
         last_success: Boolean(success),
         last_failed_count: failed,
         last_missing_count: missing,
@@ -1191,6 +1299,11 @@ function updateOllamaChunkProfileWithResult({ success, elapsedMs = 0, stats = nu
     console.info('[OLLAMA_CHUNK_TUNER]', {
         success,
         elapsed_ms: updated.last_elapsed_ms,
+        tuning_mode: tuningMode,
+        groups,
+        tuning_elapsed_ms: tuningElapsedMs,
+        fast_threshold_ms: fastThresholdMs,
+        slow_threshold_ms: slowThresholdMs,
         failed,
         missing,
         previous_chunk_max_chars: current,

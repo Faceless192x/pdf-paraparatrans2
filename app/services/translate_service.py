@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 from typing import TYPE_CHECKING, Optional, Tuple
 
 from modules.api_translate import (
@@ -16,6 +18,17 @@ from modules.parapara_align_trans_by_src_joined import (
 from modules.parapara_dict_replacer import atomicsave_json, file_replace_with_dict
 from modules.parapara_trans import paraparatrans_json_file, recalc_trans_status_counts
 from modules.settings_sync import sync_one_pdf_settings_from_json
+
+logger = logging.getLogger(__name__)
+
+
+def _log_translate_perf(event: str, **fields) -> None:
+    payload = {"event": event}
+    payload.update(fields)
+    try:
+        logger.info("[TRANSLATE_PERF] %s", json.dumps(payload, ensure_ascii=False))
+    except Exception:
+        logger.info("[TRANSLATE_PERF] %s", payload)
 
 if TYPE_CHECKING:
     from app.services.dict_service import DictService
@@ -94,7 +107,12 @@ class TranslateService:
         progress_id: Optional[str] = None,
     ) -> dict:
         """PDF 全体を翻訳し、stats を返す。"""
+        total_started = time.perf_counter()
+        dict_started = time.perf_counter()
         self.apply_dict_replace_for_range(pdf_name, json_path)
+        dict_elapsed_ms = round((time.perf_counter() - dict_started) * 1000, 1)
+
+        translate_started = time.perf_counter()
         _, stats = paraparatrans_json_file(
             json_path,
             1,
@@ -102,12 +120,31 @@ class TranslateService:
             group_max_chars=group_max_chars,
             progress_id=progress_id,
         )
+        translate_elapsed_ms = round((time.perf_counter() - translate_started) * 1000, 1)
+
         settings_path = os.path.join(self.data_folder, "paraparatrans.settings.json")
         sync_one_pdf_settings_from_json(
             settings_path=settings_path,
             base_folder=self.base_folder,
             pdf_name=pdf_name,
             indent=4,
+        )
+
+        total_elapsed_ms = round((time.perf_counter() - total_started) * 1000, 1)
+        _log_translate_perf(
+            "translate_all_done",
+            pdf_name=pdf_name,
+            start_page=1,
+            end_page=9999,
+            group_max_chars=group_max_chars,
+            progress_id=progress_id,
+            dict_replace_ms=dict_elapsed_ms,
+            translate_ms=translate_elapsed_ms,
+            total_ms=total_elapsed_ms,
+            target=(stats or {}).get("paragraphs_target") if isinstance(stats, dict) else None,
+            translated=(stats or {}).get("translated") if isinstance(stats, dict) else None,
+            failed=(stats or {}).get("failed") if isinstance(stats, dict) else None,
+            total=(stats or {}).get("paragraphs_total_in_range") if isinstance(stats, dict) else None,
         )
         return stats
 
@@ -125,7 +162,12 @@ class TranslateService:
         progress_id: Optional[str] = None,
     ) -> Tuple[dict, dict]:
         """指定ページ範囲を翻訳し、(delta, stats) を返す。"""
+        total_started = time.perf_counter()
+        dict_started = time.perf_counter()
         self.apply_dict_replace_for_range(pdf_name, json_path, start_page, end_page)
+        dict_elapsed_ms = round((time.perf_counter() - dict_started) * 1000, 1)
+
+        translate_started = time.perf_counter()
         updated_data, stats = paraparatrans_json_file(
             json_path,
             start_page,
@@ -133,6 +175,7 @@ class TranslateService:
             group_max_chars=group_max_chars,
             progress_id=progress_id,
         )
+        translate_elapsed_ms = round((time.perf_counter() - translate_started) * 1000, 1)
 
         pages_delta: dict = {}
         pages = updated_data.get("pages", {})
@@ -152,6 +195,23 @@ class TranslateService:
             base_folder=self.base_folder,
             pdf_name=pdf_name,
             indent=4,
+        )
+
+        total_elapsed_ms = round((time.perf_counter() - total_started) * 1000, 1)
+        _log_translate_perf(
+            "translate_range_done",
+            pdf_name=pdf_name,
+            start_page=start_page,
+            end_page=end_page,
+            group_max_chars=group_max_chars,
+            progress_id=progress_id,
+            dict_replace_ms=dict_elapsed_ms,
+            translate_ms=translate_elapsed_ms,
+            total_ms=total_elapsed_ms,
+            target=(stats or {}).get("paragraphs_target") if isinstance(stats, dict) else None,
+            translated=(stats or {}).get("translated") if isinstance(stats, dict) else None,
+            failed=(stats or {}).get("failed") if isinstance(stats, dict) else None,
+            total=(stats or {}).get("paragraphs_total_in_range") if isinstance(stats, dict) else None,
         )
         return delta, stats
 

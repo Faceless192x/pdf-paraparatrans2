@@ -8,6 +8,7 @@ import html
 import json
 import re
 import logging
+import time
 import unicodedata
 from datetime import datetime
 import tempfile
@@ -126,6 +127,50 @@ def _emit_translation_progress(
     _emit_progress(payload)
 
 
+def _emit_translation_phase(
+    progress_state: Optional[Dict[str, object]],
+    phase: str,
+    **extra_fields,
+) -> None:
+    if not progress_state:
+        return
+
+    payload: Dict[str, object] = {
+        "kind": "translation_phase",
+        "phase": str(phase),
+        "id": str(progress_state.get("id") or ""),
+        "done": int(progress_state.get("done") or 0),
+        "total": int(progress_state.get("total") or 0),
+    }
+    payload.update(extra_fields)
+    _emit_progress(payload)
+
+
+def _mark_first_engine_access(
+    progress_state: Optional[Dict[str, object]],
+    page_number: int,
+    route: str,
+) -> None:
+    if not progress_state:
+        return
+    if bool(progress_state.get("first_engine_access_emitted")):
+        return
+
+    started_at = progress_state.get("started_at_perf")
+    if not isinstance(started_at, (int, float)):
+        return
+
+    elapsed_ms = round((time.perf_counter() - float(started_at)) * 1000, 1)
+    progress_state["first_engine_access_emitted"] = True
+    _emit_translation_phase(
+        progress_state,
+        phase="first_engine_access",
+        page=int(page_number),
+        route=str(route),
+        elapsed_ms=elapsed_ms,
+    )
+
+
 def _advance_translation_progress(
     progress_state: Optional[Dict[str, object]],
     amount: int = 1,
@@ -149,22 +194,28 @@ def _estimate_translation_targets(book_data: dict, start_page: int, end_page: in
     total = 0
     pages = (book_data or {}).get("pages", {}) or {}
 
+    try:
+        dict_cs, dict_ci = load_dictionary(DICT_PATH)
+    except Exception:
+        dict_cs, dict_ci = {}, {}
+
     for page in range(start_page, end_page + 1):
         page_data = pages.get(str(page), {}) or {}
         paragraphs = page_data.get("paragraphs", {}) or {}
         for paragraph in paragraphs.values():
-            trans_status = paragraph.get("trans_status") or "none"
-            if trans_status != "none":
-                continue
-            if paragraph.get("block_tag") in ("header", "footer"):
-                continue
-
             src_joined = paragraph.get("src_joined", "") or ""
             if src_joined == "":
                 continue
 
-            src_replaced = paragraph.get("src_replaced", "") or src_joined
+            src_replaced = replace_with_dict(src_joined, dict_cs, dict_ci)
             if src_replaced == "":
+                continue
+
+            trans_status = paragraph.get("trans_status") or "none"
+            if trans_status != "none":
+                continue
+
+            if paragraph.get("block_tag") in ("header", "footer"):
                 continue
 
             if _should_auto_translate_as_draft(src_replaced):
@@ -428,12 +479,28 @@ def paraparatrans_json_file(
         group_max_chars=effective_group_max_chars,
     )
 
-    estimated_total = _estimate_translation_targets(book_data, start_page, end_page)
+    translate_started_perf = time.perf_counter()
     progress_state: Dict[str, object] = {
         "id": str(progress_id or ""),
         "done": 0,
-        "total": max(0, int(estimated_total)),
+        "total": 0,
+        "started_at_perf": translate_started_perf,
+        "first_engine_access_emitted": False,
     }
+
+    estimate_started_perf = time.perf_counter()
+    estimated_total = _estimate_translation_targets(book_data, start_page, end_page)
+    estimate_elapsed_ms = round((time.perf_counter() - estimate_started_perf) * 1000, 1)
+    progress_state["total"] = max(0, int(estimated_total))
+
+    _emit_translation_phase(
+        progress_state,
+        phase="estimate_done",
+        start_page=int(start_page),
+        end_page=int(end_page),
+        estimate_total=int(progress_state["total"]),
+        elapsed_ms=estimate_elapsed_ms,
+    )
     _emit_translation_progress(progress_state, phase="start")
 
     # start_pageからend_pageをループしてpagetransを実行
@@ -457,6 +524,15 @@ def paraparatrans_json_file(
 
     progress_state["done"] = int(progress_state.get("total") or 0)
     _emit_translation_progress(progress_state, phase="done")
+    _emit_translation_phase(
+        progress_state,
+        phase="completed",
+        elapsed_ms=round((time.perf_counter() - translate_started_perf) * 1000, 1),
+        pages_processed=int(stats.pages_processed),
+        target=int(stats.paragraphs_target),
+        translated=int(stats.translated),
+        failed=int(stats.failed),
+    )
     
     # 翻訳終了メッセージ（SSEログにも流れる）
     print(
@@ -662,6 +738,7 @@ def pagetrans(
     normal_paragraphs = [p for p in filtered_paragraphs if not _is_table_row(p)]
 
     for para in table_paragraphs:
+        _mark_first_engine_access(progress_state, page_number=page_number, route="table_row")
         ok = _translate_table_row_paragraph(para, stats=stats)
         if not ok and stats is not None:
             stats.failed += 1
@@ -674,6 +751,7 @@ def pagetrans(
         text_to_add = f"【{para['id']}】{para.get('src_replaced','')}"
         if current_length + len(text_to_add) > effective_group_max_chars:
             if current_group:
+                _mark_first_engine_access(progress_state, page_number=page_number, route="group_batch")
                 process_group(
                     current_group,
                     stats=stats,
@@ -690,6 +768,7 @@ def pagetrans(
     
     # 残ったグループがあれば処理
     if current_group:
+        _mark_first_engine_access(progress_state, page_number=page_number, route="group_batch")
         process_group(
             current_group,
             stats=stats,

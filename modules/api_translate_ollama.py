@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import time
 import requests
 from difflib import SequenceMatcher
 from typing import Optional
@@ -26,6 +27,20 @@ load_dotenv()
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:12b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
+_PERF_BOOT_AT = time.perf_counter()
+_PERF_STATE = {
+    "calls": 0,
+    "success": 0,
+    "errors": 0,
+    "elapsed_sum_ms": 0.0,
+    "elapsed_max_ms": 0.0,
+    "first_call_elapsed_ms": None,
+    "first_request_since_boot_ms": None,
+    "first_response_since_boot_ms": None,
+    "first_success_since_boot_ms": None,
+    "request_count": 0,
+}
+
 # 言語コード → 言語名のマッピング
 _LANG_NAMES = {
     "EN": "English",
@@ -46,6 +61,67 @@ _LANG_NAMES = {
     "FI": "Finnish",
     "NO": "Norwegian",
 }
+
+
+def _since_boot_ms() -> float:
+    return round((time.perf_counter() - _PERF_BOOT_AT) * 1000, 1)
+
+
+def _ns_to_ms(value) -> Optional[float]:
+    try:
+        if value is None:
+            return None
+        return round(float(value) / 1_000_000, 1)
+    except Exception:
+        return None
+
+
+def _perf_log(event: str, **fields) -> None:
+    payload = {
+        "event": event,
+        "model": OLLAMA_MODEL,
+        "since_boot_ms": _since_boot_ms(),
+    }
+    payload.update(fields)
+    try:
+        print("[OLLAMA_PERF] " + json.dumps(payload, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+def _record_call_perf(elapsed_ms: float, success: bool) -> int:
+    state = _PERF_STATE
+    state["calls"] += 1
+    call_index = int(state["calls"])
+    if success:
+        state["success"] += 1
+        if state["first_success_since_boot_ms"] is None:
+            state["first_success_since_boot_ms"] = _since_boot_ms()
+    else:
+        state["errors"] += 1
+
+    state["elapsed_sum_ms"] += float(elapsed_ms)
+    state["elapsed_max_ms"] = max(float(state["elapsed_max_ms"]), float(elapsed_ms))
+    if state["first_call_elapsed_ms"] is None:
+        state["first_call_elapsed_ms"] = float(elapsed_ms)
+
+    should_log_summary = call_index <= 3 or (call_index % 20 == 0) or elapsed_ms >= 30000
+    if should_log_summary:
+        avg_ms = state["elapsed_sum_ms"] / max(1, call_index)
+        _perf_log(
+            "summary",
+            calls=call_index,
+            success=int(state["success"]),
+            errors=int(state["errors"]),
+            avg_elapsed_ms=round(avg_ms, 1),
+            max_elapsed_ms=round(float(state["elapsed_max_ms"]), 1),
+            first_call_elapsed_ms=round(float(state["first_call_elapsed_ms"] or 0.0), 1),
+            first_request_since_boot_ms=state["first_request_since_boot_ms"],
+            first_response_since_boot_ms=state["first_response_since_boot_ms"],
+            first_success_since_boot_ms=state["first_success_since_boot_ms"],
+        )
+
+    return call_index
 
 
 def _lang_name(code: str) -> str:
@@ -137,6 +213,20 @@ def _looks_untranslated(source_text: str, translated_text: str, source: str, tar
 def _call_ollama(prompt: str, temperature: float = 0.1) -> str:
     """Ollama API を呼び出してレスポンスを取得する。"""
     url = f"{OLLAMA_BASE_URL}/api/generate"
+    request_started = time.perf_counter()
+    prompt_len = len(str(prompt or ""))
+    state = _PERF_STATE
+    if state["first_request_since_boot_ms"] is None:
+        state["first_request_since_boot_ms"] = _since_boot_ms()
+        _perf_log(
+            "first_request_start",
+            base_url=OLLAMA_BASE_URL,
+            prompt_len=prompt_len,
+            temperature=temperature,
+        )
+
+    state["request_count"] += 1
+    request_index = int(state["request_count"])
     payload = {
         "model": OLLAMA_MODEL,
         "prompt": prompt,
@@ -153,6 +243,15 @@ def _call_ollama(prompt: str, temperature: float = 0.1) -> str:
             timeout=120,
         )
     except requests.exceptions.ConnectionError:
+        request_elapsed_ms = round((time.perf_counter() - request_started) * 1000, 1)
+        _perf_log(
+            "request_error",
+            request_index=request_index,
+            error="connection",
+            elapsed_ms=request_elapsed_ms,
+            prompt_len=prompt_len,
+            temperature=temperature,
+        )
         raise RuntimeError(
             f"Ollama サーバーに接続できません ({OLLAMA_BASE_URL})。\n"
             "Ollama が起動していることを確認してください。\n"
@@ -161,16 +260,75 @@ def _call_ollama(prompt: str, temperature: float = 0.1) -> str:
             "  - 起動確認: ollama list"
         )
     except requests.exceptions.Timeout:
+        request_elapsed_ms = round((time.perf_counter() - request_started) * 1000, 1)
+        _perf_log(
+            "request_error",
+            request_index=request_index,
+            error="timeout",
+            elapsed_ms=request_elapsed_ms,
+            prompt_len=prompt_len,
+            temperature=temperature,
+        )
         raise RuntimeError(
             "Ollama サーバーからの応答がタイムアウトしました。\n"
             "モデルの初回ロードには時間がかかることがあります。再度お試しください。"
         )
 
     if resp.status_code != 200:
+        request_elapsed_ms = round((time.perf_counter() - request_started) * 1000, 1)
+        _perf_log(
+            "request_error",
+            request_index=request_index,
+            error=f"status_{resp.status_code}",
+            elapsed_ms=request_elapsed_ms,
+            prompt_len=prompt_len,
+            temperature=temperature,
+        )
         raise RuntimeError(f"Ollama API error: {resp.status_code} {resp.text}")
 
     data = resp.json()
-    return data.get("response", "").strip()
+    response_text = data.get("response", "").strip()
+    request_elapsed_ms = round((time.perf_counter() - request_started) * 1000, 1)
+    load_ms = _ns_to_ms(data.get("load_duration"))
+    prompt_eval_ms = _ns_to_ms(data.get("prompt_eval_duration"))
+    eval_ms = _ns_to_ms(data.get("eval_duration"))
+    total_ms = _ns_to_ms(data.get("total_duration"))
+    prompt_eval_count = data.get("prompt_eval_count")
+    eval_count = data.get("eval_count")
+
+    if state["first_response_since_boot_ms"] is None:
+        state["first_response_since_boot_ms"] = _since_boot_ms()
+        _perf_log(
+            "first_response",
+            request_index=request_index,
+            elapsed_ms=request_elapsed_ms,
+            prompt_len=prompt_len,
+            response_len=len(response_text),
+            temperature=temperature,
+            ollama_total_ms=total_ms,
+            ollama_load_ms=load_ms,
+            ollama_prompt_eval_ms=prompt_eval_ms,
+            ollama_eval_ms=eval_ms,
+            ollama_prompt_eval_count=prompt_eval_count,
+            ollama_eval_count=eval_count,
+        )
+    elif request_index <= 3 or request_elapsed_ms >= 30000:
+        _perf_log(
+            "request_ok",
+            request_index=request_index,
+            elapsed_ms=request_elapsed_ms,
+            prompt_len=prompt_len,
+            response_len=len(response_text),
+            temperature=temperature,
+            ollama_total_ms=total_ms,
+            ollama_load_ms=load_ms,
+            ollama_prompt_eval_ms=prompt_eval_ms,
+            ollama_eval_ms=eval_ms,
+            ollama_prompt_eval_count=prompt_eval_count,
+            ollama_eval_count=eval_count,
+        )
+
+    return response_text
 
 
 def _debug_log_translation(source: str, target: str, before_text: str, after_text: Optional[str] = None, error: Optional[Exception] = None) -> None:
@@ -240,15 +398,35 @@ def translate_text(text: str, source: str = "EN", target: str = "JA") -> str:
     if not text or not text.strip():
         return text
 
+    call_started = time.perf_counter()
+    initial_untranslated = False
+    strict_retry_used = False
+    marker_fallback_used = False
+
     prompt = _build_prompt(text, source, target)
     try:
         translated = _call_ollama(prompt, temperature=0.1)
     except Exception as e:
+        elapsed_ms = round((time.perf_counter() - call_started) * 1000, 1)
+        call_index = _record_call_perf(elapsed_ms, success=False)
+        _perf_log(
+            "translate_call_error",
+            call_index=call_index,
+            elapsed_ms=elapsed_ms,
+            input_len=len(str(text or "")),
+            source=str(source),
+            target=str(target),
+            strict_retry_used=strict_retry_used,
+            marker_fallback_used=marker_fallback_used,
+            error=str(e),
+        )
         _debug_log_translation(source, target, text, error=e)
         raise
 
     if _looks_untranslated(text, translated, source, target):
+        initial_untranslated = True
         print("[OLLAMA_DEBUG] output looks untranslated. retry with strict prompt.")
+        strict_retry_used = True
         strict_prompt = _build_strict_retry_prompt(text, source, target)
         try:
             strict_retry = _call_ollama(strict_prompt, temperature=0.0)
@@ -261,9 +439,27 @@ def translate_text(text: str, source: str = "EN", target: str = "JA") -> str:
 
     if _looks_untranslated(text, translated, source, target) and _MARKER_RE.search(text):
         print("[OLLAMA_DEBUG] fallback to marker-wise translation.")
+        marker_fallback_used = True
         marker_translated = _translate_marker_blocks(text, source, target)
         if not _looks_untranslated(text, marker_translated, source, target):
             translated = marker_translated
+
+    final_untranslated = _looks_untranslated(text, translated, source, target)
+    elapsed_ms = round((time.perf_counter() - call_started) * 1000, 1)
+    call_index = _record_call_perf(elapsed_ms, success=True)
+    _perf_log(
+        "translate_call",
+        call_index=call_index,
+        elapsed_ms=elapsed_ms,
+        input_len=len(str(text or "")),
+        output_len=len(str(translated or "")),
+        source=str(source),
+        target=str(target),
+        initial_untranslated=bool(initial_untranslated),
+        final_untranslated=bool(final_untranslated),
+        strict_retry_used=bool(strict_retry_used),
+        marker_fallback_used=bool(marker_fallback_used),
+    )
 
     _debug_log_translation(source, target, text, after_text=translated)
     return translated

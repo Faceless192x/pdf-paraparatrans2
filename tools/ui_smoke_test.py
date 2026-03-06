@@ -382,25 +382,44 @@ def _run_ollama_chunk_tuner_checks(page) -> None:
 
 def _run_translate_progress_checks(page) -> None:
     result = page.evaluate(
-        "() => {"
+        "async () => {"
         "  const markerId = 'test-progress-id';"
         "  startSrcTranslateProgress('page', markerId);"
         "  handleSrcTranslateProgressLine('2026-03-06 00:00:00 [INFO] [PROGRESS] {\\\"kind\\\":\\\"translation\\\",\\\"phase\\\":\\\"start\\\",\\\"id\\\":\\\"test-progress-id\\\",\\\"done\\\":0,\\\"total\\\":10}');"
+        "  const startLabel = String(document.getElementById('srcTranslateProgressLabel')?.textContent || '');"
         "  handleSrcTranslateProgressLine('2026-03-06 00:00:01 [INFO] [PROGRESS] {\\\"kind\\\":\\\"translation\\\",\\\"phase\\\":\\\"step\\\",\\\"id\\\":\\\"test-progress-id\\\",\\\"done\\\":3,\\\"total\\\":10,\\\"page\\\":1}');"
         "  const label = String(document.getElementById('srcTranslateProgressLabel')?.textContent || '');"
+        "  const etaPattern = /予想完了\\s+([^\\s]+)/;"
+        "  const etaBeforeMatch = label.match(etaPattern);"
+        "  await new Promise((resolve) => setTimeout(resolve, 1200));"
+        "  const labelAfterWait = String(document.getElementById('srcTranslateProgressLabel')?.textContent || '');"
+        "  const etaAfterMatch = labelAfterWait.match(etaPattern);"
         "  const width = String(document.getElementById('srcTranslateProgressBar')?.style.width || '0%');"
         "  const ariaNow = String(document.getElementById('srcTranslateProgressTrack')?.getAttribute('aria-valuenow') || '0');"
         "  finishSrcTranslateProgress(true);"
-        "  return { label, width, ariaNow };"
+        "  return { startLabel, label, labelAfterWait, etaBefore: etaBeforeMatch ? etaBeforeMatch[1] : '', etaAfter: etaAfterMatch ? etaAfterMatch[1] : '', width, ariaNow };"
         "}"
     )
 
+    start_label = str(result.get("startLabel") or "")
     label = str(result.get("label") or "")
+    label_after_wait = str(result.get("labelAfterWait") or "")
+    eta_before = str(result.get("etaBefore") or "")
+    eta_after = str(result.get("etaAfter") or "")
     width_text = str(result.get("width") or "0%").replace("%", "")
     aria_now = int(float(str(result.get("ariaNow") or "0")))
     width = float(width_text) if width_text else 0.0
 
+    _assert("0/10" in start_label, f"start progress label should contain 0/10, got: {start_label}")
+    _assert("経過" in start_label, f"start progress label should contain elapsed seconds, got: {start_label}")
+    _assert("予想完了" in start_label, f"start progress label should contain ETA, got: {start_label}")
     _assert("3/10" in label, f"progress label should contain 3/10, got: {label}")
+    _assert("経過" in label, f"progress label should contain elapsed seconds, got: {label}")
+    _assert("予想完了" in label, f"progress label should contain ETA, got: {label}")
+    _assert("予想完了" in label_after_wait, f"progress label after wait should contain ETA, got: {label_after_wait}")
+    _assert(bool(eta_before), f"ETA should be extractable before wait, label: {label}")
+    _assert(bool(eta_after), f"ETA should be extractable after wait, label: {label_after_wait}")
+    _assert(eta_before == eta_after, f"ETA should not drift without progress updates: before={eta_before}, after={eta_after}")
     _assert(width >= 30.0, f"progress bar width should be >= 30%, got: {width}")
     _assert(aria_now >= 30, f"aria-valuenow should be >= 30, got: {aria_now}")
 
