@@ -109,29 +109,54 @@ def _assert(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
-def _run_help_checks(page) -> None:
-    page.locator('#show-full-help').click()
-    page.locator('.help-modal-overlay').wait_for(state='visible', timeout=5000)
-    modal_title = page.locator('.help-modal-header h2').inner_text().strip()
-    _assert(modal_title == 'ヘルプ', f"help modal title mismatch: expected 'ヘルプ', got '{modal_title}'")
-    help_content = page.locator('.help-content').inner_text()
-    _assert('各列の役割' in help_content or '列の見方' in help_content, 'help modal should describe column usage')
-    _assert('キーボードショートカット' in help_content, 'help modal should describe keyboard shortcuts')
-    page.locator('.help-modal-close').click()
-    page.locator('.help-modal-overlay').wait_for(state='hidden', timeout=3000)
+def _run_help_checks(base_url: str, detail_path: str, page) -> None:
+    console_messages = []
 
-    toggle = page.locator('#toggleSrcJoined')
-    help_text = toggle.get_attribute('data-help-text') or ''
-    _assert('連結文' in help_text, 'inline help text for 連結文 should be bound')
+    def _handle_console(msg) -> None:
+        console_messages.append(msg.text)
 
-    page.locator('#openHotKeyButton').click()
-    page.locator('#hotkey-help').wait_for(state='visible', timeout=5000)
-    hotkey_table_text = page.locator('#hotkey-help').inner_text()
-    _assert('ショートカットキー一覧' in hotkey_table_text, 'hotkey help title missing')
-    _assert('Control+Shift+K' in hotkey_table_text, 'hotkey help should include KeyHUD shortcut')
-    _assert('Alt+/' in hotkey_table_text, 'hotkey help should include paragraph translate shortcut')
-    page.locator('#hotkey-help .hotkey-help-close').click()
-    page.locator('#hotkey-help').wait_for(state='hidden', timeout=3000)
+    page.on("console", _handle_console)
+    page.goto(base_url, wait_until="networkidle")
+
+    refresh_button = page.get_by_role("button", name="一覧を更新")
+    refresh_button.wait_for(timeout=10000)
+    refresh_button.hover()
+    tooltip = page.locator(".help-tooltip-popup")
+    tooltip.wait_for(state="visible", timeout=5000)
+    _assert(tooltip.inner_text().strip() != "", "help tooltip should contain text")
+
+    page.locator("#show-full-help").click()
+    modal = page.locator(".help-modal-overlay")
+    modal.wait_for(state="visible", timeout=5000)
+    modal_title = page.locator(".help-modal-header h2").inner_text().strip()
+    _assert(modal_title == "ヘルプ", f"help modal title mismatch: expected 'ヘルプ', got '{modal_title}'")
+    _assert(page.locator(".help-content h1").first.inner_text().strip() != "", "help modal should render headings")
+    help_content = page.locator(".help-content").inner_text()
+    _assert("各列の役割" in help_content or "列の見方" in help_content, "help modal should describe column usage")
+    _assert("キーボードショートカット" in help_content, "help modal should describe keyboard shortcuts")
+    page.locator(".help-modal-close").click()
+    page.locator(".help-modal-overlay").wait_for(state="hidden", timeout=3000)
+
+    disallowed_logs = [
+        message for message in console_messages
+        if "Failed to load libraries" in message or "ERR_BLOCKED_BY_CLIENT" in message
+    ]
+    _assert(not disallowed_logs, f"help UI should not rely on blocked CDN assets: {disallowed_logs}")
+
+    page.goto(f"{base_url}{detail_path}", wait_until="networkidle")
+    page.locator("#show-full-help").wait_for(timeout=10000)
+    toggle = page.locator("#toggleSrcJoined")
+    help_text = toggle.get_attribute("data-help-text") or ""
+    _assert("連結文" in help_text, "inline help text for 連結文 should be bound")
+
+    page.locator("#openHotKeyButton").click()
+    page.locator("#hotkey-help").wait_for(state="visible", timeout=5000)
+    hotkey_table_text = page.locator("#hotkey-help").inner_text()
+    _assert("ショートカットキー一覧" in hotkey_table_text, "hotkey help title missing")
+    _assert("Control+Shift+K" in hotkey_table_text, "hotkey help should include KeyHUD shortcut")
+    _assert("Alt+/" in hotkey_table_text, "hotkey help should include paragraph translate shortcut")
+    page.locator("#hotkey-help .hotkey-help-close").click()
+    page.locator("#hotkey-help").wait_for(state="hidden", timeout=3000)
 
 
 def _run_hotkey_checks(page) -> None:
@@ -495,8 +520,7 @@ def _run_ui_checks(
         page.wait_for_url(f"**{detail_path}**", timeout=15000)
 
         if help_only:
-            page.locator('#show-full-help').wait_for(timeout=10000)
-            _run_help_checks(page)
+            _run_help_checks(base_url, detail_path, page)
             browser.close()
             return
 

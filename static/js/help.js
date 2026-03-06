@@ -8,8 +8,8 @@ const helpDebugLog = (...args) => {
 };
 
 let helpSections = {};
-let helpMarkdownText = '';
-let activeTooltip = null;
+let helpTooltipEl = null;
+let activeHelpTarget = null;
 
 const escapeHtml = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -18,8 +18,8 @@ const escapeHtml = (value) => String(value ?? '')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;');
 
-const slugifyHeading = (text) => {
-  const normalized = String(text == null ? '' : text).trim().toLowerCase().normalize('NFKC');
+const slugifyHeading = (value) => {
+  const normalized = String(value == null ? '' : value).trim().toLowerCase().normalize('NFKC');
   const chars = Array.from(normalized).map((ch) => {
     if (/[a-z0-9_ぁ-んァ-ン一-龠]/.test(ch)) return ch;
     if (/[-\s]/.test(ch)) return '-';
@@ -28,13 +28,7 @@ const slugifyHeading = (text) => {
   return chars.join('').replace(/-+/g, '-').replace(/^-|-$/g, '');
 };
 
-const renderInlineMarkdown = (text) => {
-  let html = escapeHtml(text);
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-  return html;
-};
+const normalizeInlineBreaks = (value) => String(value ?? '').replace(/<br\s*\/?>/gi, '\n');
 
 const markdownToPlainText = (markdownText) => String(markdownText ?? '')
   .replace(/^#+\s*/gm, '')
@@ -45,114 +39,137 @@ const markdownToPlainText = (markdownText) => String(markdownText ?? '')
   .replace(/\n{3,}/g, '\n\n')
   .trim();
 
-const renderMarkdownToHtml = (markdownText) => {
-  const lines = String(markdownText ?? '').replace(/\r/g, '').split('\n');
-  const html = [];
-  let inUl = false;
-  let inOl = false;
-  let inParagraph = false;
-
-  const closeParagraph = () => {
-    if (inParagraph) {
-      html.push('</p>');
-      inParagraph = false;
+const renderInlineMarkdown = (value) => {
+  let html = escapeHtml(normalizeInlineBreaks(value));
+  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, text, href) => {
+    try {
+      const url = new URL(href);
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        return escapeHtml(text);
+      }
+      return `<a href="${escapeHtml(url.href)}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    } catch (_err) {
+      return escapeHtml(text);
     }
+  });
+  html = html.replace(/`([^`]+)`/g, (_match, codeText) => `<code>${codeText}</code>`);
+  html = html.replace(/\*\*([^*]+)\*\*/g, (_match, boldText) => `<strong>${boldText}</strong>`);
+  return html.replace(/\n/g, '<br>');
+};
+
+const renderMarkdown = (markdownText) => {
+  const lines = String(markdownText ?? '').replace(/\r\n?/g, '\n').split('\n');
+  const htmlParts = [];
+  const headings = [];
+  let headingCounter = 0;
+  let paragraphLines = [];
+  let listType = null;
+  let inCodeBlock = false;
+  let codeLines = [];
+
+  const flushParagraph = () => {
+    if (!paragraphLines.length) return;
+    htmlParts.push(`<p>${renderInlineMarkdown(paragraphLines.join('\n'))}</p>`);
+    paragraphLines = [];
   };
 
-  const closeLists = () => {
-    if (inUl) {
-      html.push('</ul>');
-      inUl = false;
-    }
-    if (inOl) {
-      html.push('</ol>');
-      inOl = false;
-    }
+  const closeList = () => {
+    if (!listType) return;
+    htmlParts.push(listType === 'ol' ? '</ol>' : '</ul>');
+    listType = null;
   };
 
-  lines.forEach((rawLine) => {
-    const line = rawLine.trimEnd();
+  const flushCodeBlock = () => {
+    htmlParts.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+    codeLines = [];
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\t/g, '    ');
     const trimmed = line.trim();
 
-    if (!trimmed) {
-      closeParagraph();
-      closeLists();
-      return;
+    if (trimmed.startsWith('```')) {
+      flushParagraph();
+      closeList();
+      if (inCodeBlock) {
+        flushCodeBlock();
+        inCodeBlock = false;
+      } else {
+        inCodeBlock = true;
+        codeLines = [];
+      }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeLines.push(rawLine);
+      continue;
     }
 
     const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {
-      closeParagraph();
-      closeLists();
+      flushParagraph();
+      closeList();
       const level = headingMatch[1].length;
       const text = headingMatch[2].trim();
-      const id = slugifyHeading(text);
-      html.push(`<h${level} id="${id}">${renderInlineMarkdown(text)}</h${level}>`);
-      return;
+      headingCounter += 1;
+      const id = slugifyHeading(text) || `heading-${headingCounter}`;
+      headings.push({ id, text, level });
+      htmlParts.push(`<h${level} id="${id}">${renderInlineMarkdown(text)}</h${level}>`);
+      continue;
     }
 
-    const ulMatch = trimmed.match(/^[-*]\s+(.+)$/);
-    if (ulMatch) {
-      closeParagraph();
-      if (inOl) {
-        html.push('</ol>');
-        inOl = false;
+    const listMatch = line.match(/^\s*((?:[-*])|(?:\d+\.))\s+(.+)$/);
+    if (listMatch) {
+      flushParagraph();
+      const nextListType = /\d+\./.test(listMatch[1]) ? 'ol' : 'ul';
+      if (listType !== nextListType) {
+        closeList();
+        htmlParts.push(nextListType === 'ol' ? '<ol>' : '<ul>');
+        listType = nextListType;
       }
-      if (!inUl) {
-        html.push('<ul>');
-        inUl = true;
-      }
-      html.push(`<li>${renderInlineMarkdown(ulMatch[1])}</li>`);
-      return;
+      htmlParts.push(`<li>${renderInlineMarkdown(listMatch[2].trim())}</li>`);
+      continue;
     }
 
-    const olMatch = trimmed.match(/^\d+\.\s+(.+)$/);
-    if (olMatch) {
-      closeParagraph();
-      if (inUl) {
-        html.push('</ul>');
-        inUl = false;
-      }
-      if (!inOl) {
-        html.push('<ol>');
-        inOl = true;
-      }
-      html.push(`<li>${renderInlineMarkdown(olMatch[1])}</li>`);
-      return;
+    if (!trimmed) {
+      flushParagraph();
+      closeList();
+      continue;
     }
 
-    closeLists();
-    if (!inParagraph) {
-      html.push('<p>');
-      inParagraph = true;
-    } else {
-      html.push('<br>');
-    }
-    html.push(renderInlineMarkdown(trimmed));
-  });
+    closeList();
+    paragraphLines.push(trimmed);
+  }
 
-  closeParagraph();
-  closeLists();
-  return html.join('');
+  flushParagraph();
+  closeList();
+  if (inCodeBlock) {
+    flushCodeBlock();
+  }
+
+  return {
+    html: htmlParts.join('\n'),
+    headings,
+  };
 };
 
 const parseHelpMarkdown = (markdownText) => {
-  helpDebugLog('Parsing markdown text...');
+  helpDebugLog('Parsing help markdown...');
   const sections = {};
-  const lines = String(markdownText ?? '').trim().split('\n');
+  const lines = String(markdownText ?? '').replace(/\r\n?/g, '\n').split('\n');
   let currentId = null;
   let currentContent = [];
 
   for (const line of lines) {
-    const trimmedLine = line.trim();
-    const sectionMatch = trimmedLine.match(/^##\s*(.+)$/);
+    const trimmed = line.trim();
+    const sectionMatch = trimmed.match(/^##\s*(.+)$/);
     if (sectionMatch) {
       if (currentId && currentContent.length > 0) {
         sections[currentId] = currentContent.join('\n').trim();
       }
       currentId = sectionMatch[1].trim();
       currentContent = [];
-      helpDebugLog(`Found section: ${currentId}`);
     } else if (currentId !== null) {
       currentContent.push(line);
     }
@@ -161,152 +178,145 @@ const parseHelpMarkdown = (markdownText) => {
   if (currentId && currentContent.length > 0) {
     sections[currentId] = currentContent.join('\n').trim();
   }
-  helpDebugLog('Markdown parsing complete. Resulting sections:', sections);
   return sections;
 };
 
+const buildTocTree = (headings) => {
+  const root = [];
+  const stack = [{ level: 0, children: root }];
+  headings.forEach((heading) => {
+    while (stack.length > 1 && heading.level <= stack[stack.length - 1].level) {
+      stack.pop();
+    }
+    const node = { ...heading, children: [] };
+    stack[stack.length - 1].children.push(node);
+    stack.push(node);
+  });
+  return root;
+};
+
+const buildTocHtml = (items) => {
+  if (!items.length) return '';
+  let html = '<ul>';
+  items.forEach((item) => {
+    html += `<li class="level-${item.level}"><a href="#${item.id}">${escapeHtml(item.text)}</a>`;
+    html += buildTocHtml(item.children || []);
+    html += '</li>';
+  });
+  html += '</ul>';
+  return html;
+};
+
 const ensureTooltipElement = () => {
-  let tooltip = document.getElementById('help-inline-tooltip');
-  if (tooltip) return tooltip;
-  tooltip = document.createElement('div');
-  tooltip.id = 'help-inline-tooltip';
-  tooltip.className = 'help-inline-tooltip';
-  tooltip.style.display = 'none';
-  document.body.appendChild(tooltip);
-  return tooltip;
+  if (helpTooltipEl) return helpTooltipEl;
+  helpTooltipEl = document.createElement('div');
+  helpTooltipEl.className = 'help-tooltip-popup';
+  helpTooltipEl.setAttribute('role', 'tooltip');
+  document.body.appendChild(helpTooltipEl);
+  return helpTooltipEl;
 };
 
-const hideHelpTooltip = () => {
-  const tooltip = document.getElementById('help-inline-tooltip');
-  if (!tooltip) return;
-  tooltip.style.display = 'none';
-  tooltip.innerHTML = '';
-  activeTooltip = null;
+const hideTooltip = () => {
+  if (!helpTooltipEl) return;
+  helpTooltipEl.classList.remove('is-visible');
+  activeHelpTarget = null;
 };
 
-const positionHelpTooltip = (tooltip, reference) => {
-  const rect = reference.getBoundingClientRect();
+const positionTooltip = (target) => {
+  if (!helpTooltipEl || !target) return;
+  const rect = target.getBoundingClientRect();
   const margin = 10;
-  const maxWidth = Math.min(window.innerWidth - 20, 640);
-  tooltip.style.maxWidth = `${maxWidth}px`;
-  tooltip.style.left = '10px';
-  tooltip.style.top = '10px';
-  tooltip.style.display = 'block';
+  const maxWidth = Math.min(window.innerWidth - 24, 720);
+  helpTooltipEl.style.maxWidth = `${maxWidth}px`;
+  helpTooltipEl.style.left = '12px';
+  helpTooltipEl.style.top = '12px';
 
-  const tooltipRect = tooltip.getBoundingClientRect();
+  const tooltipRect = helpTooltipEl.getBoundingClientRect();
   let left = rect.left;
+  if (left + tooltipRect.width > window.innerWidth - margin) {
+    left = window.innerWidth - tooltipRect.width - margin;
+  }
+  if (left < margin) {
+    left = margin;
+  }
+
   let top = rect.bottom + margin;
-
-  if (left + tooltipRect.width > window.innerWidth - 10) {
-    left = Math.max(10, window.innerWidth - tooltipRect.width - 10);
+  if (top + tooltipRect.height > window.innerHeight - margin) {
+    top = rect.top - tooltipRect.height - margin;
   }
-  if (top + tooltipRect.height > window.innerHeight - 10) {
-    top = Math.max(10, rect.top - tooltipRect.height - margin);
+  if (top < margin) {
+    top = margin;
   }
 
-  tooltip.style.left = `${Math.max(10, left)}px`;
-  tooltip.style.top = `${Math.max(10, top)}px`;
+  helpTooltipEl.style.left = `${Math.round(left)}px`;
+  helpTooltipEl.style.top = `${Math.round(top)}px`;
 };
 
-const showHelpTooltip = (reference) => {
-  const helpId = reference.getAttribute('data-help-id');
-  if (!helpId) return;
+const showTooltip = (target) => {
+  const helpId = target.getAttribute('data-help-id');
   const section = helpSections[helpId];
-  if (!section) return;
+  if (!section) {
+    hideTooltip();
+    return;
+  }
 
   const tooltip = ensureTooltipElement();
-  tooltip.innerHTML = renderMarkdownToHtml(section);
-  positionHelpTooltip(tooltip, reference);
-  activeTooltip = reference;
+  tooltip.innerHTML = `<div class="help-tooltip-title">${escapeHtml(helpId)}</div><div class="help-tooltip-body">${renderMarkdown(section).html}</div>`;
+  tooltip.classList.add('is-visible');
+  activeHelpTarget = target;
+  positionTooltip(target);
 };
 
-const bindHelpTooltip = (reference) => {
-  if (!reference || reference.dataset.helpBound === '1') return;
-  const helpId = reference.getAttribute('data-help-id');
-  if (!helpId) return;
-  const section = helpSections[helpId];
-  if (!section) return;
-
-  reference.dataset.helpBound = '1';
-  reference.dataset.helpText = markdownToPlainText(section);
-  reference.setAttribute('title', markdownToPlainText(section));
-
-  reference.addEventListener('mouseenter', () => showHelpTooltip(reference));
-  reference.addEventListener('focus', () => showHelpTooltip(reference));
-  reference.addEventListener('mouseleave', () => {
-    if (activeTooltip === reference) hideHelpTooltip();
+const bindHelpTooltips = () => {
+  const elements = document.querySelectorAll('[data-help-id]');
+  elements.forEach((element) => {
+    const helpId = element.getAttribute('data-help-id');
+    const section = helpSections[helpId];
+    if (section) {
+      const plainText = markdownToPlainText(section);
+      element.dataset.helpText = plainText;
+      element.setAttribute('title', plainText);
+    }
+    element.addEventListener('mouseenter', () => showTooltip(element));
+    element.addEventListener('focus', () => showTooltip(element));
+    element.addEventListener('mouseleave', hideTooltip);
+    element.addEventListener('blur', hideTooltip);
   });
-  reference.addEventListener('blur', () => {
-    if (activeTooltip === reference) hideHelpTooltip();
+  window.addEventListener('scroll', () => {
+    if (activeHelpTarget) {
+      positionTooltip(activeHelpTarget);
+    }
+  }, true);
+  window.addEventListener('resize', () => {
+    if (activeHelpTarget) {
+      positionTooltip(activeHelpTarget);
+    }
   });
-}
+};
 
 const initializeHelp = async () => {
   try {
     const response = await fetch('/static/parapara-help.md');
-    helpMarkdownText = await response.text();
-    helpSections = parseHelpMarkdown(helpMarkdownText);
-    helpDebugLog('Help sections loaded and parsed.');
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const text = await response.text();
+    helpSections = parseHelpMarkdown(text);
+    bindHelpTooltips();
+    helpDebugLog('Help sections loaded and tooltips initialized.');
   } catch (error) {
     console.error('Failed to fetch or parse help.md:', error);
-    return;
   }
-
-  document.querySelectorAll('[data-help-id]').forEach(bindHelpTooltip);
-};
-
-const extractHeadings = (markdownText) => {
-  const lines = String(markdownText ?? '').replace(/\r/g, '').split('\n');
-  return lines
-    .map((line) => line.trim())
-    .map((line) => line.match(/^(#{1,6})\s+(.+)$/))
-    .filter(Boolean)
-    .map((match) => ({
-      level: match[1].length,
-      text: match[2].trim(),
-      id: slugifyHeading(match[2].trim()),
-    }));
-};
-
-const buildTocHtml = (headings) => {
-  if (!headings.length) return '';
-  const root = [];
-  const stack = [{ level: 0, children: root }];
-
-  headings.forEach((heading) => {
-    const item = { ...heading, children: [] };
-    while (stack.length > 1 && heading.level <= stack[stack.length - 1].level) {
-      stack.pop();
-    }
-    stack[stack.length - 1].children.push(item);
-    stack.push(item);
-  });
-
-  const renderItems = (items) => {
-    if (!items.length) return '';
-    return `<ul>${items.map((item) => `
-      <li class="level-${item.level}"><a href="#${item.id}">${escapeHtml(item.text)}</a>${renderItems(item.children)}</li>
-    `).join('')}</ul>`;
-  };
-
-  return renderItems(root);
 };
 
 const showFullHelp = async () => {
   try {
-    if (!helpMarkdownText) {
-      const response = await fetch('/static/parapara-help.md');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      helpMarkdownText = await response.text();
-      if (!Object.keys(helpSections).length) {
-        helpSections = parseHelpMarkdown(helpMarkdownText);
-      }
+    const response = await fetch('/static/parapara-help.md');
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
-
-    const htmlContent = renderMarkdownToHtml(helpMarkdownText);
-    const headings = extractHeadings(helpMarkdownText);
+    const markdownText = await response.text();
+    const rendered = renderMarkdown(markdownText);
 
     const modalOverlay = document.createElement('div');
     modalOverlay.classList.add('help-modal-overlay');
@@ -333,11 +343,11 @@ const showFullHelp = async () => {
 
     const tocNav = document.createElement('nav');
     tocNav.classList.add('help-toc');
-    tocNav.innerHTML = buildTocHtml(headings);
+    tocNav.innerHTML = buildTocHtml(buildTocTree(rendered.headings));
 
     const contentDiv = document.createElement('div');
     contentDiv.classList.add('help-content');
-    contentDiv.innerHTML = htmlContent;
+    contentDiv.innerHTML = rendered.html;
 
     modalBody.appendChild(tocNav);
     modalBody.appendChild(contentDiv);
@@ -345,28 +355,20 @@ const showFullHelp = async () => {
     modalContent.appendChild(modalHeader);
     modalContent.appendChild(modalBody);
     modalOverlay.appendChild(modalContent);
-    document.body.appendChild(modalOverlay);
-
     modalOverlay.addEventListener('click', (event) => {
       if (event.target === modalOverlay) {
         document.body.removeChild(modalOverlay);
       }
     });
 
-    const onKeyDown = (event) => {
-      if (event.key === 'Escape' && document.body.contains(modalOverlay)) {
-        document.body.removeChild(modalOverlay);
-        document.removeEventListener('keydown', onKeyDown);
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
+    document.body.appendChild(modalOverlay);
 
-    tocNav.querySelectorAll('a').forEach(link => {
-      link.onclick = (e) => {
-        e.preventDefault();
+    tocNav.querySelectorAll('a').forEach((link) => {
+      link.onclick = (event) => {
+        event.preventDefault();
         const targetId = link.getAttribute('href').substring(1);
-        const targetElement = contentDiv.querySelector(`#${CSS.escape(targetId)}`);
-        if (targetElement) {
+        const targetElement = document.getElementById(targetId);
+        if (targetElement && contentDiv.contains(targetElement)) {
           targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
       };
@@ -377,27 +379,17 @@ const showFullHelp = async () => {
   }
 };
 
-window.showFullHelp = showFullHelp;
+const onHelpReady = () => {
+  initializeHelp();
 
-document.addEventListener('DOMContentLoaded', () => {
   const fullHelpButton = document.getElementById('show-full-help');
   if (fullHelpButton) {
     fullHelpButton.addEventListener('click', showFullHelp);
   }
+};
 
-  initializeHelp();
-
-  window.addEventListener('scroll', () => {
-    if (activeTooltip) showHelpTooltip(activeTooltip);
-  }, true);
-  window.addEventListener('resize', () => {
-    if (activeTooltip) showHelpTooltip(activeTooltip);
-  });
-  document.addEventListener('click', (event) => {
-    const tooltip = document.getElementById('help-inline-tooltip');
-    if (!tooltip || tooltip.style.display === 'none') return;
-    if (tooltip.contains(event.target)) return;
-    if (event.target.closest('[data-help-id]')) return;
-    hideHelpTooltip();
-  });
-});
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', onHelpReady);
+} else {
+  onHelpReady();
+}
