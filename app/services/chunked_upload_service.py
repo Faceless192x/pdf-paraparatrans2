@@ -20,6 +20,7 @@ class ChunkedUploadService:
     base_folder: str
     chunk_size_bytes: int = 4 * 1024 * 1024
     max_age_seconds: int = 6 * 60 * 60
+    max_total_size_bytes: int = 300 * 1024 * 1024
 
     def __post_init__(self) -> None:
         self.base_folder = os.path.abspath(self.base_folder)
@@ -27,6 +28,8 @@ class ChunkedUploadService:
             raise ValueError("chunk_size_bytes must be positive")
         if self.max_age_seconds <= 0:
             raise ValueError("max_age_seconds must be positive")
+        if self.max_total_size_bytes <= 0:
+            raise ValueError("max_total_size_bytes must be positive")
 
     def _uploads_root(self) -> str:
         path = os.path.join(self.base_folder, ".upload_chunks")
@@ -43,6 +46,18 @@ class ChunkedUploadService:
 
     def _chunk_path(self, upload_id: str, chunk_index: int) -> str:
         return os.path.join(self._session_dir(upload_id), f"chunk_{chunk_index:06d}.part")
+
+    def _validate_declared_size(self, *, total_size: int, total_chunks: int) -> None:
+        if total_size <= 0 or total_size > self.max_total_size_bytes:
+            raise ChunkedUploadServiceError("アップロードサイズが不正です")
+        if total_chunks <= 0:
+            raise ChunkedUploadServiceError("total_chunks が不正です")
+        # declared size must fit within the advertised chunk count/size envelope.
+        if total_size > total_chunks * self.chunk_size_bytes:
+            raise ChunkedUploadServiceError("アップロードサイズがチャンク総容量を超えています")
+        # if more than one chunk is declared, the file must be larger than one fewer full chunks.
+        if total_chunks > 1 and total_size <= (total_chunks - 1) * self.chunk_size_bytes:
+            raise ChunkedUploadServiceError("アップロードサイズがチャンク構成に対して小さすぎます")
 
     def _write_meta(self, upload_id: str, meta: Dict[str, Any]) -> None:
         meta_path = self._meta_path(upload_id)
@@ -117,8 +132,9 @@ class ChunkedUploadService:
     ) -> Dict[str, Any]:
         if total_size <= 0:
             raise ChunkedUploadServiceError("size が不正です")
-        if total_chunks <= 0:
-            raise ChunkedUploadServiceError("total_chunks が不正です")
+        if total_size > self.max_total_size_bytes:
+            raise ChunkedUploadServiceError("PDFサイズ上限を超えています")
+        self._validate_declared_size(total_size=total_size, total_chunks=total_chunks)
 
         dest_pdf_path = os.path.abspath(dest_pdf_path)
         if os.path.commonpath([self.base_folder, dest_pdf_path]) != self.base_folder:
@@ -187,21 +203,29 @@ class ChunkedUploadService:
             raise ChunkedUploadServiceError(f"同名のPDFが既に存在します: {meta.get('pdf_name')}.pdf")
 
         total_chunks = int(meta.get("total_chunks") or 0)
-        if total_chunks <= 0:
-            raise ChunkedUploadServiceError("チャンク情報が不正です")
+        total_size = int(meta.get("total_size") or 0)
+        self._validate_declared_size(total_size=total_size, total_chunks=total_chunks)
 
         os.makedirs(os.path.dirname(dest_pdf_path), exist_ok=True)
         tmp_fd, tmp_path = tempfile.mkstemp(prefix="upload_chunked_", suffix=".pdf", dir=self.base_folder)
         os.close(tmp_fd)
 
         try:
+            written_bytes = 0
             with open(tmp_path, "wb") as out:
                 for idx in range(total_chunks):
                     part_path = self._chunk_path(upload_id, idx)
                     if not os.path.exists(part_path):
                         raise ChunkedUploadServiceError(f"チャンクが不足しています: {idx + 1}/{total_chunks}")
+                    part_size = os.path.getsize(part_path)
+                    written_bytes += part_size
+                    # 宣言 total_size と実データの両面から超過を防ぐ（defense in depth）。
+                    if written_bytes > total_size or written_bytes > self.max_total_size_bytes:
+                        raise ChunkedUploadServiceError("アップロード実サイズが宣言サイズを超えています")
                     with open(part_path, "rb") as f:
                         shutil.copyfileobj(f, out)
+            if written_bytes != total_size:
+                raise ChunkedUploadServiceError("アップロード実サイズが宣言サイズと一致しません")
 
             os.replace(tmp_path, dest_pdf_path)
 

@@ -161,6 +161,8 @@
   overflow-x: auto;
 }
 
+/* Add any specific styles for the markdown content here if needed */
+/* For example, adjust heading margins within the modal body */
 .help-content h1, .help-content h2, .help-content h3, .help-content h4, .help-content h5, .help-content h6 {
   margin-top: 1em;
   margin-bottom: 0.5em;

@@ -1,8 +1,10 @@
 import datetime
 import html
+import ipaddress
 import json
 import os
 import re
+import socket
 import time
 import uuid
 from collections import deque
@@ -22,6 +24,7 @@ _BAD_CLASS_RE = re.compile(
 _BLOCK_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "blockquote", "pre")
 
 _ALLOWED_INLINE_TAGS = {"a", "em", "strong", "code", "span", "br"}
+_MAX_REDIRECTS = 5
 
 
 def normalize_url(raw_url: str) -> Optional[str]:
@@ -138,13 +141,80 @@ def _decode_html_bytes(content: bytes, *, preferred_encoding: Optional[str], htt
     return content.decode("utf-8", errors="replace")
 
 
+def _assert_safe_fetch_url(url: str) -> None:
+    parsed = urlsplit(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("unsupported url scheme")
+
+    host = (parsed.hostname or "").strip().lower().rstrip(".")
+    if not host:
+        raise ValueError("invalid host")
+    if host == "localhost" or host.endswith(".localhost"):
+        raise ValueError("local/private network URL is not allowed")
+    if parsed.username or parsed.password:
+        raise ValueError("user info in URL is not allowed")
+
+    try:
+        host_ip = ipaddress.ip_address(host)
+    except ValueError:
+        host_ip = None
+    if host_ip is not None and not host_ip.is_global:
+        raise ValueError("local/private network URL is not allowed")
+
+    try:
+        addrinfo = socket.getaddrinfo(host, parsed.port or None, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError(f"host resolve failed: {exc}") from exc
+
+    for family, _socktype, _proto, _canonname, sockaddr in addrinfo:
+        if family == socket.AF_INET:
+            raw_ip = sockaddr[0]
+        elif family == socket.AF_INET6:
+            raw_ip = sockaddr[0].split("%", 1)[0]
+        else:
+            continue
+        ip = ipaddress.ip_address(raw_ip)
+        if not ip.is_global:
+            raise ValueError("local/private network URL is not allowed")
+
+
+def _http_get_with_safe_redirects(
+    url: str,
+    *,
+    headers: Dict[str, str],
+    timeout: int,
+) -> requests.Response:
+    current_url = url
+    for _ in range(_MAX_REDIRECTS + 1):
+        _assert_safe_fetch_url(current_url)
+        response = requests.get(
+            current_url,
+            headers=headers,
+            timeout=timeout,
+            allow_redirects=False,
+        )
+        if 300 <= response.status_code < 400:
+            location = response.headers.get("Location")
+            if not location:
+                response.close()
+                raise ValueError("redirect response missing Location header")
+            next_url = normalize_url(urljoin(current_url, location))
+            response.close()
+            if not next_url:
+                raise ValueError("redirect URL is invalid")
+            current_url = next_url
+            continue
+        return response
+    raise ValueError(f"too many redirects (max: {_MAX_REDIRECTS})")
+
+
 def fetch_html(url: str, timeout: int = 15, *, preferred_encoding: Optional[str] = None) -> str:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
         "Accept-Language": "en-US,en;q=0.9,ja;q=0.8",
     }
-    resp = requests.get(url, headers=headers, timeout=timeout)
+    resp = _http_get_with_safe_redirects(url, headers=headers, timeout=timeout)
     resp.raise_for_status()
 
     http_encoding = None
@@ -657,7 +727,13 @@ def _check_robots_txt(base_url: str, target_url: str, user_agent: str = "*") -> 
         robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
         rp = RobotFileParser()
         rp.set_url(robots_url)
-        rp.read()
+        headers = {
+            "User-Agent": "Mozilla/5.0 (compatible; ParaParaTransBot/1.0)",
+            "Accept-Language": "en-US,en;q=0.9,ja;q=0.8",
+        }
+        resp = _http_get_with_safe_redirects(robots_url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        rp.parse(resp.text.splitlines())
         return rp.can_fetch(user_agent, target_url)
     except Exception:
         return True
@@ -735,4 +811,3 @@ def crawl_site(
             time.sleep(delay_sec)
 
     return discovered_urls
-
