@@ -24,6 +24,7 @@ DICT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "
 try:
     # パッケージとして読み込まれる（Flaskアプリなど）ケース
     from .api_translate import (  # type: ignore
+        TranslationServerConnectionError,
         get_current_translator,
         translate_text,
         translate_texts,
@@ -31,6 +32,7 @@ try:
 except Exception:
     # スクリプトとして直接実行されるケース（sys.path に modules が入っている前提）
     from api_translate import (  # type: ignore
+        TranslationServerConnectionError,
         get_current_translator,
         translate_text,
         translate_texts,
@@ -294,6 +296,8 @@ def _translate_table_row_paragraph(para: dict, stats: Optional[TranslationStats]
             raise ValueError("Unexpected translate_texts result length")
         _record_used_chars_many(stats, cells)
     except Exception as e:
+        if isinstance(e, TranslationServerConnectionError):
+            raise
         print(f"Warning: テーブル行の一括翻訳に失敗。セルごとにフォールバックします: {e}")
         used_fallback = True
         translated_cells = []
@@ -303,6 +307,8 @@ def _translate_table_row_paragraph(para: dict, stats: Optional[TranslationStats]
                 translated_cells.append(translated)
                 _record_used_chars(stats, cell)
             except Exception as ee:
+                if isinstance(ee, TranslationServerConnectionError):
+                    raise
                 if stats is not None:
                     stats.failed += 1
                 print(f"Warning: テーブル行のセル翻訳にも失敗しました: {ee}")
@@ -363,6 +369,8 @@ def process_group(
         translated_text = translate_text(concatenated_text, source="en", target="ja")
         _record_used_chars(stats, concatenated_text)
     except Exception as e:
+        if isinstance(e, TranslationServerConnectionError):
+            raise
         # グループ翻訳が落ちた場合は、段落単体へフォールバックする
         print(f"Warning: グループ翻訳に失敗。段落単体にフォールバックします: {e}")
         for pid, para in para_by_id.items():
@@ -375,6 +383,8 @@ def process_group(
                     stats.translated += 1
                     stats.translated_fallback += 1
             except Exception as ee:
+                if isinstance(ee, TranslationServerConnectionError):
+                    raise
                 if stats is not None:
                     stats.failed += 1
                 print(f"Warning: 段落単体翻訳にも失敗しました id={pid}: {ee}")
@@ -397,6 +407,8 @@ def process_group(
                     stats.translated_fallback += 1
                     stats.missing_from_batch += 1
             except Exception as ee:
+                if isinstance(ee, TranslationServerConnectionError):
+                    raise
                 if stats is not None:
                     stats.failed += 1
                     stats.missing_from_batch += 1
@@ -433,6 +445,8 @@ def process_group(
                     stats.translated += 1
                     stats.translated_fallback += 1
             except Exception as ee:
+                if isinstance(ee, TranslationServerConnectionError):
+                    raise
                 if stats is not None:
                     stats.failed += 1
                 print(f"Warning: 段落単体翻訳にも失敗しました id={pid}: {ee}")

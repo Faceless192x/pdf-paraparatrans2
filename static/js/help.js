@@ -181,7 +181,7 @@ const parseHelpMarkdown = (markdownText) => {
   return sections;
 };
 
-const buildTocTree = (headings) => {
+const buildHelpTocTree = (headings) => {
   const root = [];
   const stack = [{ level: 0, children: root }];
   headings.forEach((heading) => {
@@ -343,7 +343,7 @@ const showFullHelp = async () => {
 
     const tocNav = document.createElement('nav');
     tocNav.classList.add('help-toc');
-    tocNav.innerHTML = buildTocHtml(buildTocTree(rendered.headings));
+    tocNav.innerHTML = buildTocHtml(buildHelpTocTree(rendered.headings));
 
     const contentDiv = document.createElement('div');
     contentDiv.classList.add('help-content');
