@@ -35,8 +35,16 @@ def registered_names() -> list[str]:
 
 
 def _ensure_defaults_registered() -> None:
-    """デフォルトプロバイダ（Ollama）を遅延登録する。"""
+    """デフォルトプロバイダ（Ollama / Gemini）を遅延登録する。"""
     if "ollama" not in _registry:
         from app.services.ai.providers.ollama_provider import OllamaProvider
 
         register(OllamaProvider())
+
+    if "gemini" not in _registry:
+        import os
+
+        if os.getenv("GEMINI_API_KEY"):
+            from app.services.ai.providers.gemini_provider import GeminiProvider
+
+            register(GeminiProvider())

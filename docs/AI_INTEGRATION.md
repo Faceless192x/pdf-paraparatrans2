@@ -24,12 +24,13 @@ app/services/ai/
 ├── providers/
 │   ├── __init__.py
 │   ├── base.py          # 抽象プロバイダ
-│   └── ollama_provider.py  # Ollama実装
+│   ├── ollama_provider.py  # Ollama実装
+│   └── gemini_provider.py  # Gemini実装
 ├── registry.py          # プロバイダ登録・取得
 ├── router.py            # タスク→プロバイダ振り分け
 └── tasks/
     ├── __init__.py
-    └── table_to_paragraph.py  # 表→段落タスクビルダー
+    └── table_to_paragraph.py  # 表→段落タスクビルダー（自然文 & HTML→縦パイプ形式）
 ```
 
 ---
@@ -83,7 +84,8 @@ class AIResponse:
 | 種別 | 名前 | 備考 |
 |------|------|------|
 | Provider | `ollama` | ローカルLLM。APIキー不要。既存 `OLLAMA_MODEL` / `OLLAMA_BASE_URL` 変数を流用 |
-| Task | `table_to_paragraph` | 表領域画像＋テキストから説明段落を生成 |
+| Provider | `gemini` | Google AI Studio。無料枠あり。`GEMINI_API_KEY` 設定時に自動登録 |
+| Task | `table_to_paragraph` | 表領域画像＋テキストから説明段落を生成（自然文 or HTML→縦パイプ形式） |
 | Task | `text_generate` | 汎用テキスト生成（プロンプト直渡し） |
 
 OpenAIなど追加プロバイダは `providers/openai_provider.py` を追加してレジストリに登録するだけで拡張できる。
@@ -110,6 +112,11 @@ AI_PROVIDER=ollama
 # Ollamaプロバイダ設定（既存変数を流用）
 OLLAMA_MODEL=gemma3:12b
 OLLAMA_BASE_URL=http://localhost:11434
+
+# Gemini プロバイダ設定（GEMINI_API_KEY が設定されると自動登録）
+# AI_PROVIDER=gemini
+# GEMINI_API_KEY=          # https://aistudio.google.com/ から取得（無料枠あり）
+# GEMINI_MODEL=gemini-2.0-flash
 
 # OpenAIプロバイダ設定（将来用）
 # AI_PROVIDER=openai
