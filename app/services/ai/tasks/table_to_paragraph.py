@@ -34,6 +34,12 @@ import re
 
 from app.services.ai.types import AIRequest
 
+
+def _normalize_cell_text(text: str) -> str:
+    """セルテキストの余分な空白・改行を1スペースに正規化する。"""
+    return " ".join(text.split())
+
+
 _SYSTEM_PROMPT = (
     "あなたはPDF内の表を自然な説明文に変換するアシスタントです。\n"
     "入力された表の内容をもとに、日本語の1〜3段落で要約してください。\n"
@@ -158,7 +164,7 @@ def html_to_pipe_rows(html_text: str) -> list[tuple[str, str]]:
         - block_tag: "th"（ヘッダ行）または "tr"（データ行）
         - pipe_text: "Cell A | Cell B | Cell C" 形式のテキスト
     """
-    from bs4 import BeautifulSoup  # requirements.txt 済み
+    from bs4 import BeautifulSoup  # beautifulsoup4 は requirements.txt に含まれる
 
     soup = BeautifulSoup(html_text, "html.parser")
     rows: list[tuple[str, str]] = []
@@ -170,7 +176,7 @@ def html_to_pipe_rows(html_text: str) -> list[tuple[str, str]]:
         is_header = any(c.name == "th" for c in cells)
         block_tag = "th" if is_header else "tr"
         # セル内の複数行やスペースを1スペースに正規化してテキストを抽出
-        cell_texts = [" ".join(c.get_text(separator=" ", strip=True).split()) for c in cells]
+        cell_texts = [_normalize_cell_text(c.get_text(separator=" ", strip=True)) for c in cells]
         pipe_text = " | ".join(cell_texts)
         if pipe_text.strip():
             rows.append((block_tag, pipe_text))

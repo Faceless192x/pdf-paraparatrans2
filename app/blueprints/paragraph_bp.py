@@ -329,6 +329,33 @@ def create_paragraph_blueprint(
             return jsonify({"status": "error", "message": f"AI 表再抽出エラー: {str(e)}"}), 500
 
     # ------------------------------------------------------------------
+    # /api/ai_providers — 利用可能な AI プロバイダ一覧
+    # ------------------------------------------------------------------
+
+    @bp.route("/api/ai_providers", methods=["GET"])
+    def ai_providers_api():
+        """登録済み AI プロバイダ名と現在の選択プロバイダを返す。
+
+        UI がダイアログで「AI 抽出」モードを表示するときのヒントとして使用する。
+
+        Response JSON:
+            providers (list[str]): 登録済みプロバイダ名のリスト（例: ["ollama", "gemini"]）。
+            current (str): AI_PROVIDER 環境変数の値（デフォルト "ollama"）。
+        """
+        import os
+
+        from app.services.ai.registry import _ensure_defaults_registered, registered_names
+
+        try:
+            _ensure_defaults_registered()
+            names = registered_names()
+        except Exception:
+            names = []
+
+        current = os.getenv("AI_PROVIDER", "ollama")
+        return jsonify({"status": "ok", "providers": names, "current": current})
+
+    # ------------------------------------------------------------------
     # /api/table_grid_suggest/<path:pdf_name> — テーブルグリッド推測
     # ------------------------------------------------------------------
 

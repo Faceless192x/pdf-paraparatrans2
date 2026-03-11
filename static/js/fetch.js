@@ -1936,6 +1936,20 @@ async function reextractTableFromSelectedLines(paragraphIds) {
     document.body.style.cursor = 'wait';
 
     try {
+        // 利用可能なAIプロバイダを取得（ダイアログのヒント表示用）
+        let aiProviders = [];
+        let currentAiProvider = 'ollama';
+        try {
+            const aiResp = await fetch('/api/ai_providers');
+            if (aiResp.ok) {
+                const aiData = await aiResp.json();
+                aiProviders = Array.isArray(aiData.providers) ? aiData.providers : [];
+                currentAiProvider = String(aiData.current || 'ollama');
+            }
+        } catch (err) {
+            console.warn('AI プロバイダ情報の取得に失敗しました:', err);
+        }
+
         const suggestResponse = await fetch(`/api/table_grid_suggest/${encodePdfNamePath(pdfName)}`, {
             method: 'POST',
             headers: {
@@ -1969,6 +1983,8 @@ async function reextractTableFromSelectedLines(paragraphIds) {
             headerText,
             paragraphIds: ids,
             pageNumber: currentPage,
+            aiProviders,
+            currentAiProvider,
         });
 
         if (!result) {
@@ -1978,21 +1994,36 @@ async function reextractTableFromSelectedLines(paragraphIds) {
             return;
         }
 
-        const { rows, cols, finalHeaderText } = result;
-
-        const response = await fetch(`/api/reextract_table_from_selection/${encodePdfNamePath(pdfName)}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                current_page: currentPage,
-                paragraph_ids: ids,
-                rows,
-                cols,
-                header_text: finalHeaderText,
-            })
-        });
+        let response;
+        if (result.mode === 'ai') {
+            // AI による表再抽出
+            response = await fetch(`/api/reextract_table_ai/${encodePdfNamePath(pdfName)}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    current_page: currentPage,
+                    paragraph_ids: ids,
+                })
+            });
+        } else {
+            // 従来のグリッド指定による再抽出
+            const { rows, cols, finalHeaderText } = result;
+            response = await fetch(`/api/reextract_table_from_selection/${encodePdfNamePath(pdfName)}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    current_page: currentPage,
+                    paragraph_ids: ids,
+                    rows,
+                    cols,
+                    header_text: finalHeaderText,
+                })
+            });
+        }
 
         const data = await response.json();
         if (data.status !== 'ok') {
@@ -2893,7 +2924,15 @@ async function updateBookInfo() {
  * @returns {Promise<{rows: number, cols: number, finalHeaderText: string}|null>} ユーザーが入力した値、またはキャンセル時null
  */
 async function showTableReextractDialog(options) {
-    const { guessedRows, guessedCols, headerText, paragraphIds, pageNumber } = options;
+    const { guessedRows, guessedCols, headerText, paragraphIds, pageNumber, aiProviders, currentAiProvider } = options;
+
+    // AI プロバイダのヒントテキストを生成
+    const hasProviders = Array.isArray(aiProviders) && aiProviders.length > 0;
+    const aiList = hasProviders ? aiProviders.join('、') : '';
+    const aiCurrent = String(currentAiProvider || 'ollama');
+    const aiHint = hasProviders
+        ? `利用可能なプロバイダ: <strong>${aiList}</strong><br>現在の設定（AI_PROVIDER）: <strong>${aiCurrent}</strong>`
+        : '利用可能なAIプロバイダが見つかりません。<br>.env に <code>AI_PROVIDER</code> と APIキーを設定してください。';
 
     return new Promise((resolve) => {
         // ダイアログHTMLを作成
@@ -2923,7 +2962,8 @@ async function showTableReextractDialog(options) {
                     background: rgba(0,0,0,0.5);
                     z-index: 9999;
                 }
-                #tableReextractDialog input {
+                #tableReextractDialog input[type="text"],
+                #tableReextractDialog input[type="number"] {
                     width: 100%;
                     padding: 6px 8px;
                     font-size: 14px;
@@ -2931,6 +2971,7 @@ async function showTableReextractDialog(options) {
                     color: var(--trd-text);
                     border: 1px solid var(--trd-border);
                     border-radius: 4px;
+                    box-sizing: border-box;
                 }
                 #tableReextractDialog .trd-hint {
                     color: var(--trd-subtext);
@@ -2940,6 +2981,30 @@ async function showTableReextractDialog(options) {
                     background: var(--trd-guess-bg);
                     border-radius: 4px;
                     border: 1px solid var(--trd-border);
+                }
+                #tableReextractDialog .trd-mode-selector {
+                    display: flex;
+                    gap: 20px;
+                    padding: 10px 12px;
+                    background: var(--trd-guess-bg);
+                    border-radius: 4px;
+                    border: 1px solid var(--trd-border);
+                }
+                #tableReextractDialog .trd-mode-selector label {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    cursor: pointer;
+                    font-weight: bold;
+                    font-size: 14px;
+                }
+                #tableReextractDialog .trd-ai-info {
+                    padding: 12px 14px;
+                    background: var(--trd-guess-bg);
+                    border-radius: 4px;
+                    border: 1px solid var(--trd-border);
+                    line-height: 1.7;
+                    font-size: 13px;
                 }
                 #tableReextractDialog .trd-actions {
                     display: flex;
@@ -2988,21 +3053,46 @@ async function showTableReextractDialog(options) {
             </style>
             <div id="tableReextractDialog">
                 <h3 style="margin-top: 0;">テーブル再抽出設定</h3>
+
                 <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">ヘッダ（カンマ区切り）:</label>
-                    <input type="text" id="tableHeaderInput" value="${headerText || ''}" />
-                    <small class="trd-hint">列見出しをカンマで区切って入力（例: Weapon,Damage,Price）</small>
-                </div>
-                <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">行数:</label>
-                    <input type="number" id="tableRowsInput" value="${guessedRows}" min="1" />
-                    <small class="trd-hint">テーブルの行数を指定してください</small>
-                </div>
-                <div style="margin-bottom: 15px;">
-                    <div class="trd-guess">
-                        <strong>推測値:</strong> ${guessedRows}行 × ${guessedCols}列
+                    <label style="display: block; margin-bottom: 6px; font-weight: bold;">抽出方式:</label>
+                    <div class="trd-mode-selector">
+                        <label>
+                            <input type="radio" name="trdMode" value="grid" checked />
+                            グリッド指定（従来）
+                        </label>
+                        <label>
+                            <input type="radio" name="trdMode" value="ai" />
+                            AI 抽出
+                        </label>
                     </div>
                 </div>
+
+                <div id="trdGridSection">
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">ヘッダ（カンマ区切り）:</label>
+                        <input type="text" id="tableHeaderInput" value="${headerText || ''}" />
+                        <small class="trd-hint">列見出しをカンマで区切って入力（例: Weapon,Damage,Price）</small>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">行数:</label>
+                        <input type="number" id="tableRowsInput" value="${guessedRows}" min="1" />
+                        <small class="trd-hint">テーブルの行数を指定してください</small>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <div class="trd-guess">
+                            <strong>推測値:</strong> ${guessedRows}行 × ${guessedCols}列
+                        </div>
+                    </div>
+                </div>
+
+                <div id="trdAiSection" style="display: none; margin-bottom: 15px;">
+                    <div class="trd-ai-info">
+                        <strong>AI を使って表領域の画像を認識し、各行をパイプ区切りの段落として追加します。</strong><br>
+                        ${aiHint}
+                    </div>
+                </div>
+
                 <div class="trd-actions">
                     <button id="tableDialogPreview" class="trd-btn">枠線描画</button>
                     <button id="tableDialogCancel" class="trd-btn">キャンセル</button>
@@ -3023,15 +3113,39 @@ async function showTableReextractDialog(options) {
         const okButton = document.getElementById('tableDialogOK');
         const cancelButton = document.getElementById('tableDialogCancel');
         const previewButton = document.getElementById('tableDialogPreview');
+        const gridSection = document.getElementById('trdGridSection');
+        const aiSection = document.getElementById('trdAiSection');
 
         // フォーカスをヘッダ入力に設定
         setTimeout(() => headerInput.focus(), 100);
+
+        // モード切替ハンドラ
+        const modeRadios = container.querySelectorAll('input[name="trdMode"]');
+        const updateMode = () => {
+            const isAI = container.querySelector('input[name="trdMode"]:checked')?.value === 'ai';
+            gridSection.style.display = isAI ? 'none' : '';
+            aiSection.style.display = isAI ? '' : 'none';
+            previewButton.style.display = isAI ? 'none' : '';
+            if (!isAI) {
+                setTimeout(() => headerInput.focus(), 50);
+            }
+        };
+        modeRadios.forEach((r) => r.addEventListener('change', updateMode));
 
         const cleanup = () => {
             document.body.removeChild(container);
         };
 
+        const getSelectedMode = () =>
+            container.querySelector('input[name="trdMode"]:checked')?.value || 'grid';
+
         const resolveValues = () => {
+            const mode = getSelectedMode();
+
+            if (mode === 'ai') {
+                return { mode: 'ai' };
+            }
+
             const rows = parseInt(rowsInput.value, 10) || guessedRows;
             const headerTextValue = headerInput.value.trim();
 
@@ -3044,7 +3158,7 @@ async function showTableReextractDialog(options) {
                 cols = segmentCount > 0 ? segmentCount : guessedCols;
             }
 
-            return { rows, cols, finalHeaderText };
+            return { mode: 'grid', rows, cols, finalHeaderText };
         };
 
         const handleOK = () => {
