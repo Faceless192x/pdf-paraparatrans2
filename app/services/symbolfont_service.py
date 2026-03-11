@@ -4,7 +4,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, List
 
 
 _BOOK_FONT_FAMILY_PATTERN = re.compile(r"font-family\s*:\s*([^;\n]+)", re.IGNORECASE)
@@ -36,28 +36,71 @@ def _extract_book_font_name(style_value: str) -> str:
 
 @dataclass
 class SymbolFontService:
-    symbolfont_dict_path: str
-    symbolfonts_path: str
+    symbolfonts_dir: str
+
+    def _font_file_path(self, font_name: str) -> str:
+        """フォント名に対応するファイルパスを返す。"""
+        return os.path.join(self.symbolfonts_dir, font_name + ".txt")
+
+    def list_font_names(self) -> List[str]:
+        """symbolfonts/ ディレクトリ内のフォント名一覧を返す。"""
+        names: List[str] = []
+        try:
+            for entry in os.listdir(self.symbolfonts_dir):
+                if entry.lower().endswith(".txt") and os.path.isfile(
+                    os.path.join(self.symbolfonts_dir, entry)
+                ):
+                    names.append(entry[:-4])  # strip .txt
+        except OSError:
+            pass
+        return sorted(names)
 
     def get_registered(self) -> Dict[str, str]:
-        """symbolfont_dict.txt から全マッピングを読み込んで返す。"""
+        """symbolfonts/ 配下の全ファイルを走査して全マッピングを返す。
+
+        戻り値形式: { "FontName.char": "replacement", ... }
+        """
         symbols: Dict[str, str] = {}
-        if os.path.exists(self.symbolfont_dict_path):
-            with open(self.symbolfont_dict_path, "r", encoding="utf-8") as f:
+        try:
+            entries = os.listdir(self.symbolfonts_dir)
+        except OSError:
+            return symbols
+
+        for filename in sorted(entries):
+            if not filename.lower().endswith(".txt"):
+                continue
+            file_path = os.path.join(self.symbolfonts_dir, filename)
+            if not os.path.isfile(file_path):
+                continue
+            font_name = filename[:-4]  # strip .txt
+            with open(file_path, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line or line.startswith("#"):
                         continue
                     parts = line.split("\t", 1)
-                    if len(parts) == 2:
-                        symbols[parts[0]] = parts[1]
+                    if len(parts) == 2 and parts[0]:
+                        key = f"{font_name}.{parts[0]}"
+                        symbols[key] = parts[1]
+
         return symbols
 
     def register(self, font_style: str, replacement: str) -> None:
-        """font_style のマッピングを追加/更新し、フォント名を symbolfonts.txt にも登録する。"""
+        """font_style のマッピングを追加/更新する。
+
+        font_style は "FontName.char" 形式。
+        """
+        if "." not in font_style:
+            raise ValueError(f"font_style は 'FontName.char' 形式にしてください: {font_style}")
+        font_name, char = font_style.split(".", 1)
+        font_name = font_name.strip()
+        if not font_name or char == "":
+            raise ValueError(f"font_style の形式が不正です: {font_style}")
+
+        file_path = self._font_file_path(font_name)
         lines: list = []
-        if os.path.exists(self.symbolfont_dict_path):
-            with open(self.symbolfont_dict_path, "r", encoding="utf-8") as f:
+        if os.path.exists(file_path):
+            with open(file_path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
 
         # 既存エントリを除去
@@ -66,75 +109,80 @@ class SymbolFontService:
             if line.strip().startswith("#"):
                 filtered.append(line)
             else:
-                parts = line.strip().split("\t")
-                if not (parts and parts[0] == font_style):
+                parts = line.strip().split("\t", 1)
+                if not (parts and parts[0] == char):
                     filtered.append(line)
 
-        filtered.append(f"{font_style}\t{replacement}\n")
+        filtered.append(f"{char}\t{replacement}\n")
 
-        os.makedirs(os.path.dirname(self.symbolfont_dict_path), exist_ok=True)
-        with open(self.symbolfont_dict_path, "w", encoding="utf-8") as f:
+        os.makedirs(self.symbolfonts_dir, exist_ok=True)
+        with open(file_path, "w", encoding="utf-8") as f:
             f.writelines(filtered)
 
-        # symbolfonts.txt にフォント名を追記（未登録の場合のみ）
-        font_name = font_style.split(".")[0] if "." in font_style else font_style
-        self._ensure_font_name(font_name)
-
     def delete(self, key: str) -> None:
-        """key に対応するマッピングを symbolfont_dict.txt から削除する。"""
+        """key に対応するマッピングを削除する。
+
+        key は "FontName.char" 形式。
+        """
+        if "." not in key:
+            return
+        font_name, char = key.split(".", 1)
+        font_name = font_name.strip()
+        if not font_name:
+            return
+
+        file_path = self._font_file_path(font_name)
+        if not os.path.exists(file_path):
+            return
+
         lines: list = []
-        if os.path.exists(self.symbolfont_dict_path):
-            with open(self.symbolfont_dict_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
+        with open(file_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
 
         filtered = []
         for line in lines:
             if line.strip().startswith("#"):
                 filtered.append(line)
             else:
-                parts = line.strip().split("\t")
-                if not (parts and parts[0] == key):
+                parts = line.strip().split("\t", 1)
+                if not (parts and parts[0] == char):
                     filtered.append(line)
 
-        os.makedirs(os.path.dirname(self.symbolfont_dict_path), exist_ok=True)
-        with open(self.symbolfont_dict_path, "w", encoding="utf-8") as f:
-            f.writelines(filtered)
+        data_lines = [l for l in filtered if l.strip() and not l.strip().startswith("#")]
+        if not data_lines:
+            # マッピングが0件になったらファイルを削除
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+        else:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.writelines(filtered)
 
     def update_mappings(self, font_name: str, mappings: Dict[str, str]) -> None:
         """指定フォントのマッピングを一括更新する。"""
-        lines: list = []
-        if os.path.exists(self.symbolfont_dict_path):
-            with open(self.symbolfont_dict_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
+        file_path = self._font_file_path(font_name)
 
-        # 対象フォントのエントリを除去（コメント・空行は保持）
-        filtered = []
-        for line in lines:
-            line_stripped = line.strip()
-            if not line_stripped or line_stripped.startswith("#"):
-                filtered.append(line)
-            else:
-                parts = line_stripped.split("\t")
-                if not (parts and parts[0].startswith(font_name + ".")):
-                    if line and not line.endswith("\n"):
-                        filtered.append(line + "\n")
-                    else:
-                        filtered.append(line)
+        if not mappings:
+            # 0件になったらファイルを削除
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except OSError:
+                    pass
+            return
 
-        # 新しいマッピングを追加
+        os.makedirs(self.symbolfonts_dir, exist_ok=True)
+        lines = []
         for key, replacement in mappings.items():
             if key and replacement:
-                key_clean = key.replace("\n", "").replace("\r", "").strip()
+                char_clean = key.replace("\n", "").replace("\r", "").strip()
                 replacement_clean = replacement.replace("\n", "").replace("\r", "").strip()
-                if key_clean and replacement_clean:
-                    filtered.append(f"{key_clean}\t{replacement_clean}\n")
+                if char_clean and replacement_clean:
+                    lines.append(f"{char_clean}\t{replacement_clean}\n")
 
-        os.makedirs(os.path.dirname(self.symbolfont_dict_path), exist_ok=True)
-        with open(self.symbolfont_dict_path, "w", encoding="utf-8") as f:
-            f.writelines(filtered)
-
-        if mappings:
-            self._ensure_font_name(font_name)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
 
     def get_book_fonts(self, json_path: str) -> Dict[str, str]:
         """ブック JSON からフォント名一覧を抽出して返す。"""
@@ -151,16 +199,3 @@ class SymbolFontService:
 
         font_list = sorted(fonts)
         return {f: f for f in font_list}
-
-    def _ensure_font_name(self, font_name: str) -> None:
-        """symbolfonts.txt にフォント名が未登録の場合のみ追記する。"""
-        if os.path.exists(self.symbolfonts_path):
-            with open(self.symbolfonts_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            if font_name not in content:
-                with open(self.symbolfonts_path, "a", encoding="utf-8") as f:
-                    f.write(f"{font_name}\n")
-        else:
-            os.makedirs(os.path.dirname(self.symbolfonts_path), exist_ok=True)
-            with open(self.symbolfonts_path, "w", encoding="utf-8") as f:
-                f.write(f"{font_name}\n")

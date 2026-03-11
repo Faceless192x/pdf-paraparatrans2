@@ -8,15 +8,17 @@ parapara JSON の各段落について、`src_html` を元に `src_text` を再�
 シンボルフォント由来の ASCII 文字をフォント別の置換文字列に置換します。
 
 - 抽出時にしか補正できない問題を避けるため「後工程」で何度でも適用できます。
-- 何がシンボルフォントかは `symbolfont_dict.txt` のフォント名群（キー）が
+- 何がシンボルフォントかは `symbolfonts/` ディレクトリのファイル名（フォント名）が
     JSON の span class 名（例: `GloranthaCoreRunes_Regular_0100`）の先頭に一致するかで判断します。
 
 辞書ファイル形式
 ----------------
-各行: `フォント名.キャラクター\t置換後文字列`
-例:
-  Wingdings.a\t■
-  Wingdings.b\t▲
+`symbolfonts/` ディレクトリに 1フォント1ファイル。
+ファイル名: `FontName.txt`
+各行: `キャラクター\t置換後文字列`
+例 (symbolfonts/Wingdings.txt):
+  a\t■
+  b\t▲
 
 注意:
 - `src_html` は `<span class="Font_Name_0100">text</span>` の連結であることを前提。
@@ -24,7 +26,7 @@ parapara JSON の各段落について、`src_html` を元に `src_text` を再�
 
 使い方
 ------
-  python modules/parapara_symbolfont_rebuild.py path/to/book.json [path/to/symbolfont_dict.txt]
+  python modules/parapara_symbolfont_rebuild.py path/to/book.json [path/to/symbolfonts/]
 
 動作
 ----
@@ -57,38 +59,43 @@ def _font_from_class(span_class: str) -> str:
     return base
 
 
-def load_symbolfont_dict(dict_path: str) -> Dict[str, Dict[str, str]]:
-    """symbolfont_dict.txt を読み込んで {norm_font: {char: replacement}} を返す。"""
-    if not dict_path:
-        raise ValueError("dict_path is required")
-    if not os.path.exists(dict_path):
-        raise FileNotFoundError(f"symbolfont_dict not found: {dict_path}")
+def load_symbolfont_dict(symbolfonts_dir: str) -> Dict[str, Dict[str, str]]:
+    """symbolfonts/ ディレクトリを走査して {norm_font: {char: replacement}} を返す。
+
+    各ファイル名がフォント名 (FontName.txt)、各行が `char<TAB>replacement` 形式。
+    """
+    if not symbolfonts_dir:
+        raise ValueError("symbolfonts_dir is required")
+    if not os.path.isdir(symbolfonts_dir):
+        raise FileNotFoundError(f"symbolfonts directory not found: {symbolfonts_dir}")
 
     grouped: Dict[str, Dict[str, str]] = {}
-    with open(dict_path, "r", encoding="utf-8") as f:
-        for raw_line in f:
-            line = raw_line.strip("\n")
-            if not line.strip() or line.lstrip().startswith("#"):
-                continue
-            if "\t" not in line:
-                continue
-            key, value = line.split("\t", 1)
-            key = key.strip()
-            value = value.rstrip("\r").strip()
-            if not key:
-                continue
+    try:
+        entries = os.listdir(symbolfonts_dir)
+    except OSError:
+        return grouped
 
-            # key: FontName.char
-            # 最初の '.' を区切りとして使い、後ろ側はそのまま保持する。
-            if "." not in key:
-                continue
-            font_name, ch = key.split(".", 1)
-            font_name = font_name.strip()
-            if not font_name or ch == "":
-                continue
-
-            norm_font = _normalize_font_name(font_name)
-            grouped.setdefault(norm_font, {})[ch] = value
+    for filename in sorted(entries):
+        if not filename.lower().endswith(".txt"):
+            continue
+        file_path = os.path.join(symbolfonts_dir, filename)
+        if not os.path.isfile(file_path):
+            continue
+        font_name = filename[:-4]  # strip .txt
+        norm_font = _normalize_font_name(font_name)
+        with open(file_path, "r", encoding="utf-8") as f:
+            for raw_line in f:
+                line = raw_line.strip("\n")
+                if not line.strip() or line.lstrip().startswith("#"):
+                    continue
+                if "\t" not in line:
+                    continue
+                ch, value = line.split("\t", 1)
+                ch = ch.strip()
+                value = value.rstrip("\r").strip()
+                if ch == "":
+                    continue
+                grouped.setdefault(norm_font, {})[ch] = value
 
     return grouped
 
@@ -190,9 +197,9 @@ def atomicsave_json(json_path: str, data: dict) -> None:
                 pass
 
 
-def rebuild_src_text_in_file(json_path: str, symbolfont_dict_path: str) -> int:
+def rebuild_src_text_in_file(json_path: str, symbolfonts_dir: str) -> int:
     book_data = load_json(json_path)
-    symbolfont_map = load_symbolfont_dict(symbolfont_dict_path)
+    symbolfont_map = load_symbolfont_dict(symbolfonts_dir)
     changed = rebuild_src_text_in_book_data(book_data, symbolfont_map)
     if changed:
         atomicsave_json(json_path, book_data)
@@ -203,14 +210,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="src_html から src_text を再生成し、シンボルフォント置換を適用")
     parser.add_argument("json_file", help="対象 JSON ファイル")
     parser.add_argument(
-        "symbolfont_dict",
+        "symbolfonts_dir",
         nargs="?",
-        default=os.path.join("config", "symbolfont_dict.txt"),
-        help="symbolfont_dict.txt（省略時: config/symbolfont_dict.txt）",
+        default=os.path.join("symbolfonts"),
+        help="symbolfonts/ ディレクトリ（省略時: symbolfonts/）",
     )
     args = parser.parse_args()
 
-    changed = rebuild_src_text_in_file(args.json_file, args.symbolfont_dict)
+    changed = rebuild_src_text_in_file(args.json_file, args.symbolfonts_dir)
     print(f"Updated paragraphs: {changed}")
 
 

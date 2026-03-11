@@ -18,7 +18,7 @@ from app.repositories.settings_repo import load_settings, save_settings
 class DictService:
     app_dir: str
     data_folder: str
-    config_folder: str
+    dicts_folder: str
     dict_path: str
     get_paths: Callable[[str], Tuple[str, str]]
     should_skip_dir: Callable[[str], bool]
@@ -58,17 +58,15 @@ class DictService:
     def _list_config_dicts(self) -> List[Dict[str, str]]:
         dicts: List[Dict[str, str]] = []
         try:
-            entries = os.listdir(self.config_folder)
+            entries = os.listdir(self.dicts_folder)
         except OSError:
             return dicts
 
         for name in entries:
             lower = name.lower()
-            if lower in ("symbolfont_dict.txt", "symbolfonts.txt"):
+            if not lower.endswith(".txt"):
                 continue
-            if not (lower == "dict.txt" or lower.endswith(".dict.txt")):
-                continue
-            abs_path = os.path.join(self.config_folder, name)
+            abs_path = os.path.join(self.dicts_folder, name)
             if not os.path.isfile(abs_path):
                 continue
             rel_path = self._relpath_from_abs(abs_path)
@@ -128,7 +126,7 @@ class DictService:
         ensure_dict_file(path, header=DEFAULT_DICT_HEADER)
 
     def merged_dict_file(self, dict_paths: List[str]) -> str:
-        tmp_fd, tmp_path = tempfile.mkstemp(dir=self.config_folder, suffix=".dict.txt", text=True)
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=self.dicts_folder, suffix=".dict.txt", text=True)
         with os.fdopen(tmp_fd, "w", encoding="utf-8") as out:
             out.write(DEFAULT_DICT_HEADER)
             for path in dict_paths:

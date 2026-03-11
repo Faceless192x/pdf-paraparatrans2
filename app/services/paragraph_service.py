@@ -74,13 +74,11 @@ class ParagraphService:
     def __init__(
         self,
         data_folder: str,
-        simble_dict_path: str,
-        symbolfont_dict_path: str,
+        symbolfonts_dir: str,
         is_url_book_name: Callable[[str], bool],
     ) -> None:
         self._data_folder = data_folder
-        self._simble_dict_path = simble_dict_path
-        self._symbolfont_dict_path = symbolfont_dict_path
+        self._symbolfonts_dir = symbolfonts_dir
         self._is_url_book_name = is_url_book_name
 
     # ------------------------------------------------------------------
@@ -162,8 +160,8 @@ class ParagraphService:
 
     def auto_tagging(self, json_path: str, current_page: Optional[int]) -> Optional[dict]:
         """自動タグ付けを実行し、delta を返す。"""
-        structure_tagging(json_path, self._simble_dict_path)
-        join_flags_in_file(json_path, self._simble_dict_path)
+        structure_tagging(json_path, self._symbolfonts_dir)
+        join_flags_in_file(json_path, self._symbolfonts_dir)
 
         delta = None
         if current_page is not None:
@@ -189,7 +187,7 @@ class ParagraphService:
         Returns:
             (変更段落数, delta or None)
         """
-        changed = rebuild_src_text_in_file(json_path, self._symbolfont_dict_path)
+        changed = rebuild_src_text_in_file(json_path, self._symbolfonts_dir)
 
         delta = None
         if current_page is not None:

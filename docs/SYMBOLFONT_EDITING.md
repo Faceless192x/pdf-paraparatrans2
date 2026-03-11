@@ -2,29 +2,42 @@
 
 このページは、シンボルフォント由来文字の置換設定を編集する手順をまとめたものです。
 
-## 1. 編集対象ファイル
+## 1. 編集対象ディレクトリ
 
-- 置換辞書: `config/symbolfont_dict.txt`
-- 対象フォント一覧: `config/symbolfonts.txt`
+- `symbolfonts/` ディレクトリ（リポジトリ直下）
 
-## 2. 置換辞書のフォーマット
-
-```text
-フォント名.キャラクター<TAB>置換後文字列
-```
+各シンボルフォントにつき 1 ファイルを作成します。
 
 例:
+- `symbolfonts/GloranthaRuneIcons.txt`
+- `symbolfonts/GloranthaCoreRunes.txt`
+- `symbolfonts/Wingdings.txt`
+
+## 2. ファイルフォーマット
+
+ファイル名: `フォント名.txt`
+
+ファイル内容（タブ区切り）:
 
 ```text
-Wingdings.a	■
-Wingdings.b	▲
-GloranthaCoreRunes.1	[Ф1]
+キャラクター<TAB>置換後文字列
+```
+
+例 (`symbolfonts/GloranthaCoreRunes.txt`):
+
+```text
+,[Man]
+.[Fire/Sky]
+/[Moon]
+?[Chaos]
+w[Water]
+e[Earth]
 ```
 
 ## 3. 設定手順
 
-1. `config/symbolfonts.txt` に対象フォント名を追加（1行1フォント）
-2. `config/symbolfont_dict.txt` に `フォント名.文字` と置換後文字列を追記
+1. `symbolfonts/` に `フォント名.txt` ファイルを作成（存在しない場合）
+2. `キャラクター<TAB>置換後文字列` 形式で各行を記述
 3. 対象文書画面で **`(シンボル置換)`** を実行
 
 ## 4. UIでの登録（対応環境）
@@ -35,13 +48,20 @@ GloranthaCoreRunes.1	[Ф1]
 - 置換文字列を入力して登録
 - 登録済みルールの削除
 
-## 5. 反映されないとき
+シンボルフォントメンテナンス画面 (`/symbol_fonts_maintenance`) でも一括管理できます。
+
+## 5. フォント一覧について
+
+`symbolfonts/` ディレクトリにファイルが存在するフォントが対象フォント一覧として扱われます。
+フォントのマッピングが 0 件になった場合、ファイルは自動的に削除されます。
+
+## 6. 反映されないとき
 
 - 置換設定編集後に **`(シンボル置換)`** を再実行する
 - 必要に応じて **`1.パラグラフ抽出`** を再実行する
 - ファイル権限（読み取り専用）を確認する
 
-## 6. 関連資料
+## 7. 関連資料
 
 実装背景やAPI仕様は次のドキュメントを参照してください。
 
