@@ -148,18 +148,18 @@ def set_block_tag_to_analized_head_styles(analyzed_head_styles, symbol_fonts):
         else:
             style_value["block_tag"] = "p"  # デフォルトは p
 
-def load_symbol_fonts(file_path=None):
+def load_symbol_fonts(symbolfonts_dir=None):
     """
-    シンボルフォント名のリストを指定されたファイルから読み込む。
-    ファイルが指定されない場合、または存在しない場合は固定リストを使用する。
+    symbolfonts/ ディレクトリからシンボルフォント名のリストを読み込む。
+    ディレクトリが指定されない場合、または存在しない場合は固定リストを使用する。
 
     Args:
-        file_path (str): シンボルフォント名を記載したファイルのパス
+        symbolfonts_dir (str): symbolfonts/ ディレクトリのパス
 
     Returns:
         list: シンボルフォント名のリスト
     """
-    # 固定リスト
+    # 固定リスト（ディレクトリが存在しない場合のフォールバック）
     default_symbol_fonts = [
         "Wingdings", "Webdings", "Segoe_UI_Symbol", "Apple_Symbols",
         "Font_Awesome", "Material_Icons", "Ionicons", "Entypo",
@@ -169,24 +169,19 @@ def load_symbol_fonts(file_path=None):
         "GloranthaCoreRunes","GloranthaRuneIcons"
     ]
 
-    # ファイルパスが指定されていない場合、固定リストを返す
-    if not file_path:
+    if not symbolfonts_dir or not os.path.isdir(symbolfonts_dir):
         return default_symbol_fonts
 
-    # ファイルが存在しない場合、固定リストを出力して返す
-    if not os.path.exists(file_path):
-        print(f"Symbol font file not found: {file_path}. Using default list.")
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(default_symbol_fonts))
-        return default_symbol_fonts
-
-    # ファイルからシンボルフォント名を読み込む
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            symbol_fonts = [line.strip() for line in f if line.strip()]
-        return symbol_fonts
+        names = [
+            entry[:-4]
+            for entry in os.listdir(symbolfonts_dir)
+            if entry.lower().endswith(".txt")
+            and os.path.isfile(os.path.join(symbolfonts_dir, entry))
+        ]
+        return sorted(names) if names else default_symbol_fonts
     except Exception as e:
-        print(f"Error reading symbol font file: {e}. Using default list.")
+        print(f"Error reading symbolfonts directory: {e}. Using default list.")
         return default_symbol_fonts
 
 
@@ -207,12 +202,12 @@ def get_dominant_class(src_html):
     # Find the class with the maximum character count
     return max(class_counts, key=class_counts.get, default=None) if class_counts else None
 
-def structure_tagging(file_path, symbol_font_path):
+def structure_tagging(file_path, symbolfonts_dir):
     try:
         book_data = load_json(file_path)
 
         # シンボルフォント名のリストを読み込む
-        symbol_fonts = load_symbol_fonts(symbol_font_path)
+        symbol_fonts = load_symbol_fonts(symbolfonts_dir)
 
         # パラグラフスタイルの解析と block_tag の設定
         set_analyzed_block_tags(book_data, symbol_fonts)

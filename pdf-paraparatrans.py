@@ -253,9 +253,12 @@ def _get_app_dir():
 
 APP_DIR = _get_app_dir()
 
-# data/ は入出力（pdf/json/html）、config/ はユーザー設定（辞書・settings）
+# data/ は入出力（pdf/json/html）、config/ はアプリ設定（サイトプロファイル等）
+# dicts/ は対訳辞書、symbolfonts/ はシンボルフォント置換データ
 DATA_FOLDER = os.path.abspath(os.getenv("PARAPARATRANS_DATA_DIR", os.path.join(APP_DIR, "data")))
 CONFIG_FOLDER = os.path.abspath(os.getenv("PARAPARATRANS_CONFIG_DIR", os.path.join(APP_DIR, "config")))
+DICTS_FOLDER = os.path.abspath(os.getenv("PARAPARATRANS_DICTS_DIR", os.path.join(APP_DIR, "dicts")))
+SYMBOLFONTS_FOLDER = os.path.abspath(os.getenv("PARAPARATRANS_SYMBOLFONTS_DIR", os.path.join(APP_DIR, "symbolfonts")))
 
 URL_BOOKS_DIRNAME = "url_books"
 URL_BOOK_PREFIX = "url/"
@@ -273,9 +276,7 @@ MAX_PDF_UPLOAD_BYTES = MAX_PDF_UPLOAD_MB * 1024 * 1024
 MAX_PDF_REQUEST_OVERHEAD_BYTES = 2 * 1024 * 1024
 app.config["MAX_CONTENT_LENGTH"] = MAX_PDF_UPLOAD_BYTES + MAX_PDF_REQUEST_OVERHEAD_BYTES
 
-DICT_PATH = os.path.join(CONFIG_FOLDER, "dict.txt")
-SIMBLE_DICT_PATH = os.path.join(CONFIG_FOLDER, "symbolfonts.txt")
-SYMBOLFONT_DICT_PATH = os.path.join(CONFIG_FOLDER, "symbolfont_dict.txt")
+DICT_PATH = os.path.join(DICTS_FOLDER, "default.txt")
 
 
 
@@ -324,6 +325,8 @@ def _migrate_user_file(filename: str) -> None:
 
 os.makedirs(DATA_FOLDER, exist_ok=True)
 os.makedirs(CONFIG_FOLDER, exist_ok=True)
+os.makedirs(DICTS_FOLDER, exist_ok=True)
+os.makedirs(SYMBOLFONTS_FOLDER, exist_ok=True)
 
 
 def _startup_cleanup_tmp_files(folder: str, min_age_seconds: int = 600) -> int:
@@ -368,13 +371,9 @@ def _startup_cleanup_tmp_files(folder: str, min_age_seconds: int = 600) -> int:
 
 removed_tmp = 0
 removed_tmp += _startup_cleanup_tmp_files(DATA_FOLDER)
-removed_tmp += _startup_cleanup_tmp_files(CONFIG_FOLDER)
+removed_tmp += _startup_cleanup_tmp_files(DICTS_FOLDER)
 if removed_tmp:
     print(f"起動時クリーンアップ: tmpファイルを{removed_tmp}件削除しました")
-
-_migrate_user_file("dict.txt")
-_migrate_user_file("symbolfonts.txt")
-_migrate_user_file("symbolfont_dict.txt")
 
 
 def _migrate_settings_to_data() -> None:
@@ -400,7 +399,7 @@ def _migrate_settings_to_data() -> None:
 _migrate_settings_to_data()
 _sync_runtime_translator_from_settings()
 
-# dict.txtのひな形
+# dicts/default.txt のひな形
 DICT_TEMPLATE = """#英語\t#日本語\t#状態\t#出現回数
 Rune Quest\tルーンクエスト\t0\t0
 Runequest\tルーンクエスト\t0\t0
@@ -408,20 +407,12 @@ Glorantha\tグローランサ\t0\t0
 Detect Magic\t《魔力検知》\t1\t0
 """
 
-# dict.txtが存在しない場合にひな形を出力
+# dicts/default.txt が存在しない場合にひな形を出力
 if not os.path.exists(DICT_PATH):
-    print(f"dict.txt が存在しません。ひな形を作成します: {DICT_PATH}")
+    print(f"dicts/default.txt が存在しません。ひな形を作成します: {DICT_PATH}")
     os.makedirs(os.path.dirname(DICT_PATH), exist_ok=True)
     with open(DICT_PATH, "w", encoding="utf-8") as f:
         f.write(DICT_TEMPLATE)
-
-# symbolfont_dict.txt のひな形（存在しない場合だけ作成）
-SYMBOLFONT_DICT_TEMPLATE = """# symbolfont_dict.txt\n#\n# 形式: フォント名.キャラクター\t置換後文字列\n# 例:\n#   Wingdings.a\t■\n#   Wingdings.b\t▲\n#\n# メモ:\n# - フォント名は大小/空白/アンダースコア差を吸収して照合されます。\n# - 置換後文字列には翻訳拒否タグ等を含めてもOK（翻訳側で扱う想定）。\n\nWingdings.a\t■\nWingdings.b\t▲\n"""
-if not os.path.exists(SYMBOLFONT_DICT_PATH):
-    print(f"symbolfont_dict.txt が存在しません。ひな形を作成します: {SYMBOLFONT_DICT_PATH}")
-    os.makedirs(os.path.dirname(SYMBOLFONT_DICT_PATH), exist_ok=True)
-    with open(SYMBOLFONT_DICT_PATH, "w", encoding="utf-8") as f:
-        f.write(SYMBOLFONT_DICT_TEMPLATE)
 
 app.add_url_rule('/logstream', 'logstream', create_log_stream_endpoint())
 
@@ -796,7 +787,7 @@ def get_paths(pdf_name):
 dict_service = DictService(
     app_dir=APP_DIR,
     data_folder=DATA_FOLDER,
-    config_folder=CONFIG_FOLDER,
+    dicts_folder=DICTS_FOLDER,
     dict_path=DICT_PATH,
     get_paths=get_paths,
     should_skip_dir=_should_skip_dir,
@@ -823,8 +814,7 @@ app.register_blueprint(_bp_dict)
 
 # シンボルフォント Blueprint を登録（app/blueprints/symbol_font_bp.py）
 _symbolfont_service = SymbolFontService(
-    symbolfont_dict_path=SYMBOLFONT_DICT_PATH,
-    symbolfonts_path=SIMBLE_DICT_PATH,
+    symbolfonts_dir=SYMBOLFONTS_FOLDER,
 )
 _bp_symbol_font = create_symbol_font_blueprint(
     symbolfont_service=_symbolfont_service,
@@ -899,8 +889,7 @@ app.register_blueprint(_bp_export)
 # 段落管理 Blueprint を登録（app/blueprints/paragraph_bp.py）
 _paragraph_service = ParagraphService(
     data_folder=DATA_FOLDER,
-    simble_dict_path=SIMBLE_DICT_PATH,
-    symbolfont_dict_path=SYMBOLFONT_DICT_PATH,
+    symbolfonts_dir=SYMBOLFONTS_FOLDER,
     is_url_book_name=_is_url_book_name,
 )
 _bp_paragraph = create_paragraph_blueprint(

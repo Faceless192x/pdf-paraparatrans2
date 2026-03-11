@@ -19,7 +19,7 @@ from typing import Callable, Dict, List, Optional
 from modules.parapara_dict_replacer import load_dictionary, replace_with_dict
 import sys
 
-DICT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "dict.txt")
+DICT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dicts", "default.txt")
 
 try:
     # パッケージとして読み込まれる（Flaskアプリなど）ケース

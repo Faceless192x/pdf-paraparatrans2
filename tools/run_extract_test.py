@@ -72,7 +72,7 @@ def main() -> int:
     extract_paragraphs(pdf_path, json_path)
 
     if not args.skip_tagging:
-        symbol_font_path = os.path.join(PROJECT_ROOT, "config", "symbolfonts.txt")
+        symbol_font_path = os.path.join(PROJECT_ROOT, "symbolfonts")
         print("Running structure tagging...")
         structure_tagging(json_path, symbol_font_path)
 

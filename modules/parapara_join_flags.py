@@ -21,9 +21,9 @@ import tempfile
 import argparse
 import re
 
-def load_symbol_fonts(file_path=None):
+def load_symbol_fonts(symbolfonts_dir=None):
     """
-    シンボルフォント名リストをファイルから読み込む。未指定/ファイル未検出時はデフォルトリストを返す。
+    symbolfonts/ ディレクトリからシンボルフォント名リストを読み込む。未指定/ディレクトリ未検出時はデフォルトリストを返す。
     """
     default = [
         "Wingdings", "Webdings", "Segoe_UI_Symbol", "Apple_Symbols",
@@ -33,11 +33,16 @@ def load_symbol_fonts(file_path=None):
         "Symbols_Nerd_Font",
         "GloranthaCoreRunes","GloranthaRuneIcons"
     ]
-    if not file_path or not os.path.exists(file_path):
+    if not symbolfonts_dir or not os.path.isdir(symbolfonts_dir):
         return default
     try:
-        with open(file_path, encoding='utf-8') as f:
-            return [line.strip() for line in f if line.strip()]
+        names = [
+            entry[:-4]
+            for entry in os.listdir(symbolfonts_dir)
+            if entry.lower().endswith(".txt")
+            and os.path.isfile(os.path.join(symbolfonts_dir, entry))
+        ]
+        return sorted(names) if names else default
     except Exception:
         return default
 
@@ -58,12 +63,12 @@ def set_join_flags(book_data, symbol_fonts):
 
     return book_data
 
-def join_flags_in_file(json_file, symbol_font_file=None):
+def join_flags_in_file(json_file, symbolfonts_dir=None):
     """
     JSON ファイルを読み込み、set_join_flags を適用して保存。返り値は更新後のデータ。
     """
     data = load_json(json_file)
-    fonts = load_symbol_fonts(symbol_font_file)
+    fonts = load_symbol_fonts(symbolfonts_dir)
     set_join_flags(data, fonts)
     atomicsave_json(json_file, data)
     return data

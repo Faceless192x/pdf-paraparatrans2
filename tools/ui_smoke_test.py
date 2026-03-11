@@ -226,8 +226,8 @@ def _run_dict_auto_translate_selected_checks(base_url: str, page) -> None:
             body=json.dumps(
                 {
                     "status": "ok",
-                    "dicts": [{"path": "config/dict.txt", "label": "dict.txt"}],
-                    "default_path": "config/dict.txt",
+                    "dicts": [{"path": "dicts/default.txt", "label": "default.txt"}],
+                    "default_path": "dicts/default.txt",
                 }
             ),
         ),
@@ -241,7 +241,7 @@ def _run_dict_auto_translate_selected_checks(base_url: str, page) -> None:
                 {
                     "status": "ok",
                     "entries": list_entries,
-                    "dict_path": "config/dict.txt",
+                    "dict_path": "dicts/default.txt",
                 }
             ),
         ),
@@ -251,7 +251,7 @@ def _run_dict_auto_translate_selected_checks(base_url: str, page) -> None:
         lambda route: route.fulfill(
             status=200,
             content_type="application/json",
-            body=json.dumps({"status": "ok", "entries": {}, "dict_path": "config/dict.txt"}),
+            body=json.dumps({"status": "ok", "entries": {}, "dict_path": "dicts/default.txt"}),
         ),
     )
 
@@ -278,7 +278,7 @@ def _run_dict_auto_translate_selected_checks(base_url: str, page) -> None:
 
     payload = payload_capture["payload"]
     _assert(payload is not None, "auto translate API payload was not captured")
-    _assert(payload.get("dict_path") == "config/dict.txt", "dict_path mismatch")
+    _assert(payload.get("dict_path") == "dicts/default.txt", "dict_path mismatch")
     entries = payload.get("entries") or []
     _assert(len(entries) == 1, f"selected-only payload expected 1 entry, got {len(entries)}")
     _assert(entries[0].get("original_word") == "Rune", "selected entry mismatch")
