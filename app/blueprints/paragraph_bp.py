@@ -237,6 +237,98 @@ def create_paragraph_blueprint(
             return jsonify({"status": "error", "message": f"テーブル再抽出エラー: {str(e)}"}), 500
 
     # ------------------------------------------------------------------
+    # /api/reextract_table_ai/<path:pdf_name> — AI による表再抽出
+    # ------------------------------------------------------------------
+
+    @bp.route("/api/reextract_table_ai/<path:pdf_name>", methods=["POST"])
+    def reextract_table_ai_api(pdf_name):
+        """AI（Gemini 等）を使って表領域を画像キャプチャし HTML テーブルとして再抽出する。
+
+        Request JSON:
+            current_page (int): 対象ページ番号（1始まり）。
+            paragraph_ids (list[str]): 選択段落 ID のリスト。
+            scale (float, optional): PNG レンダリング倍率（デフォルト 2.0）。
+            margin (float, optional): 領域拡張マージン・ポイント単位（デフォルト 12.0）。
+
+        Response JSON (ok):
+            status: "ok"
+            message: 追加件数を含むメッセージ。
+            added (int): 追加した行数。
+            delta (dict): 更新されたページデータ。
+
+        Response JSON (error):
+            status: "error"
+            message: エラーメッセージ。
+        """
+        from app.services.ai.exceptions import AIError
+
+        pdf_path, json_path = get_paths(pdf_name)
+        if not os.path.exists(json_path):
+            return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
+        if not os.path.exists(pdf_path):
+            return jsonify({"status": "error", "message": "PDFファイルが存在しません"}), 404
+
+        data = request.get_json(silent=True) or {}
+        page_number = data.get("current_page") or data.get("page_number")
+        paragraph_ids = data.get("paragraph_ids") or []
+
+        try:
+            scale = float(data.get("scale", 2.0))
+        except Exception:
+            scale = 2.0
+        try:
+            margin = float(data.get("margin", 12.0))
+        except Exception:
+            margin = 12.0
+
+        try:
+            page_number = int(page_number)
+        except Exception:
+            return jsonify({"status": "error", "message": "current_page が不正です"}), 400
+
+        if page_number <= 0:
+            return jsonify({"status": "error", "message": "current_page は1以上で指定してください"}), 400
+
+        if not isinstance(paragraph_ids, list):
+            return jsonify({"status": "error", "message": "paragraph_ids は配列で指定してください"}), 400
+
+        paragraph_ids = [str(pid).strip() for pid in paragraph_ids if str(pid).strip()]
+        if len(paragraph_ids) < 1:
+            return jsonify({"status": "error", "message": "1行以上選択してください"}), 400
+
+        try:
+            added, delta = paragraph_service.reextract_table_from_selection_ai(
+                pdf_name=pdf_name,
+                json_path=json_path,
+                pdf_path=pdf_path,
+                page_number=page_number,
+                paragraph_ids=paragraph_ids,
+                scale=scale,
+                margin=margin,
+            )
+
+            if added <= 0:
+                return jsonify({"status": "error", "message": "AI 再抽出結果が0件でした"}), 200
+
+            return jsonify(
+                {
+                    "status": "ok",
+                    "message": f"AI 表再抽出でテーブル行を{added}件追加しました",
+                    "added": added,
+                    "delta": delta,
+                }
+            ), 200
+        except AIError as e:
+            return jsonify({"status": "error", "message": str(e)}), 503
+        except ValueError as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
+        except LookupError as e:
+            return jsonify({"status": "error", "message": str(e)}), 404
+        except Exception as e:
+            current_app.logger.error(f"table AI reextract error: {str(e)}")
+            return jsonify({"status": "error", "message": f"AI 表再抽出エラー: {str(e)}"}), 500
+
+    # ------------------------------------------------------------------
     # /api/table_grid_suggest/<path:pdf_name> — テーブルグリッド推測
     # ------------------------------------------------------------------
 

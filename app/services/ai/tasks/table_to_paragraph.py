@@ -169,7 +169,8 @@ def html_to_pipe_rows(html_text: str) -> list[tuple[str, str]]:
             continue
         is_header = any(c.name == "th" for c in cells)
         block_tag = "th" if is_header else "tr"
-        cell_texts = [c.get_text(separator=" ", strip=True) for c in cells]
+        # セル内の複数行やスペースを1スペースに正規化してテキストを抽出
+        cell_texts = [" ".join(c.get_text(separator=" ", strip=True).split()) for c in cells]
         pipe_text = " | ".join(cell_texts)
         if pipe_text.strip():
             rows.append((block_tag, pipe_text))

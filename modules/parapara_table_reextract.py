@@ -762,3 +762,106 @@ def append_markdown_table_rows_by_specs(
         )
 
     return added_count
+
+
+# ---------------------------------------------------------------------------
+# AI 表再抽出ユーティリティ
+# ---------------------------------------------------------------------------
+
+def render_region_to_png(page: fitz.Page, rect: fitz.Rect, scale: float = 2.0) -> bytes:
+    """PDF ページの指定領域を PNG バイト列としてレンダリングする。
+
+    Args:
+        page: PyMuPDF のページオブジェクト。
+        rect: レンダリングする領域の矩形。
+        scale: レンダリング倍率（デフォルト 2.0 = 144 DPI 相当）。
+
+    Returns:
+        PNG フォーマットのバイト列。
+    """
+    matrix = fitz.Matrix(float(scale), float(scale))
+    pix = page.get_pixmap(matrix=matrix, clip=rect, alpha=False)
+    return pix.tobytes("png")
+
+
+def append_table_rows_from_pipe_texts(
+    page_paragraphs: Dict[str, Dict[str, Any]],
+    page_number: int,
+    table_id: str,
+    clip_rect: fitz.Rect,
+    pipe_rows: List[Tuple[str, str]],
+) -> int:
+    """縦パイプ形式の行テキストから段落を生成してページに追加する。
+
+    AI が HTML テーブルとして返したデータを ``html_to_pipe_rows()`` で
+    変換した結果を受け取り、既存の
+    ``append_markdown_table_rows_from_selection()`` と同じ段落フォーマット
+    で *page_paragraphs* に追加する。
+
+    Args:
+        page_paragraphs: ページの段落辞書（更新される）。
+        page_number: ページ番号。
+        table_id: テーブルID（段落 ID の生成に使用）。
+        clip_rect: 元の領域矩形（段落の bbox に使用）。
+        pipe_rows: ``html_to_pipe_rows()`` が返す
+            ``[(block_tag, pipe_text), ...]`` リスト。
+            *pipe_text* は ``"Cell A | Cell B | Cell C"`` 形式。
+
+    Returns:
+        追加した行数。
+    """
+    current_max_order = 0
+    for p in page_paragraphs.values():
+        current_max_order = max(current_max_order, _safe_int(p.get("order"), 0))
+
+    added_count = 0
+    for row_index, (block_tag, pipe_text) in enumerate(pipe_rows, start=1):
+        pipe_text = str(pipe_text or "").strip()
+        if not pipe_text:
+            continue
+
+        # html_to_pipe_rows は "Cell A | Cell B | Cell C" 形式で返す。
+        # 既存の _to_markdown_row と同じ "| Cell A | Cell B | Cell C |" 形式へ正規化する。
+        md_row = "| " + pipe_text + " |"
+
+        current_max_order += 1
+        para_id = f"tbl_{table_id}_r{row_index}"
+        unique_key = para_id
+        suffix = 2
+        while unique_key in page_paragraphs:
+            unique_key = f"{para_id}_{suffix}"
+            suffix += 1
+
+        paragraph = {
+            "id": unique_key,
+            "src_text": md_row,
+            "src_html": escape(md_row),
+            "src_joined": md_row,
+            "src_replaced": md_row,
+            "trans_auto": md_row,
+            "trans_text": md_row,
+            "comment": "",
+            "trans_status": "none",
+            "block_tag": block_tag,
+            "modified_at": "",
+            "base_style": "",
+            "bbox": [
+                float(clip_rect.x0),
+                float(clip_rect.y0),
+                float(clip_rect.x1),
+                float(clip_rect.y1),
+            ],
+            "column_order": 999,
+            "page_number": page_number,
+            "order": current_max_order,
+            "table_meta": {
+                "table_id": table_id,
+                "row": row_index,
+                "source": "ai_reextract",
+                "markdown_row": True,
+            },
+        }
+        page_paragraphs[unique_key] = paragraph
+        added_count += 1
+
+    return added_count
