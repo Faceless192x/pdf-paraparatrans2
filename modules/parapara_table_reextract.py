@@ -798,9 +798,14 @@ def _distribute_row_bboxes(
     if n_rows <= 0:
         return []
 
-    # 1. source_bboxes が行数と一致する場合はそのまま使用
+    # 1. source_bboxes が行数と一致する場合はそのまま使用。
+    #    ただし、すべての y0 が同一（前回の不正な抽出等で bbox が縮退している）
+    #    場合は位置情報として無意味なので、後続の方法にフォールスルーする。
+    #    丸め精度 2 桁 (0.01 pt) は表の行が重なる典型的な誤差より十分大きい。
     if source_bboxes and len(source_bboxes) == n_rows:
-        return [list(bb) for bb in source_bboxes]
+        y0_set = {round(bb[1], 2) for bb in source_bboxes}
+        if len(y0_set) > 1:
+            return [list(bb) for bb in source_bboxes]
 
     x0 = float(clip_rect.x0)
     y0 = float(clip_rect.y0)
