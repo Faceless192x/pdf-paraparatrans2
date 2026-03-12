@@ -53,18 +53,37 @@ _SYSTEM_PROMPT = (
     "- Markdown表は出力せず、通常の文章で出力する\n"
 )
 
-_HTML_TABLE_PROMPT = (
+_HTML_TABLE_PROMPT_BASE = (
     "以下の表の内容を読み取り、HTML の <table> タグで正確に出力してください。\n"
     "要件:\n"
     "- ヘッダ行は <tr><th>...</th></tr> で出力する\n"
     "- データ行は <tr><td>...</td></tr> で出力する\n"
-    "- 各 <tr> タグには data-height 属性を付与し、その行の高さが表全体の高さに占める割合を"
-    "整数（1〜100）で指定する（例: <tr data-height=\"25\">）\n"
-    "- 全行の data-height の合計は 100 程度にする\n"
+    "{height_instruction}"
     "- <table> タグ以外のテキスト（説明文、コードブロック記号など）は出力しない\n"
     "- セルの値はそのまま正確に出力する\n"
     "- 空欄のセルは空の <td></td> で出力する\n"
 )
+
+_HEIGHT_INSTRUCTION_RELATIVE = (
+    "- 各 <tr> タグには data-height 属性を付与し、その行の高さが表全体の高さに占める割合を"
+    "整数（1〜100）で指定する（例: <tr data-height=\"25\">）\n"
+    "- 全行の data-height の合計は 100 程度にする\n"
+)
+
+
+def _height_instruction_px(image_height_px: int) -> str:
+    """ピクセル単位の行高さ指示文字列を返す。
+
+    AI にレンダリング済み PNG の実際の高さ（ピクセル）を伝え、
+    各行の ``data-height`` をピクセル数で返すよう指示する。
+    相対比率（``_HEIGHT_INSTRUCTION_RELATIVE``）より具体的で正確。
+    """
+    return (
+        f"- 各 <tr> タグには data-height 属性を付与し、その行の高さをピクセル数（整数）で指定する\n"
+        f"  （例: <tr data-height=\"42\">）\n"
+        f"- 表領域の画像の高さは約 {image_height_px} ピクセルです。\n"
+        f"  各行の data-height の合計が {image_height_px} に近くなるよう指定してください\n"
+    )
 
 
 def build_request(
@@ -121,6 +140,7 @@ def build_html_request(
     model: str = "",
     num_rows: int = 0,
     num_cols: int = 0,
+    image_height_px: int = 0,
 ) -> AIRequest:
     """HTML テーブル形式で返す AIRequest を構築する。
 
@@ -135,11 +155,19 @@ def build_html_request(
         model: 使用モデル名（空なら設定値を使う）。
         num_rows: 期待する行数のヒント（0 なら不明として省略）。
         num_cols: 期待する列数のヒント（0 なら不明として省略）。
+        image_height_px: レンダリング済み PNG の高さ（ピクセル）。0 のとき
+            は相対比率（1〜100 の合計 100）指定にフォールバックする。
 
     Returns:
         構築された AIRequest。
     """
-    parts: list[str] = [_HTML_TABLE_PROMPT]
+    if image_height_px > 0:
+        height_instr = _height_instruction_px(image_height_px)
+    else:
+        height_instr = _HEIGHT_INSTRUCTION_RELATIVE
+
+    prompt_base = _HTML_TABLE_PROMPT_BASE.format(height_instruction=height_instr)
+    parts: list[str] = [prompt_base]
 
     if num_rows > 0 or num_cols > 0:
         hint_parts: list[str] = []

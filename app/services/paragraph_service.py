@@ -455,6 +455,8 @@ class ParagraphService:
 
             # 領域を PNG 画像としてレンダリング
             png_bytes = render_region_to_png(page, clip_rect, scale=float(scale))
+            # AI へのピクセル高さヒント（比率よりも精度が高い）
+            img_h_px = int(round((clip_rect.y1 - clip_rect.y0) * float(scale)))
 
             # 行数・列数のヒントを取得（AIへの構成ヒントとして使用）
             # 呼び出し元から明示的に指定された値がある場合はそちらを優先する
@@ -494,6 +496,7 @@ class ParagraphService:
             image_png=png_bytes,
             num_rows=hint_rows,
             num_cols=hint_cols,
+            image_height_px=img_h_px,
         )
         ai_response = ai_router.generate(ai_request)
 
