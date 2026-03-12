@@ -119,6 +119,8 @@ def build_html_request(
     table_title: str = "",
     temperature: float = 0.0,
     model: str = "",
+    num_rows: int = 0,
+    num_cols: int = 0,
 ) -> AIRequest:
     """HTML テーブル形式で返す AIRequest を構築する。
 
@@ -131,11 +133,24 @@ def build_html_request(
         table_title: 表のタイトルや番号（任意）。
         temperature: 生成温度。構造化出力のため低め (0.0) が望ましい。
         model: 使用モデル名（空なら設定値を使う）。
+        num_rows: 期待する行数のヒント（0 なら不明として省略）。
+        num_cols: 期待する列数のヒント（0 なら不明として省略）。
 
     Returns:
         構築された AIRequest。
     """
     parts: list[str] = [_HTML_TABLE_PROMPT]
+
+    if num_rows > 0 or num_cols > 0:
+        hint_parts: list[str] = []
+        if num_rows > 0:
+            hint_parts.append(f"{num_rows} 行")
+        if num_cols > 0:
+            hint_parts.append(f"{num_cols} 列")
+        parts.append(
+            "表の構成ヒント: この表は " + "、".join(hint_parts) + " で構成されています。"
+            "この行数・列数に合わせて出力してください。\n"
+        )
 
     if table_title:
         parts.append(f"表タイトル: {table_title}\n")

@@ -45,6 +45,7 @@ init_logging("pdf-paraparatrans.log")
 log_level = os.getenv("LOG_LEVEL", "WARNING").upper()
 if log_level not in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
     raise ValueError(f"Invalid LOG_LEVEL: {log_level}")
+logging.getLogger().setLevel(log_level)
 logging.getLogger('werkzeug').setLevel(log_level)
 
 # PDFからパラグラフJSON生成(header/footerは自動判定でセット)

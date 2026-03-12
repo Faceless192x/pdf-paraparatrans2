@@ -452,6 +452,11 @@ class ParagraphService:
             # 領域を PNG 画像としてレンダリング
             png_bytes = render_region_to_png(page, clip_rect, scale=float(scale))
 
+            # 行数・列数のヒントを取得（AIへの構成ヒントとして使用）
+            table_shape = suggest_table_shape_for_selection(page, page_paragraphs, available_ids)
+            hint_rows = int(table_shape.get("rows", 0)) if table_shape.get("ok") else 0
+            hint_cols = int(table_shape.get("cols", 0)) if table_shape.get("ok") else 0
+
         # 選択段落のテキストを補助コンテキストとして収集し、
         # 同時に bbox を y0 でソートして per-row bbox 割り当てに備える。
         rows_text = []
@@ -468,7 +473,17 @@ class ParagraphService:
         source_bboxes = sorted(source_bboxes_unsorted, key=lambda b: b[1])
 
         # AI リクエスト構築・送信（HTML テーブル形式で返させる）
-        ai_request = build_html_request(rows_text=rows_text, image_png=png_bytes)
+        logger.debug(
+            "[AI_REEXTRACT] table shape hint: rows=%d, cols=%d",
+            hint_rows,
+            hint_cols,
+        )
+        ai_request = build_html_request(
+            rows_text=rows_text,
+            image_png=png_bytes,
+            num_rows=hint_rows,
+            num_cols=hint_cols,
+        )
         ai_response = ai_router.generate(ai_request)
 
         logger.debug(
