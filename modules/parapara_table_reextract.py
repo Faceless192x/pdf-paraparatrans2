@@ -773,6 +773,7 @@ def _distribute_row_bboxes(
     n_rows: int,
     source_bboxes: Optional[List[List[float]]] = None,
     row_fracs: Optional[List[float]] = None,
+    sel_rect: Optional[fitz.Rect] = None,
 ) -> List[List[float]]:
     """N 行分の bbox を計算して返す。
 
@@ -780,17 +781,24 @@ def _distribute_row_bboxes(
 
     1. *source_bboxes* の長さが *n_rows* と一致する場合 → そのまま使用
        （PyMuPDF が検出した実際の座標なので最も正確）。
-    2. *row_fracs* の長さが *n_rows* と一致する場合 → 比率で *clip_rect* を分割
+    2. *row_fracs* の長さが *n_rows* と一致する場合 → 比率で分割
        （AI が ``data-height`` で返した推定割合）。
-    3. いずれも使えない場合 → *clip_rect* の高さを *n_rows* で等分。
+    3. いずれも使えない場合 → 分割対象矩形の高さを *n_rows* で等分。
+
+    分割に使う矩形は *sel_rect*（指定時）、なければ *clip_rect* を使用する。
+    *clip_rect* はレンダリング用に周囲にマージンを加えた矩形なので、
+    実際の表領域を表す *sel_rect* を渡すと bbox のずれを防げる。
 
     Args:
-        clip_rect: 全体の領域矩形。
+        clip_rect: 周囲にマージンを含む全体領域矩形（PNG レンダリング用）。
+            *sel_rect* が指定されない場合、こちらを分割基準として使用する。
         n_rows: 生成する行数。
         source_bboxes: 元の段落の bbox リスト（``[x0, y0, x1, y1]`` の並び、
             y0 でソート済みを期待）。行数が一致するときのみ使用される。
         row_fracs: 各行の高さ比率のリスト（合計 1.0 を期待、``n_rows`` と
             同じ長さのとき使用）。AI の ``data-height`` 属性から生成される。
+        sel_rect: 実際に選択された表領域の矩形（マージンなし）。指定した場合、
+            *row_fracs* および等分割の基準矩形としてこちらを優先する。
 
     Returns:
         *n_rows* 個の ``[x0, y0, x1, y1]`` リスト。
@@ -807,10 +815,13 @@ def _distribute_row_bboxes(
         if len(y0_set) > 1:
             return [list(bb) for bb in source_bboxes]
 
-    x0 = float(clip_rect.x0)
-    y0 = float(clip_rect.y0)
-    x1 = float(clip_rect.x1)
-    y1 = float(clip_rect.y1)
+    # row_fracs および等分割には sel_rect（マージンなし実選択範囲）を優先使用。
+    # sel_rect がない場合は clip_rect にフォールバックする。
+    dist_rect = sel_rect if sel_rect is not None else clip_rect
+    x0 = float(dist_rect.x0)
+    y0 = float(dist_rect.y0)
+    x1 = float(dist_rect.x1)
+    y1 = float(dist_rect.y1)
     total_h = y1 - y0
 
     # 2. row_fracs による比率分割
@@ -823,7 +834,7 @@ def _distribute_row_bboxes(
             y_cursor += row_h
         return result
 
-    # 3. clip_rect の y 範囲を n_rows 等分してストリップを生成
+    # 3. dist_rect の y 範囲を n_rows 等分してストリップを生成
     strip_h = total_h / n_rows
     result = []
     for i in range(n_rows):
@@ -857,6 +868,7 @@ def append_table_rows_from_pipe_texts(
     pipe_rows: List[Tuple[str, str]],
     source_bboxes: Optional[List[List[float]]] = None,
     row_fracs: Optional[List[float]] = None,
+    sel_rect: Optional[fitz.Rect] = None,
 ) -> int:
     """縦パイプ形式の行テキストから段落を生成してページに追加する。
 
@@ -876,7 +888,8 @@ def append_table_rows_from_pipe_texts(
         page_paragraphs: ページの段落辞書（更新される）。
         page_number: ページ番号。
         table_id: テーブルID（段落 ID の生成に使用）。
-        clip_rect: 元の領域矩形（bbox のフォールバックに使用）。
+        clip_rect: PNG レンダリングに使用した矩形（周囲にマージンを含む）。
+            *sel_rect* が省略された場合、bbox 分割の基準としても使用される。
         pipe_rows: ``html_to_pipe_rows_with_dims()`` が返す
             ``[(block_tag, pipe_text), ...]`` リスト。
             *pipe_text* は ``"Cell A | Cell B | Cell C"`` 形式。
@@ -884,6 +897,9 @@ def append_table_rows_from_pipe_texts(
             y0 でソート済み）。省略可。行数が一致するとき各行の bbox として使用。
         row_fracs: AI の ``data-height`` から算出した各行の高さ比率リスト
             （合計 1.0）。省略可。行数が一致するとき使用。
+        sel_rect: 実際に選択された表領域の矩形（マージンなし）。指定した場合、
+            bbox 分割の基準矩形（y0/y1 の範囲）として *clip_rect* より優先する。
+            フォールバック bbox にも使用される。
 
     Returns:
         追加した行数。
@@ -900,7 +916,10 @@ def append_table_rows_from_pipe_texts(
         for bt, pt in pipe_rows
         if str(pt or "").strip()
     ]
-    row_bboxes = _distribute_row_bboxes(clip_rect, len(valid_rows), source_bboxes, row_fracs)
+    row_bboxes = _distribute_row_bboxes(clip_rect, len(valid_rows), source_bboxes, row_fracs, sel_rect)
+
+    # フォールバック bbox は sel_rect（あれば）、なければ clip_rect を使用する。
+    fallback_rect = sel_rect if sel_rect is not None else clip_rect
 
     added_count = 0
     for row_index, (block_tag, pipe_text) in enumerate(valid_rows, start=1):
@@ -917,8 +936,8 @@ def append_table_rows_from_pipe_texts(
             suffix += 1
 
         bbox = row_bboxes[row_index - 1] if row_index - 1 < len(row_bboxes) else [
-            float(clip_rect.x0), float(clip_rect.y0),
-            float(clip_rect.x1), float(clip_rect.y1),
+            float(fallback_rect.x0), float(fallback_rect.y0),
+            float(fallback_rect.x1), float(fallback_rect.y1),
         ]
 
         paragraph = {

@@ -455,8 +455,9 @@ class ParagraphService:
 
             # 領域を PNG 画像としてレンダリング
             png_bytes = render_region_to_png(page, clip_rect, scale=float(scale))
-            # AI へのピクセル高さヒント（比率よりも精度が高い）
-            img_h_px = int(round((clip_rect.y1 - clip_rect.y0) * float(scale)))
+            # AI へのピクセル高さヒント: マージンを含む clip_rect ではなく
+            # 実際の表領域 sel_rect の高さを使う（bbox ずれを防ぐため）。
+            img_h_px = int(round((sel_rect.y1 - sel_rect.y0) * float(scale)))
 
             # 行数・列数のヒントを取得（AIへの構成ヒントとして使用）
             # 呼び出し元から明示的に指定された値がある場合はそちらを優先する
@@ -531,6 +532,7 @@ class ParagraphService:
             pipe_rows=pipe_rows,
             source_bboxes=source_bboxes,
             row_fracs=row_fracs,
+            sel_rect=sel_rect,
         )
 
         recalc_trans_status_counts(book_data)
