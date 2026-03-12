@@ -527,25 +527,6 @@ class ParagraphService:
             row_fracs,
         )
 
-        # row_fracs を PDF ポイント単位の行高さに換算して標準出力へ表示する。
-        # sel_rect が取得できている場合のみ（PDF アクセス中）計算可能。
-        if row_fracs and sel_rect is not None:
-            sel_h_pt = sel_rect.y1 - sel_rect.y0
-            row_heights_pt = [frac * sel_h_pt for frac in row_fracs]
-            row_y0_pt = [sel_rect.y0 + sum(row_heights_pt[:i]) for i in range(len(row_heights_pt))]
-            row_y1_pt = [y0 + h for y0, h in zip(row_y0_pt, row_heights_pt)]
-            print(
-                f"[AI_REEXTRACT] row bbox distribution"
-                f" (sel_rect y0={sel_rect.y0:.2f}, y1={sel_rect.y1:.2f}, h={sel_h_pt:.2f} pt):"
-            )
-            for i, (y0, y1, h, frac) in enumerate(
-                zip(row_y0_pt, row_y1_pt, row_heights_pt, row_fracs), start=1
-            ):
-                print(
-                    f"[AI_REEXTRACT]   row {i:2d}:"
-                    f" frac={frac:.4f}  h={h:.2f} pt  y0={y0:.2f}  y1={y1:.2f}"
-                )
-
         if not pipe_rows:
             snippet = ai_response.text[:120].replace("\n", " ").strip()
             raise ValueError(

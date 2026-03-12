@@ -275,6 +275,7 @@ def html_to_pipe_rows_with_dims(
     if total <= 0:
         return pipe_rows, []
 
+    print(f"[AI_REEXTRACT] data-height (raw AI): {raw_heights}  total={total}")
     row_fracs = [h / total for h in raw_heights]
     return pipe_rows, row_fracs
 
