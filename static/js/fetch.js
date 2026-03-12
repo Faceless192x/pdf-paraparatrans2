@@ -2005,6 +2005,8 @@ async function reextractTableFromSelectedLines(paragraphIds) {
                 body: JSON.stringify({
                     current_page: currentPage,
                     paragraph_ids: ids,
+                    rows: result.rows || undefined,
+                    cols: result.cols || undefined,
                 })
             });
         } else {
@@ -3074,15 +3076,21 @@ async function showTableReextractDialog(options) {
                         <input type="text" id="tableHeaderInput" value="${headerText || ''}" />
                         <small class="trd-hint">列見出しをカンマで区切って入力（例: Weapon,Damage,Price）</small>
                     </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">行数:</label>
-                        <input type="number" id="tableRowsInput" value="${guessedRows}" min="1" />
-                        <small class="trd-hint">テーブルの行数を指定してください</small>
-                    </div>
-                    <div style="margin-bottom: 15px;">
-                        <div class="trd-guess">
-                            <strong>推測値:</strong> ${guessedRows}行 × ${guessedCols}列
-                        </div>
+                </div>
+
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">行数:</label>
+                    <input type="number" id="tableRowsInput" value="${guessedRows}" min="1" />
+                    <small class="trd-hint">テーブルの行数（AI モードではヒントとして使用）</small>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">列数:</label>
+                    <input type="number" id="tableColsInput" value="${guessedCols}" min="1" />
+                    <small class="trd-hint">テーブルの列数（AI モードではヒントとして使用）</small>
+                </div>
+                <div id="trdGuessRow" style="margin-bottom: 15px;">
+                    <div class="trd-guess">
+                        <strong>推測値:</strong> ${guessedRows}行 × ${guessedCols}列
                     </div>
                 </div>
 
@@ -3109,6 +3117,7 @@ async function showTableReextractDialog(options) {
 
         const overlay = document.getElementById('tableReextractDialogOverlay');
         const rowsInput = document.getElementById('tableRowsInput');
+        const colsInput = document.getElementById('tableColsInput');
         const headerInput = document.getElementById('tableHeaderInput');
         const okButton = document.getElementById('tableDialogOK');
         const cancelButton = document.getElementById('tableDialogCancel');
@@ -3141,21 +3150,22 @@ async function showTableReextractDialog(options) {
 
         const resolveValues = () => {
             const mode = getSelectedMode();
+            const rows = parseInt(rowsInput.value, 10) || guessedRows;
+            const colsRaw = parseInt(colsInput.value, 10) || guessedCols;
 
             if (mode === 'ai') {
-                return { mode: 'ai' };
+                return { mode: 'ai', rows, cols: colsRaw };
             }
 
-            const rows = parseInt(rowsInput.value, 10) || guessedRows;
             const headerTextValue = headerInput.value.trim();
 
-            let cols = guessedCols;
+            let cols = colsRaw;
             let finalHeaderText = null;
 
             if (headerTextValue && headerTextValue.includes(',')) {
                 finalHeaderText = headerTextValue;
                 const segmentCount = headerTextValue.split(',').filter(s => s.trim()).length;
-                cols = segmentCount > 0 ? segmentCount : guessedCols;
+                cols = segmentCount > 0 ? segmentCount : colsRaw;
             }
 
             return { mode: 'grid', rows, cols, finalHeaderText };
@@ -3226,6 +3236,7 @@ async function showTableReextractDialog(options) {
         };
 
         rowsInput.addEventListener('keydown', handleKeyDown);
+        colsInput.addEventListener('keydown', handleKeyDown);
         headerInput.addEventListener('keydown', handleKeyDown);
     });
 }

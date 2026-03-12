@@ -383,6 +383,8 @@ class ParagraphService:
         paragraph_ids: list,
         scale: float = 2.0,
         margin: float = 12.0,
+        hint_rows: int = 0,
+        hint_cols: int = 0,
     ) -> Tuple[int, dict]:
         """AI（Gemini 等）を使って選択領域の表を画像から再抽出し段落として追加する。
 
@@ -397,6 +399,8 @@ class ParagraphService:
             paragraph_ids: 選択段落 ID のリスト。
             scale: PNG レンダリング倍率（デフォルト 2.0 = 144 DPI 相当）。
             margin: 選択領域の拡張マージン（PDF ポイント単位、デフォルト 12）。
+            hint_rows: 行数のヒント（0 なら自動推定）。
+            hint_cols: 列数のヒント（0 なら自動推定）。
 
         Returns:
             (追加行数, delta)
@@ -453,9 +457,16 @@ class ParagraphService:
             png_bytes = render_region_to_png(page, clip_rect, scale=float(scale))
 
             # 行数・列数のヒントを取得（AIへの構成ヒントとして使用）
-            table_shape = suggest_table_shape_for_selection(page, page_paragraphs, available_ids)
-            hint_rows = int(table_shape.get("rows", 0)) if table_shape.get("ok") else 0
-            hint_cols = int(table_shape.get("cols", 0)) if table_shape.get("ok") else 0
+            # 呼び出し元から明示的に指定された値がある場合はそちらを優先する
+            if hint_rows > 0 and hint_cols > 0:
+                pass  # caller-provided hints already set
+            else:
+                table_shape = suggest_table_shape_for_selection(page, page_paragraphs, available_ids)
+                if table_shape.get("ok"):
+                    if hint_rows <= 0:
+                        hint_rows = int(table_shape.get("rows", 0))
+                    if hint_cols <= 0:
+                        hint_cols = int(table_shape.get("cols", 0))
 
         # 選択段落のテキストを補助コンテキストとして収集し、
         # 同時に bbox を y0 でソートして per-row bbox 割り当てに備える。

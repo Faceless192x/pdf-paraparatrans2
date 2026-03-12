@@ -281,6 +281,21 @@ def create_paragraph_blueprint(
         except Exception:
             margin = 12.0
 
+        hint_rows = 0
+        hint_cols = 0
+        try:
+            v = data.get("rows")
+            if v is not None:
+                hint_rows = max(0, int(v))
+        except Exception:
+            pass
+        try:
+            v = data.get("cols")
+            if v is not None:
+                hint_cols = max(0, int(v))
+        except Exception:
+            pass
+
         try:
             page_number = int(page_number)
         except Exception:
@@ -305,6 +320,8 @@ def create_paragraph_blueprint(
                 paragraph_ids=paragraph_ids,
                 scale=scale,
                 margin=margin,
+                hint_rows=hint_rows,
+                hint_cols=hint_cols,
             )
 
             if added <= 0:
