@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import bisect
+import logging
 from dataclasses import dataclass
 from html import escape
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import fitz
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -813,6 +816,13 @@ def _distribute_row_bboxes(
     if source_bboxes and len(source_bboxes) == n_rows:
         y0_set = {round(bb[1], 2) for bb in source_bboxes}
         if len(y0_set) > 1:
+            logger.debug(
+                "[_distribute_row_bboxes] path=source_bboxes n_rows=%d"
+                " y0=%.2f y1=%.2f",
+                n_rows,
+                source_bboxes[0][1],
+                source_bboxes[-1][3],
+            )
             return [list(bb) for bb in source_bboxes]
 
     # row_fracs および等分割には sel_rect（マージンなし実選択範囲）を優先使用。
@@ -832,6 +842,15 @@ def _distribute_row_bboxes(
             row_h = total_h * max(0.0, float(frac))
             result.append([x0, y_cursor, x1, y_cursor + row_h])
             y_cursor += row_h
+        logger.debug(
+            "[_distribute_row_bboxes] path=row_fracs n_rows=%d"
+            " dist_rect=(y0=%.2f, y1=%.2f, h=%.2f pt)"
+            " result_first_y0=%.2f result_last_y1=%.2f",
+            n_rows,
+            y0, y1, total_h,
+            result[0][1] if result else float("nan"),
+            result[-1][3] if result else float("nan"),
+        )
         return result
 
     # 3. dist_rect の y 範囲を n_rows 等分してストリップを生成
@@ -841,6 +860,16 @@ def _distribute_row_bboxes(
         y_top = y0 + i * strip_h
         y_bottom = y_top + strip_h
         result.append([x0, y_top, x1, y_bottom])
+    logger.debug(
+        "[_distribute_row_bboxes] path=equal_split n_rows=%d"
+        " dist_rect=(y0=%.2f, y1=%.2f, h=%.2f pt)"
+        " strip_h=%.2f result_first_y0=%.2f result_last_y1=%.2f",
+        n_rows,
+        y0, y1, total_h,
+        strip_h,
+        result[0][1] if result else float("nan"),
+        result[-1][3] if result else float("nan"),
+    )
     return result
 
 
