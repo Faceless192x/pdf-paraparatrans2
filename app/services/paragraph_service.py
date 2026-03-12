@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import os
 import uuid
 from typing import Callable, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 import fitz
 
@@ -468,8 +471,21 @@ class ParagraphService:
         ai_request = build_html_request(rows_text=rows_text, image_png=png_bytes)
         ai_response = ai_router.generate(ai_request)
 
+        logger.debug(
+            "[AI_REEXTRACT] raw response (len=%d):\n%s",
+            len(ai_response.text),
+            ai_response.text,
+        )
+
         # HTML テーブル → 縦パイプ形式 + 行高さ比率
         pipe_rows, row_fracs = html_to_pipe_rows_with_dims(ai_response.text)
+
+        logger.debug(
+            "[AI_REEXTRACT] parsed: pipe_rows=%d, row_fracs=%s",
+            len(pipe_rows),
+            row_fracs,
+        )
+
         if not pipe_rows:
             snippet = ai_response.text[:120].replace("\n", " ").strip()
             raise ValueError(
