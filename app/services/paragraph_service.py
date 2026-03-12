@@ -449,13 +449,20 @@ class ParagraphService:
             # 領域を PNG 画像としてレンダリング
             png_bytes = render_region_to_png(page, clip_rect, scale=float(scale))
 
-        # 選択段落のテキストを補助コンテキストとして収集
+        # 選択段落のテキストを補助コンテキストとして収集し、
+        # 同時に bbox を y0 でソートして per-row bbox 割り当てに備える。
         rows_text = []
+        source_bboxes_unsorted = []
         for pid in available_ids:
             para = page_paragraphs.get(pid, {})
             text = str(para.get("src_joined") or para.get("src_text") or "").strip()
             if text:
                 rows_text.append(text)
+            bb = para.get("bbox")
+            if bb and len(bb) == 4:
+                source_bboxes_unsorted.append([float(v) for v in bb])
+        # y0（インデックス 1）でソートして行の上から下の順にする
+        source_bboxes = sorted(source_bboxes_unsorted, key=lambda b: b[1])
 
         # AI リクエスト構築・送信（HTML テーブル形式で返させる）
         ai_request = build_html_request(rows_text=rows_text, image_png=png_bytes)
@@ -470,13 +477,14 @@ class ParagraphService:
                 f"AI 応答の先頭: {snippet!r}"
             )
 
-        # 段落として追加
+        # 段落として追加（source_bboxes を渡して per-row bbox を割り当て）
         added = append_table_rows_from_pipe_texts(
             page_paragraphs=page_paragraphs,
             page_number=page_number,
             table_id=table_id,
             clip_rect=clip_rect,
             pipe_rows=pipe_rows,
+            source_bboxes=source_bboxes,
         )
 
         recalc_trans_status_counts(book_data)

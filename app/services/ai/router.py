@@ -34,7 +34,7 @@ def generate(request: AIRequest, provider_name: str | None = None) -> AIResponse
         AIConnectionError: サーバーへの接続失敗。
         AIGenerationError: プロバイダがAPIエラーを返した場合。
     """
-    _registry_module._ensure_defaults_registered()
+    _registry_module.ensure_defaults_registered()
 
     name = provider_name or _DEFAULT_PROVIDER
     if not name:

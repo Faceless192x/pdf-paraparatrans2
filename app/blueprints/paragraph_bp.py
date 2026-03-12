@@ -344,10 +344,10 @@ def create_paragraph_blueprint(
         """
         import os
 
-        from app.services.ai.registry import _ensure_defaults_registered, registered_names
+        from app.services.ai.registry import ensure_defaults_registered, registered_names
 
         try:
-            _ensure_defaults_registered()
+            ensure_defaults_registered()
             names = registered_names()
         except Exception:
             names = []

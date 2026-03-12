@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import re
 
+from bs4 import BeautifulSoup
+
 from app.services.ai.types import AIRequest
 
 
@@ -164,8 +166,6 @@ def html_to_pipe_rows(html_text: str) -> list[tuple[str, str]]:
         - block_tag: "th"（ヘッダ行）または "tr"（データ行）
         - pipe_text: "Cell A | Cell B | Cell C" 形式のテキスト
     """
-    from bs4 import BeautifulSoup  # beautifulsoup4 は requirements.txt に含まれる
-
     soup = BeautifulSoup(html_text, "html.parser")
     rows: list[tuple[str, str]] = []
 
@@ -196,7 +196,5 @@ def html_to_plain_text(html_text: str) -> str:
     Returns:
         タグを除去したプレーンテキスト。
     """
-    from bs4 import BeautifulSoup
-
     soup = BeautifulSoup(html_text, "html.parser")
     return soup.get_text(separator="\n", strip=True)

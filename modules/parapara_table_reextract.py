@@ -768,6 +768,46 @@ def append_markdown_table_rows_by_specs(
 # AI 表再抽出ユーティリティ
 # ---------------------------------------------------------------------------
 
+def _distribute_row_bboxes(
+    clip_rect: fitz.Rect,
+    n_rows: int,
+    source_bboxes: Optional[List[List[float]]] = None,
+) -> List[List[float]]:
+    """N 行分の bbox を計算して返す。
+
+    *source_bboxes* と *n_rows* が一致する場合はそれをそのまま返す。
+    一致しない場合は *clip_rect* の高さを *n_rows* で等分したストリップを返す。
+
+    Args:
+        clip_rect: 全体の領域矩形。
+        n_rows: 生成する行数。
+        source_bboxes: 元の段落の bbox リスト（``[x0, y0, x1, y1]`` の並び、
+            y0 でソート済みを期待）。行数が一致するときのみ使用される。
+
+    Returns:
+        *n_rows* 個の ``[x0, y0, x1, y1]`` リスト。
+    """
+    if n_rows <= 0:
+        return []
+
+    # source_bboxes が行数と一致する場合はそのまま使用
+    if source_bboxes and len(source_bboxes) == n_rows:
+        return [list(bb) for bb in source_bboxes]
+
+    # clip_rect の y 範囲を n_rows 等分してストリップを生成
+    x0 = float(clip_rect.x0)
+    y0 = float(clip_rect.y0)
+    x1 = float(clip_rect.x1)
+    y1 = float(clip_rect.y1)
+    strip_h = (y1 - y0) / n_rows
+    result: List[List[float]] = []
+    for i in range(n_rows):
+        y_top = y0 + i * strip_h
+        y_bottom = y_top + strip_h
+        result.append([x0, y_top, x1, y_bottom])
+    return result
+
+
 def render_region_to_png(page: fitz.Page, rect: fitz.Rect, scale: float = 2.0) -> bytes:
     """PDF ページの指定領域を PNG バイト列としてレンダリングする。
 
@@ -790,6 +830,7 @@ def append_table_rows_from_pipe_texts(
     table_id: str,
     clip_rect: fitz.Rect,
     pipe_rows: List[Tuple[str, str]],
+    source_bboxes: Optional[List[List[float]]] = None,
 ) -> int:
     """縦パイプ形式の行テキストから段落を生成してページに追加する。
 
@@ -798,14 +839,21 @@ def append_table_rows_from_pipe_texts(
     ``append_markdown_table_rows_from_selection()`` と同じ段落フォーマット
     で *page_paragraphs* に追加する。
 
+    各段落の bbox は ``_distribute_row_bboxes()`` によって行ごとに個別に割り当て
+    られる。*source_bboxes* の行数と AI 出力の行数が一致する場合は元の段落 bbox
+    をそのまま使用し、一致しない場合は *clip_rect* の高さを等分したストリップを
+    使用する。
+
     Args:
         page_paragraphs: ページの段落辞書（更新される）。
         page_number: ページ番号。
         table_id: テーブルID（段落 ID の生成に使用）。
-        clip_rect: 元の領域矩形（段落の bbox に使用）。
+        clip_rect: 元の領域矩形（bbox のフォールバックに使用）。
         pipe_rows: ``html_to_pipe_rows()`` が返す
             ``[(block_tag, pipe_text), ...]`` リスト。
             *pipe_text* は ``"Cell A | Cell B | Cell C"`` 形式。
+        source_bboxes: 選択段落の bbox リスト（``[x0, y0, x1, y1]`` の並び、
+            y0 でソート済み）。省略可。行数が一致するとき各行の bbox として使用。
 
     Returns:
         追加した行数。
@@ -814,12 +862,16 @@ def append_table_rows_from_pipe_texts(
     for p in page_paragraphs.values():
         current_max_order = max(current_max_order, _safe_int(p.get("order"), 0))
 
-    added_count = 0
-    for row_index, (block_tag, pipe_text) in enumerate(pipe_rows, start=1):
-        pipe_text = str(pipe_text or "").strip()
-        if not pipe_text:
-            continue
+    # 空行を除いた有効な行リストを先に作成し、bbox を行数に応じて分配する。
+    valid_rows = [
+        (bt, str(pt or "").strip())
+        for bt, pt in pipe_rows
+        if str(pt or "").strip()
+    ]
+    row_bboxes = _distribute_row_bboxes(clip_rect, len(valid_rows), source_bboxes)
 
+    added_count = 0
+    for row_index, (block_tag, pipe_text) in enumerate(valid_rows, start=1):
         # html_to_pipe_rows は "Cell A | Cell B | Cell C" 形式で返す。
         # 既存の _to_markdown_row と同じ "| Cell A | Cell B | Cell C |" 形式へ正規化する。
         md_row = "| " + pipe_text + " |"
@@ -831,6 +883,11 @@ def append_table_rows_from_pipe_texts(
         while unique_key in page_paragraphs:
             unique_key = f"{para_id}_{suffix}"
             suffix += 1
+
+        bbox = row_bboxes[row_index - 1] if row_index - 1 < len(row_bboxes) else [
+            float(clip_rect.x0), float(clip_rect.y0),
+            float(clip_rect.x1), float(clip_rect.y1),
+        ]
 
         paragraph = {
             "id": unique_key,
@@ -845,12 +902,7 @@ def append_table_rows_from_pipe_texts(
             "block_tag": block_tag,
             "modified_at": "",
             "base_style": "",
-            "bbox": [
-                float(clip_rect.x0),
-                float(clip_rect.y0),
-                float(clip_rect.x1),
-                float(clip_rect.y1),
-            ],
+            "bbox": bbox,
             "column_order": 999,
             "page_number": page_number,
             "order": current_max_order,
