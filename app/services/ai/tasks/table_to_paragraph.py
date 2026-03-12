@@ -58,6 +58,9 @@ _HTML_TABLE_PROMPT = (
     "要件:\n"
     "- ヘッダ行は <tr><th>...</th></tr> で出力する\n"
     "- データ行は <tr><td>...</td></tr> で出力する\n"
+    "- 各 <tr> タグには data-height 属性を付与し、その行の高さが表全体の高さに占める割合を"
+    "整数（1〜100）で指定する（例: <tr data-height=\"25\">）\n"
+    "- 全行の data-height の合計は 100 程度にする\n"
     "- <table> タグ以外のテキスト（説明文、コードブロック記号など）は出力しない\n"
     "- セルの値はそのまま正確に出力する\n"
     "- 空欄のセルは空の <td></td> で出力する\n"
@@ -166,8 +169,35 @@ def html_to_pipe_rows(html_text: str) -> list[tuple[str, str]]:
         - block_tag: "th"（ヘッダ行）または "tr"（データ行）
         - pipe_text: "Cell A | Cell B | Cell C" 形式のテキスト
     """
+    pipe_rows, _ = html_to_pipe_rows_with_dims(html_text)
+    return pipe_rows
+
+
+def html_to_pipe_rows_with_dims(
+    html_text: str,
+) -> tuple[list[tuple[str, str]], list[float]]:
+    """AI が返した HTML テーブルを縦パイプ形式の行リストと行高さ比率に変換する。
+
+    ``html_to_pipe_rows()`` と同じ変換を行いつつ、各 ``<tr>`` の
+    ``data-height`` 属性から行の高さ比率（合計 1.0 に正規化）も返す。
+    AI が ``data-height`` を付与しなかった場合や値が不正な場合は
+    空リストを返し、呼び出し側は等分割にフォールバックする。
+
+    Args:
+        html_text: Gemini などが返した HTML 文字列。
+
+    Returns:
+        ``(pipe_rows, row_fracs)`` のタプル。
+
+        - ``pipe_rows``: ``[(block_tag, pipe_text), ...]`` —
+          ``html_to_pipe_rows()`` と同じ形式。
+        - ``row_fracs``: 各行の高さ比率のリスト（合計 1.0、``pipe_rows`` と
+          同じ長さ）。``data-height`` が有効でない場合は空リスト。
+    """
     soup = BeautifulSoup(html_text, "html.parser")
-    rows: list[tuple[str, str]] = []
+    pipe_rows: list[tuple[str, str]] = []
+    raw_heights: list[float] = []
+    has_any_height = False
 
     for row in soup.find_all("tr"):
         cells = row.find_all(["th", "td"])
@@ -178,10 +208,32 @@ def html_to_pipe_rows(html_text: str) -> list[tuple[str, str]]:
         # セル内の複数行やスペースを1スペースに正規化してテキストを抽出
         cell_texts = [_normalize_cell_text(c.get_text(separator=" ", strip=True)) for c in cells]
         pipe_text = " | ".join(cell_texts)
-        if pipe_text.strip():
-            rows.append((block_tag, pipe_text))
+        if not pipe_text.strip():
+            continue
 
-    return rows
+        pipe_rows.append((block_tag, pipe_text))
+
+        # data-height 属性の読み取り（整数または小数、% 記号は除去）
+        val = row.get("data-height", "")
+        try:
+            h = float(str(val).strip().rstrip("%"))
+            if h > 0:
+                raw_heights.append(h)
+                has_any_height = True
+            else:
+                raw_heights.append(0.0)
+        except (ValueError, TypeError):
+            raw_heights.append(0.0)
+
+    if not has_any_height:
+        return pipe_rows, []
+
+    total = sum(raw_heights)
+    if total <= 0:
+        return pipe_rows, []
+
+    row_fracs = [h / total for h in raw_heights]
+    return pipe_rows, row_fracs
 
 
 def html_to_plain_text(html_text: str) -> str:

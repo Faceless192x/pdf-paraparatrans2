@@ -406,7 +406,7 @@ class ParagraphService:
         from app.services.ai import router as ai_router
         from app.services.ai.tasks.table_to_paragraph import (
             build_html_request,
-            html_to_pipe_rows,
+            html_to_pipe_rows_with_dims,
         )
 
         if self._is_url_book_name(pdf_name):
@@ -468,8 +468,8 @@ class ParagraphService:
         ai_request = build_html_request(rows_text=rows_text, image_png=png_bytes)
         ai_response = ai_router.generate(ai_request)
 
-        # HTML テーブル → 縦パイプ形式
-        pipe_rows = html_to_pipe_rows(ai_response.text)
+        # HTML テーブル → 縦パイプ形式 + 行高さ比率
+        pipe_rows, row_fracs = html_to_pipe_rows_with_dims(ai_response.text)
         if not pipe_rows:
             snippet = ai_response.text[:120].replace("\n", " ").strip()
             raise ValueError(
@@ -477,7 +477,7 @@ class ParagraphService:
                 f"AI 応答の先頭: {snippet!r}"
             )
 
-        # 段落として追加（source_bboxes を渡して per-row bbox を割り当て）
+        # 段落として追加（source_bboxes・row_fracs を渡して per-row bbox を割り当て）
         added = append_table_rows_from_pipe_texts(
             page_paragraphs=page_paragraphs,
             page_number=page_number,
@@ -485,6 +485,7 @@ class ParagraphService:
             clip_rect=clip_rect,
             pipe_rows=pipe_rows,
             source_bboxes=source_bboxes,
+            row_fracs=row_fracs,
         )
 
         recalc_trans_status_counts(book_data)

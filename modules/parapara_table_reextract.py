@@ -772,17 +772,25 @@ def _distribute_row_bboxes(
     clip_rect: fitz.Rect,
     n_rows: int,
     source_bboxes: Optional[List[List[float]]] = None,
+    row_fracs: Optional[List[float]] = None,
 ) -> List[List[float]]:
     """N 行分の bbox を計算して返す。
 
-    *source_bboxes* と *n_rows* が一致する場合はそれをそのまま返す。
-    一致しない場合は *clip_rect* の高さを *n_rows* で等分したストリップを返す。
+    優先順位:
+
+    1. *source_bboxes* の長さが *n_rows* と一致する場合 → そのまま使用
+       （PyMuPDF が検出した実際の座標なので最も正確）。
+    2. *row_fracs* の長さが *n_rows* と一致する場合 → 比率で *clip_rect* を分割
+       （AI が ``data-height`` で返した推定割合）。
+    3. いずれも使えない場合 → *clip_rect* の高さを *n_rows* で等分。
 
     Args:
         clip_rect: 全体の領域矩形。
         n_rows: 生成する行数。
         source_bboxes: 元の段落の bbox リスト（``[x0, y0, x1, y1]`` の並び、
             y0 でソート済みを期待）。行数が一致するときのみ使用される。
+        row_fracs: 各行の高さ比率のリスト（合計 1.0 を期待、``n_rows`` と
+            同じ長さのとき使用）。AI の ``data-height`` 属性から生成される。
 
     Returns:
         *n_rows* 個の ``[x0, y0, x1, y1]`` リスト。
@@ -790,17 +798,29 @@ def _distribute_row_bboxes(
     if n_rows <= 0:
         return []
 
-    # source_bboxes が行数と一致する場合はそのまま使用
+    # 1. source_bboxes が行数と一致する場合はそのまま使用
     if source_bboxes and len(source_bboxes) == n_rows:
         return [list(bb) for bb in source_bboxes]
 
-    # clip_rect の y 範囲を n_rows 等分してストリップを生成
     x0 = float(clip_rect.x0)
     y0 = float(clip_rect.y0)
     x1 = float(clip_rect.x1)
     y1 = float(clip_rect.y1)
-    strip_h = (y1 - y0) / n_rows
-    result: List[List[float]] = []
+    total_h = y1 - y0
+
+    # 2. row_fracs による比率分割
+    if row_fracs and len(row_fracs) == n_rows:
+        result: List[List[float]] = []
+        y_cursor = y0
+        for frac in row_fracs:
+            row_h = total_h * max(0.0, float(frac))
+            result.append([x0, y_cursor, x1, y_cursor + row_h])
+            y_cursor += row_h
+        return result
+
+    # 3. clip_rect の y 範囲を n_rows 等分してストリップを生成
+    strip_h = total_h / n_rows
+    result = []
     for i in range(n_rows):
         y_top = y0 + i * strip_h
         y_bottom = y_top + strip_h
@@ -831,29 +851,34 @@ def append_table_rows_from_pipe_texts(
     clip_rect: fitz.Rect,
     pipe_rows: List[Tuple[str, str]],
     source_bboxes: Optional[List[List[float]]] = None,
+    row_fracs: Optional[List[float]] = None,
 ) -> int:
     """縦パイプ形式の行テキストから段落を生成してページに追加する。
 
-    AI が HTML テーブルとして返したデータを ``html_to_pipe_rows()`` で
+    AI が HTML テーブルとして返したデータを ``html_to_pipe_rows_with_dims()`` で
     変換した結果を受け取り、既存の
     ``append_markdown_table_rows_from_selection()`` と同じ段落フォーマット
     で *page_paragraphs* に追加する。
 
     各段落の bbox は ``_distribute_row_bboxes()`` によって行ごとに個別に割り当て
-    られる。*source_bboxes* の行数と AI 出力の行数が一致する場合は元の段落 bbox
-    をそのまま使用し、一致しない場合は *clip_rect* の高さを等分したストリップを
-    使用する。
+    られる。優先順位:
+
+    1. *source_bboxes* が行数と一致 → PDF 実座標をそのまま使用（最高精度）。
+    2. *row_fracs* が行数と一致 → AI が ``data-height`` で返した割合で分割。
+    3. 等分割（フォールバック）。
 
     Args:
         page_paragraphs: ページの段落辞書（更新される）。
         page_number: ページ番号。
         table_id: テーブルID（段落 ID の生成に使用）。
         clip_rect: 元の領域矩形（bbox のフォールバックに使用）。
-        pipe_rows: ``html_to_pipe_rows()`` が返す
+        pipe_rows: ``html_to_pipe_rows_with_dims()`` が返す
             ``[(block_tag, pipe_text), ...]`` リスト。
             *pipe_text* は ``"Cell A | Cell B | Cell C"`` 形式。
         source_bboxes: 選択段落の bbox リスト（``[x0, y0, x1, y1]`` の並び、
             y0 でソート済み）。省略可。行数が一致するとき各行の bbox として使用。
+        row_fracs: AI の ``data-height`` から算出した各行の高さ比率リスト
+            （合計 1.0）。省略可。行数が一致するとき使用。
 
     Returns:
         追加した行数。
@@ -863,12 +888,14 @@ def append_table_rows_from_pipe_texts(
         current_max_order = max(current_max_order, _safe_int(p.get("order"), 0))
 
     # 空行を除いた有効な行リストを先に作成し、bbox を行数に応じて分配する。
+    # pipe_rows は html_to_pipe_rows_with_dims() で事前フィルタ済みのため
+    # 空テキストは通常含まれないが、念のためフィルタする。
     valid_rows = [
         (bt, str(pt or "").strip())
         for bt, pt in pipe_rows
         if str(pt or "").strip()
     ]
-    row_bboxes = _distribute_row_bboxes(clip_rect, len(valid_rows), source_bboxes)
+    row_bboxes = _distribute_row_bboxes(clip_rect, len(valid_rows), source_bboxes, row_fracs)
 
     added_count = 0
     for row_index, (block_tag, pipe_text) in enumerate(valid_rows, start=1):
