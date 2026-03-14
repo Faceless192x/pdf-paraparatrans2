@@ -26,6 +26,11 @@ from modules.parapara_table_reextract import (
     render_region_to_png,
     suggest_table_shape_for_selection,
 )
+from modules.pdf_roi_para_html import (
+    RoiGridOptions,
+    detect_roi_grid,
+    extract_paragraphs as roi_extract_paragraphs,
+)
 from modules.parapara_tagging_by_structure import structure_tagging
 from modules.parapara_tagging_by_style import tag_paragraphs_by_style
 from modules.parapara_tagging_by_style_y import tag_paragraphs_by_style_y_in_file
@@ -607,6 +612,198 @@ class ParagraphService:
             )
 
         return suggestion
+
+    # ------------------------------------------------------------------
+    # /api/table_roi_suggest
+    # ------------------------------------------------------------------
+
+    def table_roi_suggest(
+        self,
+        pdf_name: str,
+        json_path: str,
+        pdf_path: str,
+        page_number: int,
+        paragraph_ids: list,
+        cluster_tolerance: float = 4.0,
+    ) -> dict:
+        """ROI（罫線）モードでグリッドを推測してプレビュー情報を返す。
+
+        ``detect_roi_grid`` で PDF の罫線からグリッドを検出し、セル矩形を
+        ``preview_cell_rects`` として返す。
+
+        Returns:
+            dict with keys: ok, rows, cols, clip_rect, preview_cell_rects
+        Raises:
+            ValueError: URLブックの場合、または入力が不正な場合。
+            LookupError: ページや段落が見つからない場合。
+        """
+        if self._is_url_book_name(pdf_name):
+            raise ValueError("URLブックは対象外です")
+
+        page_key = str(page_number)
+        book_data = load_json(json_path)
+        page_obj = (book_data.get("pages", {}) or {}).get(page_key)
+        if not isinstance(page_obj, dict):
+            raise LookupError("対象ページが見つかりません")
+
+        page_paragraphs = page_obj.get("paragraphs", {}) or {}
+        available_ids = [pid for pid in paragraph_ids if pid in page_paragraphs]
+        if len(available_ids) < 1:
+            raise LookupError("選択段落が見つかりません")
+
+        sel_rect = build_selection_rect_from_paragraph_ids(page_paragraphs, available_ids)
+        if sel_rect is None:
+            return {
+                "ok": False,
+                "message": "選択段落の bbox が見つかりません",
+                "rows": 1,
+                "cols": 1,
+                "clip_rect": None,
+                "preview_cell_rects": [],
+            }
+
+        with fitz.open(pdf_path) as doc:
+            page_index = page_number - 1
+            if page_index < 0 or page_index >= len(doc):
+                raise ValueError("対象ページ番号が範囲外です")
+
+            page = doc[page_index]
+            roi = (sel_rect.x0, sel_rect.y0, sel_rect.x1, sel_rect.y1)
+            grid = detect_roi_grid(
+                page,
+                roi,
+                options=RoiGridOptions(cluster_tolerance=cluster_tolerance),
+            )
+
+        return {
+            "ok": True,
+            "rows": grid.row_count,
+            "cols": grid.col_count,
+            "clip_rect": list(grid.roi),
+            "preview_cell_rects": grid.cell_rects(),
+        }
+
+    # ------------------------------------------------------------------
+    # /api/reextract_table_roi
+    # ------------------------------------------------------------------
+
+    def reextract_table_from_selection_roi(
+        self,
+        pdf_name: str,
+        json_path: str,
+        pdf_path: str,
+        page_number: int,
+        paragraph_ids: list,
+        cluster_tolerance: float = 4.0,
+    ) -> tuple:
+        """ROI（罫線）モードで選択領域から表行を再抽出して保存する。
+
+        ``detect_roi_grid`` で PDF の罫線からグリッドを検出し、各セルに
+        単語を割り当ててパイプ区切りの段落行として追加する。
+
+        Returns:
+            (追加行数, delta)
+        Raises:
+            ValueError: URLブックの場合、または入力が不正な場合。
+            LookupError: ページや段落が見つからない場合。
+        """
+        from html import escape as html_escape
+
+        if self._is_url_book_name(pdf_name):
+            raise ValueError("URLブックは対象外です")
+
+        page_key = str(page_number)
+        book_data = load_json(json_path)
+        page_obj = (book_data.get("pages", {}) or {}).get(page_key)
+        if not isinstance(page_obj, dict):
+            raise LookupError("対象ページが見つかりません")
+
+        page_paragraphs = page_obj.get("paragraphs", {}) or {}
+        available_ids = [pid for pid in paragraph_ids if pid in page_paragraphs]
+        if len(available_ids) < 1:
+            raise LookupError("選択段落が見つかりません")
+
+        sel_rect = build_selection_rect_from_paragraph_ids(page_paragraphs, available_ids)
+        if sel_rect is None:
+            raise LookupError("選択段落の bbox が見つかりません")
+
+        table_id = f"p{page_number}_{uuid.uuid4().hex[:8]}"
+
+        with fitz.open(pdf_path) as doc:
+            page_index = page_number - 1
+            if page_index < 0 or page_index >= len(doc):
+                raise ValueError("対象ページ番号が範囲外です")
+
+            page = doc[page_index]
+            roi = (sel_rect.x0, sel_rect.y0, sel_rect.x1, sel_rect.y1)
+            result = roi_extract_paragraphs(
+                page,
+                roi,
+                options=RoiGridOptions(cluster_tolerance=cluster_tolerance),
+            )
+
+        if not result.rows:
+            return 0, {}
+
+        current_max_order = 0
+        for p in page_paragraphs.values():
+            try:
+                v = int(p.get("order", 0))
+            except Exception:
+                v = 0
+            current_max_order = max(current_max_order, v)
+
+        added_count = 0
+        for para_row in result.rows:
+            md_row = para_row.markdown
+            if not md_row.strip():
+                continue
+
+            current_max_order += 1
+            para_id = f"tbl_{table_id}_r{para_row.row_index}"
+            unique_key = para_id
+            suffix = 2
+            while unique_key in page_paragraphs:
+                unique_key = f"{para_id}_{suffix}"
+                suffix += 1
+
+            paragraph = {
+                "id": unique_key,
+                "src_text": md_row,
+                "src_html": html_escape(md_row),
+                "src_joined": md_row,
+                "src_replaced": md_row,
+                "trans_auto": md_row,
+                "trans_text": md_row,
+                "comment": "",
+                "trans_status": "none",
+                "block_tag": para_row.block_tag,
+                "modified_at": "",
+                "base_style": "",
+                "bbox": para_row.bbox,
+                "column_order": 999,
+                "page_number": page_number,
+                "order": current_max_order,
+                "table_meta": {
+                    "table_id": table_id,
+                    "row": para_row.row_index,
+                    "source": "reextract_roi",
+                    "markdown_row": True,
+                    "rows": result.grid.row_count,
+                    "cols": result.grid.col_count,
+                },
+            }
+            page_paragraphs[unique_key] = paragraph
+            added_count += 1
+
+        recalc_trans_status_counts(book_data)
+        atomicsave_json(json_path, book_data)
+
+        delta = {
+            "pages": {page_key: (book_data.get("pages", {}) or {}).get(page_key)},
+            "trans_status_counts": book_data.get("trans_status_counts"),
+        }
+        return added_count, delta
 
     # ------------------------------------------------------------------
     # /api/update_book_info

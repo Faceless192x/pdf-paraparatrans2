@@ -450,6 +450,164 @@ def create_paragraph_blueprint(
             return jsonify({"status": "error", "message": f"テーブルグリッド推測エラー: {str(e)}"}), 500
 
     # ------------------------------------------------------------------
+    # /api/table_roi_suggest/<path:pdf_name> — ROI罫線グリッド推測
+    # ------------------------------------------------------------------
+
+    @bp.route("/api/table_roi_suggest/<path:pdf_name>", methods=["POST"])
+    def table_roi_suggest_api(pdf_name):
+        """PDF の罫線を使ってグリッドを推測し、プレビュー用セル矩形を返す。
+
+        Request JSON:
+            current_page (int): 対象ページ番号（1始まり）。
+            paragraph_ids (list[str]): 選択段落 ID のリスト。
+            cluster_tolerance (float, optional): クラスタリング許容誤差（デフォルト 4.0）。
+
+        Response JSON (ok):
+            status: "ok"
+            rows (int): 検出された行数。
+            cols (int): 検出された列数。
+            clip_rect (list): ROI矩形 [x0, y0, x1, y1]。
+            preview_cell_rects (list): セル矩形のリスト。
+        """
+        pdf_path, json_path = get_paths(pdf_name)
+        if not os.path.exists(json_path):
+            return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
+        if not os.path.exists(pdf_path):
+            return jsonify({"status": "error", "message": "PDFファイルが存在しません"}), 404
+
+        data = request.get_json(silent=True) or {}
+        page_number = data.get("current_page") or data.get("page_number")
+        paragraph_ids = data.get("paragraph_ids") or []
+
+        try:
+            cluster_tolerance = float(data.get("cluster_tolerance", 4.0))
+        except Exception:
+            cluster_tolerance = 4.0
+
+        try:
+            page_number = int(page_number)
+        except Exception:
+            return jsonify({"status": "error", "message": "current_page が不正です"}), 400
+
+        if page_number <= 0:
+            return jsonify({"status": "error", "message": "current_page は1以上で指定してください"}), 400
+
+        if not isinstance(paragraph_ids, list):
+            return jsonify({"status": "error", "message": "paragraph_ids は配列で指定してください"}), 400
+
+        paragraph_ids = [str(pid).strip() for pid in paragraph_ids if str(pid).strip()]
+        if len(paragraph_ids) < 1:
+            return jsonify({"status": "error", "message": "1行以上選択してください"}), 400
+
+        try:
+            suggestion = paragraph_service.table_roi_suggest(
+                pdf_name=pdf_name,
+                json_path=json_path,
+                pdf_path=pdf_path,
+                page_number=page_number,
+                paragraph_ids=paragraph_ids,
+                cluster_tolerance=cluster_tolerance,
+            )
+
+            if not suggestion.get("ok"):
+                return jsonify({"status": "error", "message": suggestion.get("message") or "ROIグリッド推測に失敗しました"}), 200
+
+            return jsonify(
+                {
+                    "status": "ok",
+                    "rows": suggestion.get("rows"),
+                    "cols": suggestion.get("cols"),
+                    "clip_rect": suggestion.get("clip_rect"),
+                    "preview_cell_rects": suggestion.get("preview_cell_rects") or [],
+                }
+            ), 200
+        except ValueError as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
+        except LookupError as e:
+            return jsonify({"status": "error", "message": str(e)}), 404
+        except Exception as e:
+            current_app.logger.error(f"table ROI suggest error: {str(e)}")
+            return jsonify({"status": "error", "message": f"ROIグリッド推測エラー: {str(e)}"}), 500
+
+    # ------------------------------------------------------------------
+    # /api/reextract_table_roi/<path:pdf_name> — ROI罫線モード表再抽出
+    # ------------------------------------------------------------------
+
+    @bp.route("/api/reextract_table_roi/<path:pdf_name>", methods=["POST"])
+    def reextract_table_roi_api(pdf_name):
+        """PDF の罫線を使って選択領域から表行を再抽出する（ROI モード）。
+
+        Request JSON:
+            current_page (int): 対象ページ番号（1始まり）。
+            paragraph_ids (list[str]): 選択段落 ID のリスト。
+            cluster_tolerance (float, optional): クラスタリング許容誤差（デフォルト 4.0）。
+
+        Response JSON (ok):
+            status: "ok"
+            message: 追加件数を含むメッセージ。
+            added (int): 追加した行数。
+            delta (dict): 更新されたページデータ。
+        """
+        pdf_path, json_path = get_paths(pdf_name)
+        if not os.path.exists(json_path):
+            return jsonify({"status": "error", "message": "JSONファイルが存在しません"}), 404
+        if not os.path.exists(pdf_path):
+            return jsonify({"status": "error", "message": "PDFファイルが存在しません"}), 404
+
+        data = request.get_json(silent=True) or {}
+        page_number = data.get("current_page") or data.get("page_number")
+        paragraph_ids = data.get("paragraph_ids") or []
+
+        try:
+            cluster_tolerance = float(data.get("cluster_tolerance", 4.0))
+        except Exception:
+            cluster_tolerance = 4.0
+
+        try:
+            page_number = int(page_number)
+        except Exception:
+            return jsonify({"status": "error", "message": "current_page が不正です"}), 400
+
+        if page_number <= 0:
+            return jsonify({"status": "error", "message": "current_page は1以上で指定してください"}), 400
+
+        if not isinstance(paragraph_ids, list):
+            return jsonify({"status": "error", "message": "paragraph_ids は配列で指定してください"}), 400
+
+        paragraph_ids = [str(pid).strip() for pid in paragraph_ids if str(pid).strip()]
+        if len(paragraph_ids) < 1:
+            return jsonify({"status": "error", "message": "1行以上選択してください"}), 400
+
+        try:
+            added, delta = paragraph_service.reextract_table_from_selection_roi(
+                pdf_name=pdf_name,
+                json_path=json_path,
+                pdf_path=pdf_path,
+                page_number=page_number,
+                paragraph_ids=paragraph_ids,
+                cluster_tolerance=cluster_tolerance,
+            )
+
+            if added <= 0:
+                return jsonify({"status": "error", "message": "ROI再抽出結果が0件でした"}), 200
+
+            return jsonify(
+                {
+                    "status": "ok",
+                    "message": f"ROI罫線モードでテーブル行を{added}件追加しました",
+                    "added": added,
+                    "delta": delta,
+                }
+            ), 200
+        except ValueError as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
+        except LookupError as e:
+            return jsonify({"status": "error", "message": str(e)}), 404
+        except Exception as e:
+            current_app.logger.error(f"table ROI reextract error: {str(e)}")
+            return jsonify({"status": "error", "message": f"ROI表再抽出エラー: {str(e)}"}), 500
+
+    # ------------------------------------------------------------------
     # /api/update_book_info/<path:pdf_name> — ブック情報更新
     # ------------------------------------------------------------------
 
