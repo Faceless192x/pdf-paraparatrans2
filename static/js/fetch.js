@@ -3165,19 +3165,15 @@ async function showTableReextractDialog(options) {
         const modeRadios = container.querySelectorAll('input[name="trdMode"]');
         const updateMode = () => {
             const mode = container.querySelector('input[name="trdMode"]:checked')?.value || 'grid';
-            const isAI = mode === 'ai';
-            const isROI = mode === 'roi';
-            const isGrid = mode === 'grid';
-            gridSection.style.display = isGrid ? '' : 'none';
-            aiSection.style.display = isAI ? '' : 'none';
-            roiSection.style.display = isROI ? '' : 'none';
-            // 行数・列数フィールドはグリッドモードとAIモードで表示、ROIモードでは非表示
+            gridSection.style.display = mode === 'grid' ? '' : 'none';
+            aiSection.style.display = mode === 'ai' ? '' : 'none';
+            roiSection.style.display = mode === 'roi' ? '' : 'none';
             const rowColSection = document.getElementById('trdRowColSection');
-            if (rowColSection) rowColSection.style.display = isROI ? 'none' : '';
+            if (rowColSection) rowColSection.style.display = mode === 'roi' ? 'none' : '';
             const guessRow = document.getElementById('trdGuessRow');
-            if (guessRow) guessRow.style.display = isROI ? 'none' : '';
-            previewButton.style.display = isAI ? 'none' : '';
-            if (isGrid) {
+            if (guessRow) guessRow.style.display = mode === 'roi' ? 'none' : '';
+            previewButton.style.display = mode === 'ai' ? 'none' : '';
+            if (mode === 'grid') {
                 setTimeout(() => headerInput.focus(), 50);
             }
         };

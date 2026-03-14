@@ -635,7 +635,7 @@ class ParagraphService:
             dict with keys: ok, rows, cols, clip_rect, preview_cell_rects
         Raises:
             ValueError: URLブックの場合、または入力が不正な場合。
-            LookupError: ページや段落が見つからない場合。
+            LookupError: ページや段落が見つからない場合、または bbox がない場合。
         """
         if self._is_url_book_name(pdf_name):
             raise ValueError("URLブックは対象外です")
@@ -653,14 +653,7 @@ class ParagraphService:
 
         sel_rect = build_selection_rect_from_paragraph_ids(page_paragraphs, available_ids)
         if sel_rect is None:
-            return {
-                "ok": False,
-                "message": "選択段落の bbox が見つかりません",
-                "rows": 1,
-                "cols": 1,
-                "clip_rect": None,
-                "preview_cell_rects": [],
-            }
+            raise LookupError("選択段落の bbox が見つかりません")
 
         with fitz.open(pdf_path) as doc:
             page_index = page_number - 1
