@@ -20,6 +20,7 @@ from modules.parapara_join_incremental import (
 )
 from modules.parapara_symbolfont_rebuild import rebuild_src_text_in_file
 from modules.parapara_table_reextract import (
+    _insert_after_selection,
     append_markdown_table_rows_from_selection,
     append_table_rows_from_pipe_texts,
     build_selection_rect_from_paragraph_ids,
@@ -549,6 +550,7 @@ class ParagraphService:
             source_bboxes=source_bboxes,
             row_fracs=row_fracs,
             sel_rect=sel_rect,
+            paragraph_ids=available_ids,
         )
 
         recalc_trans_status_counts(book_data)
@@ -740,13 +742,9 @@ class ParagraphService:
         if not result.rows:
             return 0, {}
 
-        current_max_order = 0
-        for p in page_paragraphs.values():
-            try:
-                v = int(p.get("order", 0))
-            except Exception:
-                v = 0
-            current_max_order = max(current_max_order, v)
+        # 選択段落の直後に挿入するための order を決定し、後続段落をずらす。
+        n_new = sum(1 for r in result.rows if r.markdown.strip())
+        next_order = _insert_after_selection(page_paragraphs, available_ids, n_new)
 
         added_count = 0
         for para_row in result.rows:
@@ -754,7 +752,6 @@ class ParagraphService:
             if not md_row.strip():
                 continue
 
-            current_max_order += 1
             para_id = f"tbl_{table_id}_r{para_row.row_index}"
             unique_key = para_id
             suffix = 2
@@ -778,7 +775,7 @@ class ParagraphService:
                 "bbox": para_row.bbox,
                 "column_order": 999,
                 "page_number": page_number,
-                "order": current_max_order,
+                "order": next_order,
                 "table_meta": {
                     "table_id": table_id,
                     "row": para_row.row_index,
@@ -790,6 +787,7 @@ class ParagraphService:
             }
             page_paragraphs[unique_key] = paragraph
             added_count += 1
+            next_order += 1
 
         recalc_trans_status_counts(book_data)
         atomicsave_json(json_path, book_data)
