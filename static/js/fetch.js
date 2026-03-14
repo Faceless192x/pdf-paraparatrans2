@@ -1976,6 +1976,9 @@ async function reextractTableFromSelectedLines(paragraphIds) {
         const guessedCols = Number(suggestData.cols) > 0 ? Number(suggestData.cols) : 1;
         const headerText = String(suggestData.header_text || '').trim();
 
+        // ダイアログ表示中はカーソルを戻す（非モーダル・背景操作できる状態にする）
+        document.body.style.cursor = originalCursor || 'auto';
+
         // 専用ダイアログを表示
         const result = await showTableReextractDialog({
             guessedRows,
@@ -1993,6 +1996,9 @@ async function reextractTableFromSelectedLines(paragraphIds) {
             }
             return;
         }
+
+        // ダイアログ確定後の API 呼び出し中は再び待機カーソルを設定
+        document.body.style.cursor = 'wait';
 
         let response;
         if (result.mode === 'ai') {
@@ -2967,6 +2973,7 @@ async function showTableReextractDialog(options) {
                     min-width: 420px;
                     max-width: 680px;
                     border-radius: 8px;
+                    cursor: auto;
                 }
                 #tableReextractDialogOverlay {
                     position: fixed;
@@ -2974,8 +2981,9 @@ async function showTableReextractDialog(options) {
                     left: 0;
                     width: 100%;
                     height: 100%;
-                    background: rgba(0,0,0,0.5);
+                    background: rgba(0,0,0,0);
                     z-index: 9999;
+                    pointer-events: none;
                 }
                 #tableReextractDialog input[type="text"],
                 #tableReextractDialog input[type="number"] {
@@ -3264,7 +3272,7 @@ async function showTableReextractDialog(options) {
 
                 const data = await response.json();
                 if (data.status !== 'ok') {
-                    alert(`枠線描画エラー: ${data.message || 'unknown'}`);
+                    alert(`グリッド推測エラー: ${data.message || 'unknown'}`);
                     return;
                 }
 

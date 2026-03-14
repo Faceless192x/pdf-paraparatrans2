@@ -347,32 +347,35 @@ def extract_paragraphs(
     grid = detect_roi_grid(page, roi, options=options)
     xs = grid.clustered_x
     ys = grid.clustered_y
+    roi_x0, roi_y0, roi_x1, roi_y1 = grid.roi
 
     words = _extract_words(page, grid.roi)
     buckets = _assign_words_to_grid(words, xs, ys)
 
+    n_rows = len(buckets)
     para_rows: list[ParaRow] = []
     for row_idx, row_cells in enumerate(buckets):
         cell_texts = [_words_to_text(cell_words) for cell_words in row_cells]
         pipe_text = " | ".join(cell_texts)
         markdown = "| " + pipe_text + " |"
 
-        all_words_in_row = [w for cell in row_cells for w in cell]
-        if all_words_in_row:
-            rx0 = min(w.x0 for w in all_words_in_row)
-            ry0 = min(w.y0 for w in all_words_in_row)
-            rx1 = max(w.x1 for w in all_words_in_row)
-            ry1 = max(w.y1 for w in all_words_in_row)
-        else:
-            rx0, ry0 = xs[0], ys[row_idx]
-            rx1, ry1 = xs[-1], ys[row_idx + 1]
+        # x0/x1: always use the specified ROI boundaries.
+        # y0/y1: use the grid row boundaries, but snap the first row's y0 to
+        # the ROI y0 and the last row's y1 to the ROI y1 so the full height
+        # of the selection is covered exactly.
+        row_y0 = ys[row_idx]
+        row_y1 = ys[row_idx + 1]
+        if row_idx == 0:
+            row_y0 = roi_y0
+        if row_idx == n_rows - 1:
+            row_y1 = roi_y1
 
         para_rows.append(
             ParaRow(
                 block_tag="th" if row_idx == 0 else "tr",
                 pipe_text=pipe_text,
                 markdown=markdown,
-                bbox=[rx0, ry0, rx1, ry1],
+                bbox=[roi_x0, row_y0, roi_x1, row_y1],
                 row_index=row_idx + 1,
             )
         )
