@@ -76,6 +76,57 @@ def _normalize_selected_ids(paragraph_ids: Iterable[Any]) -> List[str]:
     return normalized
 
 
+def _insert_after_selection(
+    page_paragraphs: Dict[str, Dict[str, Any]],
+    paragraph_ids: Iterable[Any],
+    n_new: int,
+) -> int:
+    """Compute the insertion order and make room for *n_new* new rows.
+
+    Finds the maximum ``order`` value among the paragraphs identified by
+    *paragraph_ids*, then increments the ``order`` of every paragraph
+    whose current order is strictly greater than that maximum by *n_new*,
+    so that the new rows can be placed immediately after the selection.
+
+    Args:
+        page_paragraphs: The page's paragraph dict (mutated in place).
+        paragraph_ids: IDs of the selected/source paragraphs.
+        n_new: Number of new rows to be inserted.
+
+    Returns:
+        The ``order`` value for the **first** new row
+        (``selected_max_order + 1``).  Subsequent rows should use
+        ``+2``, ``+3``, … offsets from the returned value.
+        Falls back to appending at the end when *paragraph_ids* is
+        empty or none of the IDs are present in *page_paragraphs*.
+    """
+    selected_ids = set(_normalize_selected_ids(paragraph_ids))
+
+    # Find the highest order value among the selected paragraphs.
+    selected_max_order: Optional[int] = None
+    for key, p in page_paragraphs.items():
+        pid = str(p.get("id") or key)
+        if pid in selected_ids:
+            v = _safe_int(p.get("order"), 0)
+            if selected_max_order is None or v > selected_max_order:
+                selected_max_order = v
+
+    if selected_max_order is None:
+        # No selected paragraphs found → fall back to appending at the end.
+        selected_max_order = max(
+            (_safe_int(p.get("order"), 0) for p in page_paragraphs.values()),
+            default=0,
+        )
+
+    # Shift all paragraphs that come after the selection downward to make room.
+    if n_new > 0:
+        for p in page_paragraphs.values():
+            if _safe_int(p.get("order"), 0) > selected_max_order:
+                p["order"] = _safe_int(p.get("order"), 0) + n_new
+
+    return selected_max_order + 1
+
+
 def _get_selected_paragraphs_in_order(
     page_paragraphs: Dict[str, Dict[str, Any]],
     paragraph_ids: Iterable[Any],
@@ -685,9 +736,9 @@ def append_markdown_table_rows_from_selection(
     if not extracted_rows:
         return 0
 
-    current_max_order = 0
-    for p in page_paragraphs.values():
-        current_max_order = max(current_max_order, _safe_int(p.get("order"), 0))
+    # Count non-empty rows to correctly shift subsequent paragraphs.
+    n_new = sum(1 for r in extracted_rows if str(r.get("markdown") or "").strip())
+    next_order = _insert_after_selection(page_paragraphs, paragraph_ids, n_new)
 
     added_count = 0
     for row_index, row_data in enumerate(extracted_rows, start=1):
@@ -695,7 +746,6 @@ def append_markdown_table_rows_from_selection(
         if not md_row:
             continue
 
-        current_max_order += 1
         para_id = f"tbl_{table_id}_r{row_index}"
         unique_key = para_id
         suffix = 2
@@ -720,7 +770,7 @@ def append_markdown_table_rows_from_selection(
             "bbox": row_data.get("bbox") or [clip_rect.x0, clip_rect.y0, clip_rect.x1, clip_rect.y1],
             "column_order": 999,
             "page_number": page_number,
-            "order": current_max_order,
+            "order": next_order,
             "table_meta": {
                 "table_id": table_id,
                 "row": row_index,
@@ -732,6 +782,7 @@ def append_markdown_table_rows_from_selection(
         }
         page_paragraphs[unique_key] = paragraph
         added_count += 1
+        next_order += 1
 
     return added_count
 
@@ -888,6 +939,7 @@ def append_table_rows_from_pipe_texts(
     source_bboxes: Optional[List[List[float]]] = None,
     row_fracs: Optional[List[float]] = None,
     sel_rect: Optional[fitz.Rect] = None,
+    paragraph_ids: Optional[Iterable[Any]] = None,
 ) -> int:
     """縦パイプ形式の行テキストから段落を生成してページに追加する。
 
@@ -919,14 +971,13 @@ def append_table_rows_from_pipe_texts(
         sel_rect: 実際に選択された表領域の矩形（マージンなし）。指定した場合、
             bbox 分割の基準矩形（y0/y1 の範囲）として *clip_rect* より優先する。
             フォールバック bbox にも使用される。
+        paragraph_ids: 元の選択段落 ID のリスト。指定した場合、新しい行を
+            選択段落の直後に挿入する（後続段落の order を繰り上げる）。
+            省略時はページ末尾へ追記する（従来の動作）。
 
     Returns:
         追加した行数。
     """
-    current_max_order = 0
-    for p in page_paragraphs.values():
-        current_max_order = max(current_max_order, _safe_int(p.get("order"), 0))
-
     # 空行を除いた有効な行リストを先に作成し、bbox を行数に応じて分配する。
     # pipe_rows は html_to_pipe_rows_with_dims() で事前フィルタ済みのため
     # 空テキストは通常含まれないが、念のためフィルタする。
@@ -937,6 +988,9 @@ def append_table_rows_from_pipe_texts(
     ]
     row_bboxes = _distribute_row_bboxes(clip_rect, len(valid_rows), source_bboxes, row_fracs, sel_rect)
 
+    # 選択段落の直後に挿入するための order を決定し、後続段落をずらす。
+    next_order = _insert_after_selection(page_paragraphs, paragraph_ids or [], len(valid_rows))
+
     # フォールバック bbox は sel_rect（あれば）、なければ clip_rect を使用する。
     fallback_rect = sel_rect if sel_rect is not None else clip_rect
 
@@ -946,7 +1000,6 @@ def append_table_rows_from_pipe_texts(
         # 既存の _to_markdown_row と同じ "| Cell A | Cell B | Cell C |" 形式へ正規化する。
         md_row = "| " + pipe_text + " |"
 
-        current_max_order += 1
         para_id = f"tbl_{table_id}_r{row_index}"
         unique_key = para_id
         suffix = 2
@@ -975,7 +1028,7 @@ def append_table_rows_from_pipe_texts(
             "bbox": bbox,
             "column_order": 999,
             "page_number": page_number,
-            "order": current_max_order,
+            "order": next_order,
             "table_meta": {
                 "table_id": table_id,
                 "row": row_index,
@@ -985,5 +1038,6 @@ def append_table_rows_from_pipe_texts(
         }
         page_paragraphs[unique_key] = paragraph
         added_count += 1
+        next_order += 1
 
     return added_count

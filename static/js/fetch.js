@@ -1976,6 +1976,9 @@ async function reextractTableFromSelectedLines(paragraphIds) {
         const guessedCols = Number(suggestData.cols) > 0 ? Number(suggestData.cols) : 1;
         const headerText = String(suggestData.header_text || '').trim();
 
+        // ダイアログ表示中はカーソルを戻す（非モーダル・背景操作できる状態にする）
+        document.body.style.cursor = originalCursor || 'auto';
+
         // 専用ダイアログを表示
         const result = await showTableReextractDialog({
             guessedRows,
@@ -1994,6 +1997,9 @@ async function reextractTableFromSelectedLines(paragraphIds) {
             return;
         }
 
+        // ダイアログ確定後の API 呼び出し中は再び待機カーソルを設定
+        document.body.style.cursor = 'wait';
+
         let response;
         if (result.mode === 'ai') {
             // AI による表再抽出
@@ -2007,6 +2013,20 @@ async function reextractTableFromSelectedLines(paragraphIds) {
                     paragraph_ids: ids,
                     rows: result.rows || undefined,
                     cols: result.cols || undefined,
+                })
+            });
+        } else if (result.mode === 'roi') {
+            // ROI（罫線）モードによる表再抽出
+            response = await fetch(`/api/reextract_table_roi/${encodePdfNamePath(pdfName)}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    current_page: currentPage,
+                    paragraph_ids: ids,
+                    cluster_tolerance: result.clusterTolerance || 4.0,
+                    expand_to_cells: result.expandToCells !== false,
                 })
             });
         } else {
@@ -2954,6 +2974,7 @@ async function showTableReextractDialog(options) {
                     min-width: 420px;
                     max-width: 680px;
                     border-radius: 8px;
+                    cursor: auto;
                 }
                 #tableReextractDialogOverlay {
                     position: fixed;
@@ -2961,8 +2982,9 @@ async function showTableReextractDialog(options) {
                     left: 0;
                     width: 100%;
                     height: 100%;
-                    background: rgba(0,0,0,0.5);
+                    background: rgba(0,0,0,0);
                     z-index: 9999;
+                    pointer-events: none;
                 }
                 #tableReextractDialog input[type="text"],
                 #tableReextractDialog input[type="number"] {
@@ -3060,7 +3082,11 @@ async function showTableReextractDialog(options) {
                     <label style="display: block; margin-bottom: 6px; font-weight: bold;">抽出方式:</label>
                     <div class="trd-mode-selector">
                         <label>
-                            <input type="radio" name="trdMode" value="grid" checked />
+                            <input type="radio" name="trdMode" value="roi" checked />
+                            ROI（罫線）
+                        </label>
+                        <label>
+                            <input type="radio" name="trdMode" value="grid" />
                             グリッド指定（従来）
                         </label>
                         <label>
@@ -3078,6 +3104,7 @@ async function showTableReextractDialog(options) {
                     </div>
                 </div>
 
+                <div id="trdRowColSection" style="margin-bottom: 0;">
                 <div style="margin-bottom: 15px;">
                     <label style="display: block; margin-bottom: 5px; font-weight: bold;">行数:</label>
                     <input type="number" id="tableRowsInput" value="${guessedRows}" min="1" />
@@ -3093,11 +3120,31 @@ async function showTableReextractDialog(options) {
                         <strong>推測値:</strong> ${guessedRows}行 × ${guessedCols}列
                     </div>
                 </div>
+                </div>
 
                 <div id="trdAiSection" style="display: none; margin-bottom: 15px;">
                     <div class="trd-ai-info">
                         <strong>AI を使って表領域の画像を認識し、各行をパイプ区切りの段落として追加します。</strong><br>
                         ${aiHint}
+                    </div>
+                </div>
+
+                <div id="trdRoiSection" style="display: none; margin-bottom: 15px;">
+                    <div class="trd-ai-info">
+                        <strong>PDF の罫線を検出してグリッドを自動構築し、各セルのテキストをパイプ区切りの段落として追加します。</strong><br>
+                        行数・列数は罫線から自動判定されます。「枠線描画」で確認してください。
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">クラスタ許容誤差:</label>
+                        <input type="number" id="trdClusterTolerance" value="4.0" min="0.5" max="20" step="0.5" style="width: 100px;" />
+                        <small class="trd-hint">罫線位置のクラスタリング許容誤差（デフォルト: 4.0）</small>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                            <input type="checkbox" id="trdExpandToCells" checked />
+                            <span>セル外縁まで領域を拡張する</span>
+                        </label>
+                        <small class="trd-hint" style="margin-left: 22px;">ON（推奨）: 指定領域を、含まれるセルの外縁まで自動的に広げます</small>
                     </div>
                 </div>
 
@@ -3124,29 +3171,37 @@ async function showTableReextractDialog(options) {
         const previewButton = document.getElementById('tableDialogPreview');
         const gridSection = document.getElementById('trdGridSection');
         const aiSection = document.getElementById('trdAiSection');
+        const roiSection = document.getElementById('trdRoiSection');
+        const clusterToleranceInput = document.getElementById('trdClusterTolerance');
+        const expandToCellsInput = document.getElementById('trdExpandToCells');
 
-        // フォーカスをヘッダ入力に設定
-        setTimeout(() => headerInput.focus(), 100);
-
+        // ROI がデフォルトなのでフォーカスは不要。Grid に切り替えたときのみフォーカス。
         // モード切替ハンドラ
         const modeRadios = container.querySelectorAll('input[name="trdMode"]');
         const updateMode = () => {
-            const isAI = container.querySelector('input[name="trdMode"]:checked')?.value === 'ai';
-            gridSection.style.display = isAI ? 'none' : '';
-            aiSection.style.display = isAI ? '' : 'none';
-            previewButton.style.display = isAI ? 'none' : '';
-            if (!isAI) {
+            const mode = container.querySelector('input[name="trdMode"]:checked')?.value || 'roi';
+            gridSection.style.display = mode === 'grid' ? '' : 'none';
+            aiSection.style.display = mode === 'ai' ? '' : 'none';
+            roiSection.style.display = mode === 'roi' ? '' : 'none';
+            const rowColSection = document.getElementById('trdRowColSection');
+            if (rowColSection) rowColSection.style.display = mode === 'roi' ? 'none' : '';
+            const guessRow = document.getElementById('trdGuessRow');
+            if (guessRow) guessRow.style.display = mode === 'roi' ? 'none' : '';
+            previewButton.style.display = mode === 'ai' ? 'none' : '';
+            if (mode === 'grid') {
                 setTimeout(() => headerInput.focus(), 50);
             }
         };
         modeRadios.forEach((r) => r.addEventListener('change', updateMode));
+        // 初期表示をROIモードに合わせる
+        updateMode();
 
         const cleanup = () => {
             document.body.removeChild(container);
         };
 
         const getSelectedMode = () =>
-            container.querySelector('input[name="trdMode"]:checked')?.value || 'grid';
+            container.querySelector('input[name="trdMode"]:checked')?.value || 'roi';
 
         const resolveValues = () => {
             const mode = getSelectedMode();
@@ -3155,6 +3210,12 @@ async function showTableReextractDialog(options) {
 
             if (mode === 'ai') {
                 return { mode: 'ai', rows, cols: colsRaw };
+            }
+
+            if (mode === 'roi') {
+                const clusterTolerance = parseFloat(clusterToleranceInput.value) || 4.0;
+                const expandToCells = expandToCellsInput ? expandToCellsInput.checked : true;
+                return { mode: 'roi', clusterTolerance, expandToCells };
             }
 
             const headerTextValue = headerInput.value.trim();
@@ -3188,23 +3249,41 @@ async function showTableReextractDialog(options) {
             }
             const values = resolveValues();
             try {
-                const response = await fetch(`/api/table_grid_suggest/${encodePdfNamePath(pdfName)}`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
+                let apiUrl;
+                let requestBody;
+
+                if (values.mode === 'roi') {
+                    // ROI モード: 罫線ベースグリッドのプレビュー
+                    apiUrl = `/api/table_roi_suggest/${encodePdfNamePath(pdfName)}`;
+                    requestBody = JSON.stringify({
+                        current_page: pageNumber,
+                        paragraph_ids: paragraphIds,
+                        cluster_tolerance: values.clusterTolerance || 4.0,
+                        expand_to_cells: values.expandToCells !== false,
+                    });
+                } else {
+                    // グリッドモード: 従来のグリッド推測
+                    apiUrl = `/api/table_grid_suggest/${encodePdfNamePath(pdfName)}`;
+                    requestBody = JSON.stringify({
                         current_page: pageNumber,
                         paragraph_ids: paragraphIds,
                         rows: values.rows,
                         cols: values.cols,
                         header_text: values.finalHeaderText,
-                    })
+                    });
+                }
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: requestBody,
                 });
 
                 const data = await response.json();
                 if (data.status !== 'ok') {
-                    alert(`表グリッド推測エラー: ${data.message || 'unknown'}`);
+                    alert(`グリッド推測エラー: ${data.message || 'unknown'}`);
                     return;
                 }
 
