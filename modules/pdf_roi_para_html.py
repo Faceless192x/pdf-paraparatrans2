@@ -47,10 +47,23 @@ BBox = tuple[float, float, float, float]
 
 @dataclass(frozen=True)
 class RoiGridOptions:
-    """Options for grid detection."""
+    """Options for grid detection.
+
+    Attributes:
+        cluster_tolerance: Tolerance for clustering cell border positions.
+        include_partial: When True, include cells that partially intersect the
+            ROI in addition to cells fully contained within it.
+        expand_to_cells: When True (default), expand the ROI outward to the
+            full bounding box of all selected cells before rebuilding the grid.
+            This ensures that cells whose borders slightly protrude outside the
+            user-drawn selection rectangle are captured correctly and that the
+            resulting bboxes align with the actual PDF cell edges rather than
+            the raw selection coordinates.
+    """
 
     cluster_tolerance: float = 4.0
     include_partial: bool = True
+    expand_to_cells: bool = True
 
 
 @dataclass(frozen=True)
@@ -311,6 +324,23 @@ def detect_roi_grid(
 
     line_cells = _find_line_cells(page)
     selected_cells = _select_cells(line_cells, normalized_roi, opts.include_partial)
+
+    # Optionally expand the ROI to fully enclose all selected cell bboxes.
+    # This compensates for small user-selection inaccuracies and ensures the
+    # grid boundaries align with the actual PDF ruled-line positions.
+    if opts.expand_to_cells and selected_cells:
+        cell_x0 = min(c.bbox[0] for c in selected_cells)
+        cell_y0 = min(c.bbox[1] for c in selected_cells)
+        cell_x1 = max(c.bbox[2] for c in selected_cells)
+        cell_y1 = max(c.bbox[3] for c in selected_cells)
+        rx0, ry0, rx1, ry1 = normalized_roi
+        normalized_roi = (
+            min(rx0, cell_x0),
+            min(ry0, cell_y0),
+            max(rx1, cell_x1),
+            max(ry1, cell_y1),
+        )
+
     xs, ys = _rebuild_grid(selected_cells, normalized_roi, opts.cluster_tolerance)
 
     return RoiGridResult(

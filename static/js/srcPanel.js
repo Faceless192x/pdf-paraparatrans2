@@ -1533,9 +1533,6 @@ async function reextractTableFromSelection() {
         return;
     }
 
-    const msg = `選択した${selectedIds.length}行を1テーブルとして再抽出します。よろしいですか？`;
-    if (!confirm(msg)) return;
-
     await reextractTableFromSelectedLines(selectedIds);
 }
 

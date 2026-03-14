@@ -625,6 +625,7 @@ class ParagraphService:
         page_number: int,
         paragraph_ids: list,
         cluster_tolerance: float = 4.0,
+        expand_to_cells: bool = True,
     ) -> dict:
         """ROI（罫線）モードでグリッドを推測してプレビュー情報を返す。
 
@@ -665,7 +666,7 @@ class ParagraphService:
             grid = detect_roi_grid(
                 page,
                 roi,
-                options=RoiGridOptions(cluster_tolerance=cluster_tolerance),
+                options=RoiGridOptions(cluster_tolerance=cluster_tolerance, expand_to_cells=expand_to_cells),
             )
 
         return {
@@ -688,6 +689,7 @@ class ParagraphService:
         page_number: int,
         paragraph_ids: list,
         cluster_tolerance: float = 4.0,
+        expand_to_cells: bool = True,
     ) -> tuple:
         """ROI（罫線）モードで選択領域から表行を再抽出して保存する。
 
@@ -732,7 +734,7 @@ class ParagraphService:
             result = roi_extract_paragraphs(
                 page,
                 roi,
-                options=RoiGridOptions(cluster_tolerance=cluster_tolerance),
+                options=RoiGridOptions(cluster_tolerance=cluster_tolerance, expand_to_cells=expand_to_cells),
             )
 
         if not result.rows:

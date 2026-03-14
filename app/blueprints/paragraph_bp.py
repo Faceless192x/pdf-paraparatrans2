@@ -484,6 +484,9 @@ def create_paragraph_blueprint(
         except Exception:
             cluster_tolerance = 4.0
 
+        _etc_val = data.get("expand_to_cells", True)
+        expand_to_cells = _etc_val if isinstance(_etc_val, bool) else str(_etc_val).lower() not in ("false", "0", "no")
+
         try:
             page_number = int(page_number)
         except Exception:
@@ -507,6 +510,7 @@ def create_paragraph_blueprint(
                 page_number=page_number,
                 paragraph_ids=paragraph_ids,
                 cluster_tolerance=cluster_tolerance,
+                expand_to_cells=expand_to_cells,
             )
 
             if not suggestion.get("ok"):
@@ -563,6 +567,9 @@ def create_paragraph_blueprint(
         except Exception:
             cluster_tolerance = 4.0
 
+        _etc_val = data.get("expand_to_cells", True)
+        expand_to_cells = _etc_val if isinstance(_etc_val, bool) else str(_etc_val).lower() not in ("false", "0", "no")
+
         try:
             page_number = int(page_number)
         except Exception:
@@ -586,6 +593,7 @@ def create_paragraph_blueprint(
                 page_number=page_number,
                 paragraph_ids=paragraph_ids,
                 cluster_tolerance=cluster_tolerance,
+                expand_to_cells=expand_to_cells,
             )
 
             if added <= 0:

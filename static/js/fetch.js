@@ -2026,6 +2026,7 @@ async function reextractTableFromSelectedLines(paragraphIds) {
                     current_page: currentPage,
                     paragraph_ids: ids,
                     cluster_tolerance: result.clusterTolerance || 4.0,
+                    expand_to_cells: result.expandToCells !== false,
                 })
             });
         } else {
@@ -3081,12 +3082,12 @@ async function showTableReextractDialog(options) {
                     <label style="display: block; margin-bottom: 6px; font-weight: bold;">抽出方式:</label>
                     <div class="trd-mode-selector">
                         <label>
-                            <input type="radio" name="trdMode" value="grid" checked />
-                            グリッド指定（従来）
+                            <input type="radio" name="trdMode" value="roi" checked />
+                            ROI（罫線）
                         </label>
                         <label>
-                            <input type="radio" name="trdMode" value="roi" />
-                            ROI（罫線）
+                            <input type="radio" name="trdMode" value="grid" />
+                            グリッド指定（従来）
                         </label>
                         <label>
                             <input type="radio" name="trdMode" value="ai" />
@@ -3138,6 +3139,13 @@ async function showTableReextractDialog(options) {
                         <input type="number" id="trdClusterTolerance" value="4.0" min="0.5" max="20" step="0.5" style="width: 100px;" />
                         <small class="trd-hint">罫線位置のクラスタリング許容誤差（デフォルト: 4.0）</small>
                     </div>
+                    <div style="margin-top: 10px;">
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                            <input type="checkbox" id="trdExpandToCells" checked />
+                            <span>セル外縁まで領域を拡張する</span>
+                        </label>
+                        <small class="trd-hint" style="margin-left: 22px;">ON（推奨）: 指定領域を、含まれるセルの外縁まで自動的に広げます</small>
+                    </div>
                 </div>
 
                 <div class="trd-actions">
@@ -3165,14 +3173,13 @@ async function showTableReextractDialog(options) {
         const aiSection = document.getElementById('trdAiSection');
         const roiSection = document.getElementById('trdRoiSection');
         const clusterToleranceInput = document.getElementById('trdClusterTolerance');
+        const expandToCellsInput = document.getElementById('trdExpandToCells');
 
-        // フォーカスをヘッダ入力に設定
-        setTimeout(() => headerInput.focus(), 100);
-
+        // ROI がデフォルトなのでフォーカスは不要。Grid に切り替えたときのみフォーカス。
         // モード切替ハンドラ
         const modeRadios = container.querySelectorAll('input[name="trdMode"]');
         const updateMode = () => {
-            const mode = container.querySelector('input[name="trdMode"]:checked')?.value || 'grid';
+            const mode = container.querySelector('input[name="trdMode"]:checked')?.value || 'roi';
             gridSection.style.display = mode === 'grid' ? '' : 'none';
             aiSection.style.display = mode === 'ai' ? '' : 'none';
             roiSection.style.display = mode === 'roi' ? '' : 'none';
@@ -3186,13 +3193,15 @@ async function showTableReextractDialog(options) {
             }
         };
         modeRadios.forEach((r) => r.addEventListener('change', updateMode));
+        // 初期表示をROIモードに合わせる
+        updateMode();
 
         const cleanup = () => {
             document.body.removeChild(container);
         };
 
         const getSelectedMode = () =>
-            container.querySelector('input[name="trdMode"]:checked')?.value || 'grid';
+            container.querySelector('input[name="trdMode"]:checked')?.value || 'roi';
 
         const resolveValues = () => {
             const mode = getSelectedMode();
@@ -3205,7 +3214,8 @@ async function showTableReextractDialog(options) {
 
             if (mode === 'roi') {
                 const clusterTolerance = parseFloat(clusterToleranceInput.value) || 4.0;
-                return { mode: 'roi', clusterTolerance };
+                const expandToCells = expandToCellsInput ? expandToCellsInput.checked : true;
+                return { mode: 'roi', clusterTolerance, expandToCells };
             }
 
             const headerTextValue = headerInput.value.trim();
@@ -3249,6 +3259,7 @@ async function showTableReextractDialog(options) {
                         current_page: pageNumber,
                         paragraph_ids: paragraphIds,
                         cluster_tolerance: values.clusterTolerance || 4.0,
+                        expand_to_cells: values.expandToCells !== false,
                     });
                 } else {
                     // グリッドモード: 従来のグリッド推測
