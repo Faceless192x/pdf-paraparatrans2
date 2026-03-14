@@ -762,3 +762,228 @@ def append_markdown_table_rows_by_specs(
         )
 
     return added_count
+
+
+# ---------------------------------------------------------------------------
+# AI 表再抽出ユーティリティ
+# ---------------------------------------------------------------------------
+
+def _distribute_row_bboxes(
+    clip_rect: fitz.Rect,
+    n_rows: int,
+    source_bboxes: Optional[List[List[float]]] = None,
+    row_fracs: Optional[List[float]] = None,
+    sel_rect: Optional[fitz.Rect] = None,
+) -> List[List[float]]:
+    """N 行分の bbox を計算して返す。
+
+    優先順位:
+
+    1. *source_bboxes* の長さが *n_rows* と一致する場合 → そのまま使用
+       （PyMuPDF が検出した実際の座標なので最も正確）。
+    2. *row_fracs* の長さが *n_rows* と一致する場合 → 比率で分割
+       （AI が ``data-height`` で返した推定割合）。
+    3. いずれも使えない場合 → 分割対象矩形の高さを *n_rows* で等分。
+
+    分割に使う矩形は *sel_rect*（指定時）、なければ *clip_rect* を使用する。
+    *clip_rect* はレンダリング用に周囲にマージンを加えた矩形なので、
+    実際の表領域を表す *sel_rect* を渡すと bbox のずれを防げる。
+
+    Args:
+        clip_rect: 周囲にマージンを含む全体領域矩形（PNG レンダリング用）。
+            *sel_rect* が指定されない場合、こちらを分割基準として使用する。
+        n_rows: 生成する行数。
+        source_bboxes: 元の段落の bbox リスト（``[x0, y0, x1, y1]`` の並び、
+            y0 でソート済みを期待）。行数が一致するときのみ使用される。
+        row_fracs: 各行の高さ比率のリスト（合計 1.0 を期待、``n_rows`` と
+            同じ長さのとき使用）。AI の ``data-height`` 属性から生成される。
+        sel_rect: 実際に選択された表領域の矩形（マージンなし）。指定した場合、
+            *row_fracs* および等分割の基準矩形としてこちらを優先する。
+
+    Returns:
+        *n_rows* 個の ``[x0, y0, x1, y1]`` リスト。
+    """
+    if n_rows <= 0:
+        return []
+
+    # 1. source_bboxes が行数と一致する場合はそのまま使用。
+    #    ただし、すべての y0 が同一（前回の不正な抽出等で bbox が縮退している）
+    #    場合は位置情報として無意味なので、後続の方法にフォールスルーする。
+    #    丸め精度 2 桁 (0.01 pt) は表の行が重なる典型的な誤差より十分大きい。
+    if source_bboxes and len(source_bboxes) == n_rows:
+        y0_set = {round(bb[1], 2) for bb in source_bboxes}
+        if len(y0_set) > 1:
+            print(
+                f"[_distribute_row_bboxes] path=source_bboxes n_rows={n_rows}"
+                f" y0={source_bboxes[0][1]:.2f} y1={source_bboxes[-1][3]:.2f}"
+            )
+            return [list(bb) for bb in source_bboxes]
+
+    # row_fracs および等分割には sel_rect（マージンなし実選択範囲）を優先使用。
+    # sel_rect がない場合は clip_rect にフォールバックする。
+    dist_rect = sel_rect if sel_rect is not None else clip_rect
+    x0 = float(dist_rect.x0)
+    y0 = float(dist_rect.y0)
+    x1 = float(dist_rect.x1)
+    y1 = float(dist_rect.y1)
+    total_h = y1 - y0
+
+    # 2. row_fracs による比率分割
+    if row_fracs and len(row_fracs) == n_rows:
+        result: List[List[float]] = []
+        y_cursor = y0
+        for frac in row_fracs:
+            row_h = total_h * max(0.0, float(frac))
+            result.append([x0, y_cursor, x1, y_cursor + row_h])
+            y_cursor += row_h
+        first_y0 = result[0][1] if result else float("nan")
+        last_y1 = result[-1][3] if result else float("nan")
+        print(
+            f"[_distribute_row_bboxes] path=row_fracs n_rows={n_rows}"
+            f" dist_rect=(y0={y0:.2f}, y1={y1:.2f}, h={total_h:.2f} pt)"
+            f" result_first_y0={first_y0:.2f} result_last_y1={last_y1:.2f}"
+        )
+        return result
+
+    # 3. dist_rect の y 範囲を n_rows 等分してストリップを生成
+    strip_h = total_h / n_rows
+    result = []
+    for i in range(n_rows):
+        y_top = y0 + i * strip_h
+        y_bottom = y_top + strip_h
+        result.append([x0, y_top, x1, y_bottom])
+    first_y0 = result[0][1] if result else float("nan")
+    last_y1 = result[-1][3] if result else float("nan")
+    print(
+        f"[_distribute_row_bboxes] path=equal_split n_rows={n_rows}"
+        f" dist_rect=(y0={y0:.2f}, y1={y1:.2f}, h={total_h:.2f} pt)"
+        f" strip_h={strip_h:.2f}"
+        f" result_first_y0={first_y0:.2f} result_last_y1={last_y1:.2f}"
+    )
+    return result
+
+
+def render_region_to_png(page: fitz.Page, rect: fitz.Rect, scale: float = 2.0) -> bytes:
+    """PDF ページの指定領域を PNG バイト列としてレンダリングする。
+
+    Args:
+        page: PyMuPDF のページオブジェクト。
+        rect: レンダリングする領域の矩形。
+        scale: レンダリング倍率（デフォルト 2.0 = 144 DPI 相当）。
+
+    Returns:
+        PNG フォーマットのバイト列。
+    """
+    matrix = fitz.Matrix(float(scale), float(scale))
+    pix = page.get_pixmap(matrix=matrix, clip=rect, alpha=False)
+    return pix.tobytes("png")
+
+
+def append_table_rows_from_pipe_texts(
+    page_paragraphs: Dict[str, Dict[str, Any]],
+    page_number: int,
+    table_id: str,
+    clip_rect: fitz.Rect,
+    pipe_rows: List[Tuple[str, str]],
+    source_bboxes: Optional[List[List[float]]] = None,
+    row_fracs: Optional[List[float]] = None,
+    sel_rect: Optional[fitz.Rect] = None,
+) -> int:
+    """縦パイプ形式の行テキストから段落を生成してページに追加する。
+
+    AI が HTML テーブルとして返したデータを ``html_to_pipe_rows_with_dims()`` で
+    変換した結果を受け取り、既存の
+    ``append_markdown_table_rows_from_selection()`` と同じ段落フォーマット
+    で *page_paragraphs* に追加する。
+
+    各段落の bbox は ``_distribute_row_bboxes()`` によって行ごとに個別に割り当て
+    られる。優先順位:
+
+    1. *source_bboxes* が行数と一致 → PDF 実座標をそのまま使用（最高精度）。
+    2. *row_fracs* が行数と一致 → AI が ``data-height`` で返した割合で分割。
+    3. 等分割（フォールバック）。
+
+    Args:
+        page_paragraphs: ページの段落辞書（更新される）。
+        page_number: ページ番号。
+        table_id: テーブルID（段落 ID の生成に使用）。
+        clip_rect: PNG レンダリングに使用した矩形（周囲にマージンを含む）。
+            *sel_rect* が省略された場合、bbox 分割の基準としても使用される。
+        pipe_rows: ``html_to_pipe_rows_with_dims()`` が返す
+            ``[(block_tag, pipe_text), ...]`` リスト。
+            *pipe_text* は ``"Cell A | Cell B | Cell C"`` 形式。
+        source_bboxes: 選択段落の bbox リスト（``[x0, y0, x1, y1]`` の並び、
+            y0 でソート済み）。省略可。行数が一致するとき各行の bbox として使用。
+        row_fracs: AI の ``data-height`` から算出した各行の高さ比率リスト
+            （合計 1.0）。省略可。行数が一致するとき使用。
+        sel_rect: 実際に選択された表領域の矩形（マージンなし）。指定した場合、
+            bbox 分割の基準矩形（y0/y1 の範囲）として *clip_rect* より優先する。
+            フォールバック bbox にも使用される。
+
+    Returns:
+        追加した行数。
+    """
+    current_max_order = 0
+    for p in page_paragraphs.values():
+        current_max_order = max(current_max_order, _safe_int(p.get("order"), 0))
+
+    # 空行を除いた有効な行リストを先に作成し、bbox を行数に応じて分配する。
+    # pipe_rows は html_to_pipe_rows_with_dims() で事前フィルタ済みのため
+    # 空テキストは通常含まれないが、念のためフィルタする。
+    valid_rows = [
+        (bt, str(pt or "").strip())
+        for bt, pt in pipe_rows
+        if str(pt or "").strip()
+    ]
+    row_bboxes = _distribute_row_bboxes(clip_rect, len(valid_rows), source_bboxes, row_fracs, sel_rect)
+
+    # フォールバック bbox は sel_rect（あれば）、なければ clip_rect を使用する。
+    fallback_rect = sel_rect if sel_rect is not None else clip_rect
+
+    added_count = 0
+    for row_index, (block_tag, pipe_text) in enumerate(valid_rows, start=1):
+        # html_to_pipe_rows は "Cell A | Cell B | Cell C" 形式で返す。
+        # 既存の _to_markdown_row と同じ "| Cell A | Cell B | Cell C |" 形式へ正規化する。
+        md_row = "| " + pipe_text + " |"
+
+        current_max_order += 1
+        para_id = f"tbl_{table_id}_r{row_index}"
+        unique_key = para_id
+        suffix = 2
+        while unique_key in page_paragraphs:
+            unique_key = f"{para_id}_{suffix}"
+            suffix += 1
+
+        bbox = row_bboxes[row_index - 1] if row_index - 1 < len(row_bboxes) else [
+            float(fallback_rect.x0), float(fallback_rect.y0),
+            float(fallback_rect.x1), float(fallback_rect.y1),
+        ]
+
+        paragraph = {
+            "id": unique_key,
+            "src_text": md_row,
+            "src_html": escape(md_row),
+            "src_joined": md_row,
+            "src_replaced": md_row,
+            "trans_auto": md_row,
+            "trans_text": md_row,
+            "comment": "",
+            "trans_status": "none",
+            "block_tag": block_tag,
+            "modified_at": "",
+            "base_style": "",
+            "bbox": bbox,
+            "column_order": 999,
+            "page_number": page_number,
+            "order": current_max_order,
+            "table_meta": {
+                "table_id": table_id,
+                "row": row_index,
+                "source": "ai_reextract",
+                "markdown_row": True,
+            },
+        }
+        page_paragraphs[unique_key] = paragraph
+        added_count += 1
+
+    return added_count
